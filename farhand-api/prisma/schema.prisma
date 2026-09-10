@@ -1,0 +1,453 @@
+// Need / Help platform — data model sketch
+// V1 = core product. V2 = trust & files (can be added in a later migration).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED // temporary, see suspendedUntil
+  BANNED
+  DELETED // anonymized, kept for deal history (GDPR)
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum NeedStatus {
+  DRAFT
+  OPEN
+  MATCHED
+  CLOSED
+  EXPIRED
+  REMOVED // removed by moderator
+}
+
+enum HelpStatus {
+  ACTIVE
+  PAUSED
+  REMOVED
+}
+
+enum Initiator {
+  REQUESTER // requester found a Help offer and asked the helper
+  HELPER // helper saw a Need and offered to help
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+}
+
+enum DealStatus {
+  MATCHED
+  QUOTE_AGREED
+  PRODUCT_PAID
+  PURCHASED
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum AdminActionType {
+  WARN
+  SUSPEND
+  BAN
+  REACTIVATE
+  REMOVE_CONTENT
+}
+
+enum ReportTarget {
+  USER
+  NEED
+  HELP
+  MESSAGE
+}
+
+enum ReportReason {
+  PROHIBITED_ITEM
+  SCAM
+  HARASSMENT
+  SEXUAL_CONTENT
+  SPAM
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum FilePurpose {
+  AVATAR
+  NEED_PHOTO
+  PRODUCT_RECEIPT
+  SHIPPING_RECEIPT
+}
+
+// ─────────────────────────────────────────────
+// V1 — Accounts
+// ─────────────────────────────────────────────
+
+// Private account data: never sent to other users.
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  passwordHash    String
+  emailVerifiedAt DateTime?
+  role            Role          @default(USER)
+  status          AccountStatus @default(ACTIVE)
+  suspendedUntil  DateTime?
+  lastLoginAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  profile           Profile?
+  sessions          Session[]
+  tokens            VerificationToken[]
+  needs             Need[]
+  helps             Help[]
+  proposalsAsHelper Proposal[]          @relation("ProposalHelper")
+  dealsAsRequester  Deal[]              @relation("DealRequester")
+  dealsAsHelper     Deal[]              @relation("DealHelper")
+  messages          Message[]
+  dealEvents        DealEvent[]
+  actionsTaken      AdminAction[]       @relation("ActionAdmin")
+  actionsReceived   AdminAction[]       @relation("ActionTarget")
+  reviewsWritten    Review[]            @relation("ReviewAuthor")
+  reviewsReceived   Review[]            @relation("ReviewTarget")
+  reportsFiled      Report[]            @relation("ReportReporter")
+  reportsResolved   Report[]            @relation("ReportResolver")
+  files             File[]
+}
+
+// Public data: what other users see.
+model Profile {
+  userId      String  @id
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String  @db.VarChar(50)
+  bio         String? @db.VarChar(500)
+  countryCode String  @db.Char(2) // ISO 3166-1 alpha-2, where the user lives
+  city        String? @db.VarChar(80)
+  avatarUrl   String?
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // store a hash, never the raw cookie value
+  expiresAt DateTime
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, type])
+}
+
+// ─────────────────────────────────────────────
+// V1 — Listings
+// ─────────────────────────────────────────────
+
+model Category {
+  id    String @id @default(cuid())
+  slug  String @unique // e.g. "cosmetics", "electronics"
+  name  String
+  needs Need[]
+  helps Help[] // implicit many-to-many
+}
+
+model Need {
+  id             String     @id @default(cuid())
+  requesterId    String
+  requester      User       @relation(fields: [requesterId], references: [id])
+  categoryId     String
+  category       Category   @relation(fields: [categoryId], references: [id])
+  title          String     @db.VarChar(120)
+  description    String     @db.VarChar(2000)
+  productUrl     String?
+  storeName      String?    @db.VarChar(100)
+  buyCountry     String     @db.Char(2) // where the product must be bought
+  deliverCountry String     @db.Char(2) // where it must be shipped
+  currency       String     @db.Char(3) // ISO 4217, e.g. "EUR"
+  estimatedPrice Int // in cents
+  thankYouAmount Int        @default(0) // optional fee for effort, in cents
+  status         NeedStatus @default(OPEN)
+  expiresAt      DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  proposals Proposal[]
+  deals     Deal[]
+  files     File[]
+
+  @@index([status, buyCountry, deliverCountry]) // the main browse query
+  @@index([requesterId])
+}
+
+model Help {
+  id          String     @id @default(cuid())
+  helperId    String
+  helper      User       @relation(fields: [helperId], references: [id])
+  country     String     @db.Char(2) // where the helper lives and can buy
+  shipsTo     String[] // ISO codes; empty array = ships anywhere
+  description String     @db.VarChar(1000)
+  status      HelpStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  categories Category[]
+  proposals  Proposal[]
+
+  @@index([status, country])
+  @@index([shipsTo], type: Gin) // fast "ships to EE" filtering on the array
+  @@index([helperId])
+}
+
+// ─────────────────────────────────────────────
+// V1 — Matching & messaging
+// ─────────────────────────────────────────────
+
+// The handshake. Every deal is about a Need; a Proposal connects
+// that Need with one helper, whichever side started the contact.
+model Proposal {
+  id          String         @id @default(cuid())
+  needId      String
+  need        Need           @relation(fields: [needId], references: [id])
+  helperId    String
+  helper      User           @relation("ProposalHelper", fields: [helperId], references: [id])
+  helpId      String? // set when the requester started from a Help offer
+  help        Help?          @relation(fields: [helpId], references: [id])
+  initiatedBy Initiator
+  message     String?        @db.VarChar(1000)
+  status      ProposalStatus @default(PENDING)
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  conversation Conversation?
+  deal         Deal?
+
+  @@unique([needId, helperId]) // one proposal per helper per need
+  @@index([helperId, status])
+}
+
+// One conversation per proposal, so users can ask questions before agreeing.
+// Unread = messages created after the viewer's lastReadAt (no per-message flags).
+model Conversation {
+  id                  String    @id @default(cuid())
+  proposalId          String    @unique
+  proposal            Proposal  @relation(fields: [proposalId], references: [id])
+  lastMessageAt       DateTime? // for sorting the inbox
+  requesterLastReadAt DateTime?
+  helperLastReadAt    DateTime?
+  createdAt           DateTime  @default(now())
+
+  messages Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  senderId       String? // null = system message ("Deal marked as shipped")
+  sender         User?        @relation(fields: [senderId], references: [id])
+  body           String       @db.VarChar(4000)
+  removedAt      DateTime? // hidden by a moderator, kept for evidence
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// V1 — Deals
+// ─────────────────────────────────────────────
+
+model Deal {
+  id               String     @id @default(cuid())
+  proposalId       String     @unique
+  proposal         Proposal   @relation(fields: [proposalId], references: [id])
+  // Denormalized on purpose: derivable via proposal, but stored here
+  // so "my deals" queries are simple and fast.
+  needId           String
+  need             Need       @relation(fields: [needId], references: [id])
+  requesterId      String
+  requester        User       @relation("DealRequester", fields: [requesterId], references: [id])
+  helperId         String
+  helper           User       @relation("DealHelper", fields: [helperId], references: [id])
+  status           DealStatus @default(MATCHED)
+  currency         String     @db.Char(3)
+  productAmount    Int? // cents, null until quote agreed
+  shippingEstimate Int? // cents, null until quote agreed
+  shippingActual   Int? // cents, from the postage receipt
+  thankYouAmount   Int        @default(0) // cents, optional
+  trackingNumber   String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  events  DealEvent[]
+  reviews Review[]
+  files   File[]
+
+  @@index([requesterId, status])
+  @@index([helperId, status])
+  @@index([needId])
+}
+
+// Append-only history: every status change, who did it, when.
+model DealEvent {
+  id         String      @id @default(cuid())
+  dealId     String
+  deal       Deal        @relation(fields: [dealId], references: [id])
+  actorId    String? // null = system (e.g. auto-cancel after timeout)
+  actor      User?       @relation(fields: [actorId], references: [id])
+  fromStatus DealStatus?
+  toStatus   DealStatus
+  note       String?     @db.VarChar(500)
+  createdAt  DateTime    @default(now())
+
+  @@index([dealId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// V1 — Admin
+// ─────────────────────────────────────────────
+
+// Audit log of moderator/admin decisions about a user.
+model AdminAction {
+  id           String          @id @default(cuid())
+  adminId      String
+  admin        User            @relation("ActionAdmin", fields: [adminId], references: [id])
+  targetUserId String
+  targetUser   User            @relation("ActionTarget", fields: [targetUserId], references: [id])
+  type         AdminActionType
+  reason       String          @db.VarChar(1000)
+  reportId     String? // V2: link to the report that triggered it
+  report       Report?         @relation(fields: [reportId], references: [id])
+  expiresAt    DateTime? // for temporary suspensions
+  createdAt    DateTime        @default(now())
+
+  @@index([targetUserId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// V2 — Trust & safety, files
+// ─────────────────────────────────────────────
+
+// Only allowed after a COMPLETED deal; one review per side per deal.
+model Review {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id])
+  authorId  String
+  author    User     @relation("ReviewAuthor", fields: [authorId], references: [id])
+  targetId  String
+  target    User     @relation("ReviewTarget", fields: [targetId], references: [id])
+  rating    Int // 1–5, enforced by CHECK constraint (see SQL below)
+  comment   String?  @db.VarChar(1000)
+  createdAt DateTime @default(now())
+
+  @@unique([dealId, authorId])
+  @@index([targetId])
+}
+
+// Polymorphic target (targetType + targetId) — flexible, but the database
+// can't enforce that targetId exists. Validate it in application code.
+model Report {
+  id             String       @id @default(cuid())
+  reporterId     String
+  reporter       User         @relation("ReportReporter", fields: [reporterId], references: [id])
+  targetType     ReportTarget
+  targetId       String
+  reason         ReportReason
+  details        String?      @db.VarChar(2000)
+  status         ReportStatus @default(OPEN)
+  resolvedById   String?
+  resolvedBy     User?        @relation("ReportResolver", fields: [resolvedById], references: [id])
+  resolutionNote String?      @db.VarChar(1000)
+  resolvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  adminActions AdminAction[]
+
+  @@index([status, createdAt]) // admin queue
+  @@index([targetType, targetId])
+}
+
+// Metadata only — the file itself lives in object storage (S3 / GCS).
+// Receipts are private: only the two deal participants and admins may read them.
+model File {
+  id         String      @id @default(cuid())
+  ownerId    String
+  owner      User        @relation(fields: [ownerId], references: [id])
+  purpose    FilePurpose
+  storageKey String      @unique
+  mimeType   String
+  sizeBytes  Int
+  needId     String?
+  need       Need?       @relation(fields: [needId], references: [id])
+  dealId     String?
+  deal       Deal?       @relation(fields: [dealId], references: [id])
+  createdAt  DateTime    @default(now())
+
+  @@index([dealId])
+  @@index([needId])
+}
+
+// ─────────────────────────────────────────────
+// Raw SQL — things Prisma can't express.
+// Add these to a migration by hand (prisma migrate dev --create-only).
+// ─────────────────────────────────────────────
+//
+// -- Only one non-cancelled deal per need (partial unique index):
+// CREATE UNIQUE INDEX "one_active_deal_per_need"
+//   ON "Deal" ("needId") WHERE "status" <> 'CANCELLED';
+//
+// -- Ratings must be 1–5:
+// ALTER TABLE "Review" ADD CONSTRAINT "rating_range"
+//   CHECK ("rating" BETWEEN 1 AND 5);
+//
+// -- Money can never be negative:
+// ALTER TABLE "Need" ADD CONSTRAINT "need_amounts_non_negative"
+//   CHECK ("estimatedPrice" >= 0 AND "thankYouAmount" >= 0);
+// ALTER TABLE "Deal" ADD CONSTRAINT "deal_amounts_non_negative"
+//   CHECK (COALESCE("productAmount", 0) >= 0
+//      AND COALESCE("shippingEstimate", 0) >= 0
+//      AND COALESCE("shippingActual", 0) >= 0
+//      AND "thankYouAmount" >= 0);
