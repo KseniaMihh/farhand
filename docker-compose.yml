@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: farhand-db
+    environment:
+      POSTGRES_USER: farhand
+      POSTGRES_PASSWORD: farhand
+      POSTGRES_DB: farhand
+    ports:
+      - "5432:5432"
+    volumes:
+      - farhand-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farhand -d farhand"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  farhand-db-data:
