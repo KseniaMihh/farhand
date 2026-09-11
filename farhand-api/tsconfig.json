@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    // Target the Node version we actually run (24). No downlevelling needed.
+    "target": "ES2023",
+    "lib": ["ES2023"],
+
+    // ESM, resolved the way Node resolves it. This is why relative imports
+    // below are written with a ".js" extension even though the files are ".ts":
+    // the extension refers to the *compiled* output, which is what Node loads.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    "rootDir": "src",
+    "outDir": "dist",
+
+    // Catch mistakes early. noUncheckedIndexedAccess is the one people turn off
+    // and later regret: it forces you to handle "this array index might be empty".
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+
+    "sourceMap": true,
+    "declaration": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

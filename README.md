@@ -172,6 +172,31 @@ npx prisma studio
 The default credentials in `.env.example` match `docker-compose.yml`, so a fresh clone works without edits.
 They are local-development-only and must never be reused anywhere real.
 
+## Running the API
+
+With the database up, from `farhand-api`:
+
+```powershell
+npm run dev        # tsx watch - restarts on every save
+```
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Liveness. Is the process responding? Checks nothing else, because restarting the API won't fix a database that is down. |
+| `GET /health/ready` | Readiness. Round-trips the database and returns 503 if it's unreachable, so a load balancer can route around a broken instance. |
+
+Every error response uses the same shape, so the frontend can write one handler
+rather than guessing per endpoint:
+
+```json
+{ "error": { "code": "NOT_FOUND", "message": "Need not found" } }
+```
+
+`code` is for code to branch on; `message` is for a human. Validation failures
+add a `details` array naming the fields that failed. Unexpected errors return
+`INTERNAL` and the real message is logged, never sent — internal errors have a
+habit of containing table names and connection strings.
+
 ## Everyday commands
 
 | What | Command | Where |
@@ -198,10 +223,20 @@ farhand/
 │   ├── .env                    local only, gitignored
 │   ├── .env.example
 │   ├── package.json
+│   ├── tsconfig.json
 │   ├── prisma.config.ts        Prisma 7 config; holds the datasource URL
-│   └── prisma/
-│       ├── schema.prisma       the data model, commented
-│       └── migrations/         applied migrations - never edited
+│   ├── prisma/
+│   │   ├── schema.prisma       the data model, commented
+│   │   └── migrations/         applied migrations - never edited
+│   └── src/
+│       ├── server.ts           entry point: starts and stops the process
+│       ├── app.ts              builds the Express app (binds no port)
+│       ├── env.ts              environment variables, validated with Zod
+│       ├── db.ts               the shared Prisma client
+│       ├── logger.ts           pino
+│       ├── errors.ts           HttpError and the error response shape
+│       ├── middleware/
+│       └── routes/
 └── farhand-web/                planned: Next.js frontend
 ```
 
@@ -213,8 +248,8 @@ farhand/
 - [x] PostgreSQL 18 in Docker Compose
 - [x] Initial migration
 - [x] Hand-written constraints: one active deal per need, rating range, non-negative money
-- [ ] API skeleton: Express 5, error handling, request logging, `GET /health`
-- [ ] Prisma client wiring, plus a seed script for categories
+- [x] API skeleton: Express 5, validated env, structured logging, error contract, health checks
+- [ ] Seed script for categories
 - [ ] Auth: registration, password hashing, session cookies, logout, `GET /me`, route protection
 - [ ] Tests (Vitest + Supertest against a test database) and CI on every push
 - [ ] Needs and helps: CRUD, filtering by country and category, cursor pagination
