@@ -1,0 +1,58 @@
+# Scope
+
+The purpose of this file is to make it obvious when something is out of scope,
+so that new ideas become entries in a list instead of unplanned work.
+
+## Version 1 — the learning core
+
+Accounts: registration, email confirmation, login and logout, sessions, password
+reset, public profiles, account deletion.
+
+Listings: needs and helps with create, edit, delete; browsing with country and
+category filters; cursor pagination.
+
+Matching: proposals in both directions, accept, decline, withdraw; conversations
+and messages with unread counts.
+
+Deals: quotes, the full status lifecycle, the event log.
+
+Moderation: reports, moderator queue, warn, suspend, ban, content hiding, audit
+log.
+
+Engineering: strict TypeScript, request validation, layered structure, automated
+tests, CI, Docker, one cloud deployment, structured logging and error tracking.
+
+**Version 1 is finished when** a full journey from registration to a completed
+deal works against the deployed API, with tests passing in CI.
+
+## Version 2 — trust and polish
+
+File uploads for product photos and receipts; reviews and ratings; email
+notifications through a background job queue; the prohibited-items
+acknowledgement flow; saved searches; a data export endpoint; the Next.js
+frontend as a separate project.
+
+## Version 3 — if it ever becomes real
+
+Payments held until delivery, using a provider such as Stripe Connect; identity
+verification; real-time messaging; multi-language interface; mobile apps.
+
+## Not doing, deliberately
+
+| Idea | Why not |
+|---|---|
+| Farhand handling money in V1 | Financial licensing, anti-money-laundering obligations, and it is not needed to learn the backend |
+| Automatic currency conversion | Rates go stale; the two people agree an amount |
+| Ratings before a deal completes | Invites fake reviews |
+| Public real names | No benefit, real privacy cost |
+| Chat with typing indicators and presence | Large effort, no learning value here |
+| Microservices | One well-built service teaches more |
+| GraphQL | REST is what junior job postings ask for |
+| Mobile apps | The web works everywhere |
+| Recommendation algorithms | There is no data to recommend from |
+
+## How to add something
+
+Anything not listed above goes into version 2 by default. Promoting it into
+version 1 requires writing down what it replaces, because the scope of version 1
+does not grow.
