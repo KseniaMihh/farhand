@@ -19,7 +19,38 @@ REST over JSON. Cookie-based sessions. All money in integer cents.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/health` | — | Process alive and database reachable |
+| GET | `/health` | — | Liveness: the process is up. Checks nothing else |
+| GET | `/health/ready` | — | Readiness: the database answers a round-trip query |
+
+Two endpoints because they drive different decisions. A platform restarts a
+process whose liveness check fails, and restarting will not fix a database that
+is down, so liveness must not depend on it. Readiness failing only means "send
+traffic elsewhere for now".
+
+`GET /health` always returns `200`:
+
+```json
+{ "status": "ok", "uptime": 1234 }
+```
+
+`uptime` is whole seconds since the process started.
+
+`GET /health/ready` returns `200` when the database answers:
+
+```json
+{ "status": "ok", "database": { "status": "ok", "latencyMs": 3 } }
+```
+
+and `503` when it does not:
+
+```json
+{ "status": "degraded", "database": { "status": "unreachable" } }
+```
+
+Outside production the `503` body also carries `database.message`, the driver's
+error text. In production that text is logged but never returned, because it can
+contain the host and user name. These bodies are not the shared error shape: a
+failing dependency is a normal answer from this endpoint, not an error.
 
 ## Authentication
 
