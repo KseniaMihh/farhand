@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pingDatabase } from "../db.js";
+import { isProduction } from "../env.js";
 
 export const healthRouter: Router = Router();
 
@@ -21,7 +22,7 @@ healthRouter.get("/health", (_req, res) => {
  * to an instance that has lost its connection. Returns 503 rather than 500:
  * "not ready right now", not "this request was broken".
  */
-healthRouter.get("/health/ready", async (_req, res) => {
+healthRouter.get("/health/ready", async (req, res) => {
   const startedAt = performance.now();
 
   try {
@@ -36,11 +37,23 @@ healthRouter.get("/health/ready", async (_req, res) => {
   } catch (error) {
     // Handled here rather than thrown, because a failing dependency check is a
     // normal, expected answer from this endpoint — not an unhandled error.
+    req.log.warn(
+      { err: error },
+      "Readiness check failed: database unreachable",
+    );
+
+    // The driver's message can name the host, port and database user, and this
+    // endpoint needs no auth. So the reason is logged for us, and only shown in
+    // the response outside production, the same rule as the error handler.
     res.status(503).json({
       status: "degraded",
       database: {
         status: "unreachable",
-        message: error instanceof Error ? error.message : "Unknown error",
+        ...(isProduction
+          ? {}
+          : {
+              message: error instanceof Error ? error.message : String(error),
+            }),
       },
     });
   }
