@@ -28,7 +28,10 @@ healthRouter.get("/health/ready", async (_req, res) => {
     await pingDatabase();
     res.json({
       status: "ok",
-      database: { status: "ok", latencyMs: Math.round(performance.now() - startedAt) },
+      database: {
+        status: "ok",
+        latencyMs: Math.round(performance.now() - startedAt),
+      },
     });
   } catch (error) {
     // Handled here rather than thrown, because a failing dependency check is a

@@ -1,0 +1,4 @@
+# Store and check out text files with LF line endings, on every OS.
+# Without this, Git on Windows (core.autocrlf=true) converts files to CRLF on
+# checkout, and Prettier — which expects LF — reports every file as misformatted.
+* text=auto eol=lf
