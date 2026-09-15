@@ -160,8 +160,9 @@ cd farhand-api
 npm install
 npx prisma migrate dev
 npx prisma generate
+npm run seed               # the fixed category list; safe to re-run
 
-# 4. Browse the (empty) tables
+# 4. Browse the tables
 npx prisma studio
 ```
 
@@ -209,11 +210,13 @@ habit of containing table names and connection strings.
 | Create a migration without applying it | `npx prisma migrate dev --create-only --name <name>` | `farhand-api` |
 | Regenerate the Prisma client | `npx prisma generate` | `farhand-api` |
 | Browse data | `npx prisma studio` | `farhand-api` |
+| Seed categories (adds new ones, renames changed ones, never deletes) | `npm run seed` | `farhand-api` |
 | Typecheck | `npm run typecheck` | `farhand-api` |
 | Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |
 | Format (or only check) | `npm run format` / `npm run format:check` | `farhand-api` |
 
-After `docker compose down -v` the database is empty, and `npx prisma migrate dev` has to run again.
+After `docker compose down -v` the database is empty, and `npx prisma migrate dev` and `npm run seed` have to
+run again.
 
 **Why `package.json` lists TypeScript twice.** typescript-eslint needs TypeScript's JavaScript API, which
 TypeScript 7 no longer ships. So `typescript` is aliased to TypeScript 6 (used only by the linter), and
@@ -260,7 +263,7 @@ farhand/
 - [x] Initial migration
 - [x] Hand-written constraints: one active deal per need, rating range, non-negative money
 - [x] API skeleton: Express 5, validated env, structured logging, error contract, health checks
-- [ ] Seed script for categories
+- [x] Seed script for categories
 - [ ] Auth: registration, password hashing, session cookies, logout, `GET /me`, route protection
 - [ ] Tests (Vitest + Supertest against a test database) and CI on every push
 - [ ] Needs and helps: CRUD, filtering by country and category, cursor pagination

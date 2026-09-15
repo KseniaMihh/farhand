@@ -22,7 +22,29 @@ stored hashed, also expiring, also single-use.
 ## Listings
 
 **`Category`** — a fixed list, seeded by the project rather than created by
-users, so browsing stays coherent.
+users, so browsing stays coherent. `slug` is permanent, because filters and URLs
+use it. `name` is display text and can be renamed.
+
+| Slug | Name |
+|---|---|
+| `cosmetics` | Cosmetics & skincare |
+| `electronics` | Electronics & accessories |
+| `clothing` | Clothing & shoes |
+| `books` | Books & media |
+| `toys` | Toys & games |
+| `baby` | Baby & kids |
+| `home` | Home & kitchen |
+| `sports` | Sports & outdoors |
+| `hobbies` | Hobbies & crafts |
+| `food` | Packaged food (non-perishable) |
+| `other` | Other |
+
+The list stays clear of the prohibited items in `07-trust-and-safety.md`: food
+is non-perishable only, and there is no health or medicine category. `other`
+exists so that a legitimate item never has nowhere to go. The source of truth is
+`farhand-api/src/seed.ts`; `npm run seed` applies it and is safe to re-run.
+Removing a category is a migration, not a seed change, because listings may
+already reference it.
 
 **`Need`** — what someone wants. Holds two countries: `buyCountry` (where the
 product must be bought) and `deliverCountry` (where it must arrive). These two
