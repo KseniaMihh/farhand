@@ -52,7 +52,7 @@ fresh. Where a choice was a trade-off, this README says which way it went and wh
 | Language | TypeScript 7 |
 | Database | PostgreSQL 18 (Alpine), via Docker Compose |
 | ORM / migrations | Prisma 7.10, configured through `prisma.config.ts` (the Prisma 7 style) |
-| Dev tooling | `tsx`, `dotenv` |
+| Dev tooling | `tsx`, `dotenv`, ESLint 10 with type-aware `typescript-eslint` rules, Prettier |
 | Planned | Express 5, Zod, Vitest + Supertest, Playwright, GitHub Actions, Next.js frontend |
 
 ## Data model
@@ -209,8 +209,16 @@ habit of containing table names and connection strings.
 | Create a migration without applying it | `npx prisma migrate dev --create-only --name <name>` | `farhand-api` |
 | Regenerate the Prisma client | `npx prisma generate` | `farhand-api` |
 | Browse data | `npx prisma studio` | `farhand-api` |
+| Typecheck | `npm run typecheck` | `farhand-api` |
+| Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |
+| Format (or only check) | `npm run format` / `npm run format:check` | `farhand-api` |
 
 After `docker compose down -v` the database is empty, and `npx prisma migrate dev` has to run again.
+
+**Why `package.json` lists TypeScript twice.** typescript-eslint needs TypeScript's JavaScript API, which
+TypeScript 7 no longer ships. So `typescript` is aliased to TypeScript 6 (used only by the linter), and
+`@typescript/native` is TypeScript 7, which provides the `tsc` that builds and typechecks. Once typescript-eslint
+supports TypeScript 7, remove the alias.
 
 ## Project structure
 
@@ -218,12 +226,15 @@ After `docker compose down -v` the database is empty, and `npx prisma migrate de
 farhand/
 ├── docker-compose.yml          PostgreSQL 18 for local development
 ├── .gitignore
+├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
 ├── README.md
 ├── farhand-api/                the backend (npm and Prisma run here)
 │   ├── .env                    local only, gitignored
 │   ├── .env.example
 │   ├── package.json
 │   ├── tsconfig.json
+│   ├── eslint.config.js        lint rules; Prettier owns formatting
+│   ├── .prettierrc.json        Prettier defaults, no overrides
 │   ├── prisma.config.ts        Prisma 7 config; holds the datasource URL
 │   ├── prisma/
 │   │   ├── schema.prisma       the data model, commented

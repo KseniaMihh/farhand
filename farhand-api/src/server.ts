@@ -51,7 +51,10 @@ async function main(): Promise<void> {
 
     try {
       await new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
       });
       await prisma.$disconnect();
       logger.info("Shutdown complete");

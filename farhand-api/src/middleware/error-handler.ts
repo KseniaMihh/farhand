@@ -34,16 +34,28 @@ export const notFoundHandler: RequestHandler = (req, res) => {
  * arrive as plain Errors carrying a `type` field, so they need recognising
  * explicitly or they get reported as a 500 server bug.
  */
-function asBodyParserError(
-  err: unknown,
-): { status: number; code: "BAD_REQUEST" | "PAYLOAD_TOO_LARGE"; message: string } | null {
+interface BodyParserError {
+  status: number;
+  code: "BAD_REQUEST" | "PAYLOAD_TOO_LARGE";
+  message: string;
+}
+
+function asBodyParserError(err: unknown): BodyParserError | null {
   if (!(err instanceof Error) || !("type" in err)) return null;
 
   switch ((err as { type: unknown }).type) {
     case "entity.parse.failed":
-      return { status: 400, code: "BAD_REQUEST", message: "Request body is not valid JSON" };
+      return {
+        status: 400,
+        code: "BAD_REQUEST",
+        message: "Request body is not valid JSON",
+      };
     case "entity.too.large":
-      return { status: 413, code: "PAYLOAD_TOO_LARGE", message: "Request body is too large" };
+      return {
+        status: 413,
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Request body is too large",
+      };
     default:
       return null;
   }

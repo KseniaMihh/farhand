@@ -53,7 +53,9 @@ export class HttpError extends Error {
     return new HttpError(401, "UNAUTHORIZED", message);
   }
 
-  static forbidden(message = "You do not have access to this resource"): HttpError {
+  static forbidden(
+    message = "You do not have access to this resource",
+  ): HttpError {
     return new HttpError(403, "FORBIDDEN", message);
   }
 
