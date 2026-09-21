@@ -1,5 +1,7 @@
 # Farhand
 
+[![CI](https://github.com/KseniaMihh/farhand/actions/workflows/ci.yml/badge.svg)](https://github.com/KseniaMihh/farhand/actions/workflows/ci.yml)
+
 A platform for people who can't order the thing they want, and people who live where they can.
 
 > **Status: work in progress.** The data model and local infrastructure are done; the API is being built now.
@@ -52,8 +54,11 @@ fresh. Where a choice was a trade-off, this README says which way it went and wh
 | Language | TypeScript 7 |
 | Database | PostgreSQL 18 (Alpine), via Docker Compose |
 | ORM / migrations | Prisma 7.10, configured through `prisma.config.ts` (the Prisma 7 style) |
+| API | Express 5, Zod for request validation, pino for logging |
+| Tests | Vitest + Supertest, against a real PostgreSQL database |
+| CI | GitHub Actions: lint, formatting, typecheck, tests on every pull request |
 | Dev tooling | `tsx`, `dotenv`, ESLint 10 with type-aware `typescript-eslint` rules, Prettier |
-| Planned | Express 5, Zod, Vitest + Supertest, Playwright, GitHub Actions, Next.js frontend |
+| Planned | Playwright, Docker image, cloud deployment, Next.js frontend |
 
 ## Data model
 
@@ -243,6 +248,32 @@ harness itself: one test writes a row, the next asserts it is gone.
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
 without a setup step.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request, and on every push to
+`master`. It fails the build on a lint error, a formatting difference, a type
+error or a failing test:
+
+```
+npm ci  →  npx prisma generate  →  lint  →  format:check  →  typecheck  →  test
+```
+
+The tests need a database, so the job starts a `postgres:18-alpine` service
+container — the same image as `docker-compose.yml`, so a failure in CI is a real
+failure and not a version difference. Its `POSTGRES_DB` is `farhand_test`
+rather than `farhand`: CI has no development data to keep separate, so the only
+database it needs is the test one, and that name is what the guard in
+`tests/setup/truncate.ts` insists on.
+
+Migrations are applied by `tests/setup/global-setup.ts`, the same way as on your
+machine, rather than by a separate CI step. One place decides how a test
+database is prepared, and CI runs the commands you run locally.
+
+Feature branches are verified through their pull request rather than by a second
+`push` trigger, which would start two identical runs for every push to a branch
+with a PR open. Since [the workflow](docs/13-workflow.md) opens a PR for every
+change, nothing reaches `master` unverified.
+
 ## Everyday commands
 
 | What | Command | Where |
@@ -273,6 +304,7 @@ supports TypeScript 7, remove the alias.
 
 ```
 farhand/
+├── .github/workflows/ci.yml    lint, format, typecheck and test on every PR
 ├── docker-compose.yml          PostgreSQL 18 for local development
 ├── .gitignore
 ├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
@@ -321,7 +353,7 @@ farhand/
 - [x] API skeleton: Express 5, validated env, structured logging, error contract, health checks
 - [x] Seed script for categories
 - [ ] Auth: registration, password hashing, session cookies, logout, `GET /me`, route protection
-- [ ] Tests (Vitest + Supertest against a test database) and CI on every push
+- [x] Tests (Vitest + Supertest against a test database) and CI on every push
 - [ ] Needs and helps: CRUD, filtering by country and category, cursor pagination
 - [ ] Proposals: send, accept, decline — with the accept running as one transaction
 - [ ] Conversations, messages, unread counts
