@@ -161,6 +161,14 @@ describe("POST /auth/register — validation", () => {
     expect(await prisma.user.count()).toBe(0);
   });
 
+  it("rejects a country code that is two characters but not letters", async () => {
+    // A length check alone lets "12" and "!!" through into a Char(2) column.
+    const response = await register(validPayload({ countryCode: "12" }));
+
+    expect(response.status).toBe(VALIDATION_STATUS);
+    expect(await prisma.user.count()).toBe(0);
+  });
+
   it("rejects an address that is not an email", async () => {
     const response = await register(validPayload({ email: "not-an-email" }));
 

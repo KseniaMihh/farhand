@@ -59,14 +59,9 @@ const HASH_OPTIONS = {
  * there is no separate salt column in the schema, and why raising the cost
  * parameters later does not invalidate existing hashes — each one remembers
  * how it was made.
- *
- * TODO(#9): call argon2's `hash` with HASH_OPTIONS and return the digest.
- * One line. Note it is async — hashing on the main thread would block every
- * other request for the duration.
  */
 export async function hashPassword(plaintext: string): Promise<string> {
-  // TODO(#9): replace this whole body.
-  return Promise.reject(new Error("hashPassword is not implemented yet"));
+  return hash(plaintext, HASH_OPTIONS);
 }
 
 /**
