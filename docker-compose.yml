@@ -10,6 +10,9 @@ services:
       - "5432:5432"
     volumes:
       - farhand-db-data:/var/lib/postgresql
+      # Creates the `farhand_test` database on a fresh volume. See the file
+      # itself for why the test bootstrap also does this.
+      - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U farhand -d farhand"]
       interval: 5s

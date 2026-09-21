@@ -34,7 +34,7 @@ export default defineConfig(
         // prisma.config.ts isn't in tsconfig.json (its rootDir is src), so it
         // is type-checked with default options instead.
         projectService: {
-          allowDefaultProject: ["prisma.config.ts"],
+          allowDefaultProject: ["prisma.config.ts", "vitest.config.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },
