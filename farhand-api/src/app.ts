@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { pinoHttp } from "pino-http";
 import { logger } from "./logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 
 /**
@@ -37,6 +38,7 @@ export function createApp(): Express {
   app.use(express.json({ limit: "100kb" }));
 
   app.use(healthRouter);
+  app.use(authRouter);
 
   // Both of these must stay at the bottom, in this order.
   app.use(notFoundHandler);
