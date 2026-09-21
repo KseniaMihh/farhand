@@ -162,7 +162,10 @@ npx prisma migrate dev
 npx prisma generate
 npm run seed               # the fixed category list; safe to re-run
 
-# 4. Browse the tables
+# 4. Check it works
+npm test                   # creates farhand_test on first run
+
+# 5. Browse the tables
 npx prisma studio
 ```
 
@@ -198,6 +201,48 @@ add a `details` array naming the fields that failed. Unexpected errors return
 `INTERNAL` and the real message is logged, never sent — internal errors have a
 habit of containing table names and connection strings.
 
+## Tests
+
+Vitest as the runner, Supertest for HTTP. From `farhand-api`, with Docker running:
+
+```powershell
+npm test           # once
+npm run test:watch # re-runs on save
+```
+
+**They run against a real PostgreSQL database, not a mock.** `farhand_test` is a
+second database inside the same container as the development one — created by
+`scripts/init-test-db.sql` on a fresh volume, and by the test bootstrap on a
+machine where the stack has already run. Mocking Prisma would test our idea of
+what Postgres does; the interesting rules in this project are transactions,
+unique constraints and cascades, which only the database can answer for.
+
+Before each test, every table is emptied with `TRUNCATE ... RESTART IDENTITY
+CASCADE`. Truncation rather than wrapping each test in a transaction and rolling
+it back: a rollback never lets you observe what a `COMMIT` inside the code under
+test actually did, and accepting a proposal — the rule this project most needs
+to get right — is a transaction. Slower, and honest.
+
+Truncation also clears the seeded categories, deliberately. A test that needs a
+category creates the one it needs, rather than depending on seed data that may
+change.
+
+`tests/setup/truncate.ts` refuses to run unless `NODE_ENV=test` **and** the
+database name ends in `_test`, so a mistyped connection string stops the suite
+instead of emptying your development data. `tests/isolation.test.ts` tests the
+harness itself: one test writes a row, the next asserts it is gone.
+
+| File | What it does |
+| --- | --- |
+| `vitest.config.ts` | Loads `.env.test` over the shell environment; pins the suite to one worker |
+| `tests/setup/global-setup.ts` | Creates the test database if missing, then `prisma migrate deploy` |
+| `tests/setup/truncate.ts` | The safety check, and the truncation before each test |
+| `tests/health.test.ts` | `/health`, `/health/ready`, and the 404 error shape |
+
+`.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
+as `docker-compose.yml`, and committing it means a fresh clone can run the tests
+without a setup step.
+
 ## Everyday commands
 
 | What | Command | Where |
@@ -214,6 +259,7 @@ habit of containing table names and connection strings.
 | Typecheck | `npm run typecheck` | `farhand-api` |
 | Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |
 | Format (or only check) | `npm run format` / `npm run format:check` | `farhand-api` |
+| Run the tests | `npm test` / `npm run test:watch` | `farhand-api` |
 
 After `docker compose down -v` the database is empty, and `npx prisma migrate dev` and `npm run seed` have to
 run again.
@@ -231,26 +277,36 @@ farhand/
 ├── .gitignore
 ├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
 ├── README.md
+├── scripts/                    repo chores: GitHub issue seeding, test database creation
 ├── farhand-api/                the backend (npm and Prisma run here)
 │   ├── .env                    local only, gitignored
 │   ├── .env.example
+│   ├── .env.test               test database; committed, holds no secrets
 │   ├── package.json
 │   ├── tsconfig.json
+│   ├── vitest.config.ts        test runner; loads .env.test
 │   ├── eslint.config.js        lint rules; Prettier owns formatting
 │   ├── .prettierrc.json        Prettier defaults, no overrides
 │   ├── prisma.config.ts        Prisma 7 config; holds the datasource URL
 │   ├── prisma/
 │   │   ├── schema.prisma       the data model, commented
 │   │   └── migrations/         applied migrations - never edited
-│   └── src/
-│       ├── server.ts           entry point: starts and stops the process
-│       ├── app.ts              builds the Express app (binds no port)
-│       ├── env.ts              environment variables, validated with Zod
-│       ├── db.ts               the shared Prisma client
-│       ├── logger.ts           pino
-│       ├── errors.ts           HttpError and the error response shape
-│       ├── middleware/
-│       └── routes/
+│   ├── src/
+│   │   ├── server.ts           entry point: starts and stops the process
+│   │   ├── app.ts              builds the Express app (binds no port)
+│   │   ├── env.ts              environment variables, validated with Zod
+│   │   ├── db.ts               the shared Prisma client
+│   │   ├── logger.ts           pino
+│   │   ├── errors.ts           HttpError and the error response shape
+│   │   ├── middleware/
+│   │   └── routes/
+│   └── tests/
+│       ├── tsconfig.json       tests are their own TS project, not part of the build
+│       ├── setup/
+│       │   ├── global-setup.ts creates the test database, applies migrations
+│       │   └── truncate.ts     safety check, and TRUNCATE before each test
+│       ├── health.test.ts
+│       └── isolation.test.ts   proves the harness isolates tests
 └── farhand-web/                planned: Next.js frontend
 ```
 
@@ -271,7 +327,6 @@ farhand/
 - [ ] Conversations, messages, unread counts
 - [ ] Deal lifecycle as an enforced state machine, with events
 - [ ] Admin: role checks, suspend and ban, audit log
-- [ ] Frontend (`farhand-web`, Next.js)
 - [ ] API in Docker, deployed to a cloud host with monitoring
 
 **v2 — trust and safety**
@@ -280,6 +335,7 @@ farhand/
 - [ ] Reviews after completed deals
 - [ ] Reports, moderation queue, prohibited-items list
 - [ ] Email notifications through a background job queue
+- [ ] Frontend (`farhand-web`, Next.js) as a separate project
 
 ## Scope & safety
 
