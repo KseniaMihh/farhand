@@ -1,0 +1,113 @@
+name: CI
+
+# Nothing reaches master unverified, and every pull request is checked before
+# it can be merged.
+#
+# Feature branches are covered through their pull request rather than by a
+# second `push` trigger: with both, every push to a branch that already has a
+# PR open would start two identical runs. The project's workflow
+# (docs/13-workflow.md) opens a PR for every change, so nothing slips through.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Only the newest run per branch matters. Pushing a fix ten seconds after
+# spotting a mistake cancels the run that was already doomed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only. This workflow builds and tests; it never writes to the repository.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-latest
+
+    # npm and Prisma run inside farhand-api, exactly as they do locally.
+    defaults:
+      run:
+        working-directory: farhand-api
+
+    services:
+      # The same image as docker-compose.yml, so a failure here is a real
+      # failure rather than a version difference.
+      #
+      # POSTGRES_DB is farhand_test, not farhand: CI has no development data to
+      # keep separate, so the one database it needs is the test one. That name
+      # also satisfies the guard in tests/setup/truncate.ts, which refuses to
+      # truncate a database whose name does not end in "_test".
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: farhand
+          POSTGRES_PASSWORD: farhand
+          POSTGRES_DB: farhand_test
+        ports:
+          - 5432:5432
+        # Without this the job races the database and fails intermittently on a
+        # cold runner — the container is "started" well before Postgres is
+        # accepting connections.
+        options: >-
+          --health-cmd "pg_isready -U farhand -d farhand_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Matches local development. Bump both together.
+          node-version: "24"
+          cache: npm
+          # setup-node looks for a lockfile at the repository root by default,
+          # and ours is one level down.
+          cache-dependency-path: farhand-api/package-lock.json
+
+      # `ci` rather than `install`: it installs exactly what the lockfile says
+      # and fails if package.json and the lockfile disagree, instead of quietly
+      # resolving newer versions that were never tested.
+      - name: Install dependencies
+        run: npm ci
+
+      # prisma.config.ts resolves DATABASE_URL through Prisma's env() helper,
+      # which throws if the variable is missing — and it is missing here, because
+      # .env is gitignored and only exists on a developer's machine. Step 1 of
+      # the README's setup is copying an env file into place; this is CI doing
+      # the same thing.
+      #
+      # .env.test rather than .env.example, because the only database CI has is
+      # the test one. Copying the file instead of setting DATABASE_URL in this
+      # workflow keeps the connection string in exactly one place.
+      - name: Put the test environment in place
+        run: cp .env.test .env
+
+      # The Prisma client is generated code, not committed. Everything after
+      # this step needs it: the type-aware lint rules and the typecheck read its
+      # types, and the tests call it.
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Migrations are applied by tests/setup/global-setup.ts, which runs
+      # `prisma migrate deploy` before the suite. Deliberately not repeated as a
+      # step here: CI then runs the same command you run locally, and there is
+      # one place that decides how a test database is prepared.
+      #
+      # The connection details come from the committed .env.test, which points
+      # at localhost:5432 — the port the service container above is mapped to.
+      - name: Test
+        run: npm test
