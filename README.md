@@ -271,7 +271,6 @@ farhand/
 - [ ] Conversations, messages, unread counts
 - [ ] Deal lifecycle as an enforced state machine, with events
 - [ ] Admin: role checks, suspend and ban, audit log
-- [ ] Frontend (`farhand-web`, Next.js)
 - [ ] API in Docker, deployed to a cloud host with monitoring
 
 **v2 — trust and safety**
@@ -280,6 +279,7 @@ farhand/
 - [ ] Reviews after completed deals
 - [ ] Reports, moderation queue, prohibited-items list
 - [ ] Email notifications through a background job queue
+- [ ] Frontend (`farhand-web`, Next.js) as a separate project
 
 ## Scope & safety
 
