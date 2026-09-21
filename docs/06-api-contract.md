@@ -6,9 +6,15 @@ REST over JSON. Cookie-based sessions. All money in integer cents.
 ## Conventions
 
 - Success: `200`, `201` for creation, `204` for no content.
-- Client error: `400` validation, `401` not signed in, `403` signed in but not
-  allowed, `404` not found or not visible to you, `409` conflict with current
-  state, `429` rate limited.
+- Client error: `400` malformed request, `401` not signed in, `403` signed in
+  but not allowed, `404` not found or not visible to you, `409` conflict with
+  current state, `413` body too large, `422` validation failed, `429` rate
+  limited.
+- `400` and `422` are different failures. `400` means the request itself could
+  not be read — unparseable JSON. `422` means it was read perfectly and the
+  content was wrong: a missing field, a password too short, a country code that
+  is not two letters. Only `422` can name the offending fields, which is why
+  they are worth separating.
 - Errors share one shape: `{ "error": { "code": "...", "message": "...", "details": [...] } }`.
 - Never reveal existence through status codes: a need you may not see returns
   `404`, not `403`.

@@ -202,9 +202,10 @@ rather than guessing per endpoint:
 ```
 
 `code` is for code to branch on; `message` is for a human. Validation failures
-add a `details` array naming the fields that failed. Unexpected errors return
-`INTERNAL` and the real message is logged, never sent — internal errors have a
-habit of containing table names and connection strings.
+return `422` with a `details` array naming the fields that failed; `400` is kept
+for a body that could not be parsed at all. Unexpected errors return `INTERNAL`
+and the real message is logged, never sent — internal errors have a habit of
+containing table names and connection strings.
 
 ## Tests
 

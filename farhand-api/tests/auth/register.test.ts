@@ -141,12 +141,9 @@ describe("POST /auth/register — a duplicate email is indistinguishable", () =>
 
 describe("POST /auth/register — validation", () => {
   /**
-   * 422 is what src/middleware/error-handler.ts returns for a ZodError.
-   *
-   * Note that docs/06-api-contract.md says validation failures are 400. The
-   * code and the document disagree, and one of them needs changing — see the
-   * note in the pull request. These tests follow the code; if you decide the
-   * document wins, change the handler and these three numbers together.
+   * 422, not 400: the request parsed fine and its content was wrong. 400 is
+   * reserved for a body that could not be read at all. See the conventions in
+   * docs/06-api-contract.md.
    */
   const VALIDATION_STATUS = 422;
 
