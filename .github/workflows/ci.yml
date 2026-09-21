@@ -75,6 +75,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # prisma.config.ts resolves DATABASE_URL through Prisma's env() helper,
+      # which throws if the variable is missing — and it is missing here, because
+      # .env is gitignored and only exists on a developer's machine. Step 1 of
+      # the README's setup is copying an env file into place; this is CI doing
+      # the same thing.
+      #
+      # .env.test rather than .env.example, because the only database CI has is
+      # the test one. Copying the file instead of setting DATABASE_URL in this
+      # workflow keeps the connection string in exactly one place.
+      - name: Put the test environment in place
+        run: cp .env.test .env
+
       # The Prisma client is generated code, not committed. Everything after
       # this step needs it: the type-aware lint rules and the typecheck read its
       # types, and the tests call it.
