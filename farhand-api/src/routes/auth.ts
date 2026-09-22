@@ -327,3 +327,114 @@ authRouter.post("/auth/logout", requireAuth, async (req, res) => {
   res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
   res.status(204).end();
 });
+
+/**
+ * What a forgot-password request must contain. The email is normalised and
+ * checked exactly as at registration — registerSchema's own rule, reused.
+ */
+export const forgotPasswordSchema = z.object({
+  email: registerSchema.shape.email,
+});
+
+/**
+ * What a reset request must contain: the token from the email, and the new
+ * password.
+ *
+ * The new password follows the REGISTRATION rules — registerSchema's own
+ * rule, so there is one definition of a valid password, not two that drift
+ * apart. (Login is looser on purpose; that is about checking an old password,
+ * this is about choosing a new one.)
+ */
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(1),
+  password: registerSchema.shape.password,
+});
+
+/**
+ * POST /auth/forgot-password
+ *
+ * "I forgot my password — email me a link." Answers the same whether or not
+ * the email has an account, so it cannot be used to find out who does.
+ *
+ * TODO(#13):
+ *
+ *   1. Parse the body with forgotPasswordSchema.
+ *
+ *   2. Find the user by email.
+ *
+ *   3. If there is a user, and they are not BANNED or DELETED:
+ *        const rawToken = await createPasswordResetToken(prisma, user.id);
+ *        await mailer.sendPasswordResetEmail(user.email, rawToken);
+ *      Unverified users DO get a link — clicking it proves they own the
+ *      address, which is what verification proves too.
+ *
+ *   4. Always reply 200 with the same message, for example:
+ *        { message: "If an account exists for that email, a reset link is on its way." }
+ *
+ * Known and deliberate: the path with an account does a little more work (a
+ * database write) than the path without, so it is a few milliseconds slower.
+ * That is far smaller than #11's 4-versus-18 ms argon2 gap, but it is not
+ * zero. The complete fix comes with v2's background job queue: every request
+ * enqueues a job, and the worker decides whether there is anyone to email —
+ * then the request path is identical for everyone.
+ */
+authRouter.post("/auth/forgot-password", async (_req, res) => {
+  // TODO(#13): implement. See the steps above.
+  await Promise.resolve();
+  res.status(501).json({
+    error: { code: "INTERNAL", message: "Not implemented yet" },
+  });
+});
+
+/**
+ * POST /auth/reset-password
+ *
+ * Sets a new password with the token from the email, and logs the account out
+ * everywhere.
+ *
+ * TODO(#13), in this order:
+ *
+ *   1. Parse the body with resetPasswordSchema. This comes FIRST: a new
+ *      password that is too short gets a 422 before the token is touched, so
+ *      the person can fix the password and try again with the same link.
+ *
+ *   2. Look the token up by hashToken(token), including its user.
+ *
+ *   3. One identical 422 — as in verify-email — when the token is missing, is
+ *      not a PASSWORD_RESET token (a verification token must not change a
+ *      password), is used, has expired, or belongs to a BANNED or DELETED
+ *      user:
+ *        throw new HttpError(422, "VALIDATION_FAILED",
+ *          "This link is invalid or has expired");
+ *
+ *   4. Hash the new password with hashPassword() — BEFORE the transaction.
+ *      A transaction holds database locks while it runs; the slow argon2
+ *      work should not happen while it does.
+ *
+ *   5. In ONE transaction:
+ *        a. Consume the token with updateMany({ where: { id, usedAt: null } })
+ *           and check the count — your single-use pattern from #10. Count 0
+ *           → throw the same 422.
+ *        b. Update the user: the new passwordHash, and emailVerifiedAt set to
+ *           now if it was still null. The link reached their inbox, which
+ *           proves they own the address — so resetting also verifies.
+ *        c. Delete ALL the user's sessions: session.deleteMany({ where:
+ *           { userId } }). Someone resets a password because they think
+ *           someone else might know it; every device logged in with the old
+ *           one — including a stranger's — must be logged out now.
+ *
+ *   6. Reply 200, for example:
+ *        { message: "Password changed. Log in with your new password." }
+ *      Do not log them in automatically: a login proves they know the NEW
+ *      password, and it starts a fresh session.
+ *
+ * Imports you will need: createPasswordResetToken from ../tokens.js.
+ * hashToken, hashPassword, mailer and HttpError are already imported.
+ */
+authRouter.post("/auth/reset-password", async (_req, res) => {
+  // TODO(#13): implement. See the steps above.
+  await Promise.resolve();
+  res.status(501).json({
+    error: { code: "INTERNAL", message: "Not implemented yet" },
+  });
+});
