@@ -48,7 +48,7 @@ Anything not in an issue is not planned work. New ideas become issues in the
 ## The loop for one piece of work
 
 1. Pick the issue at the top of this week's iteration.
-2. Create a branch from `main`, named `<type>/<issue-number>-<short-name>`,
+2. Create a branch from `master`, named `<type>/<issue-number>-<short-name>`,
    for example `feat/12-register-endpoint`.
 3. Write the code and its tests.
 4. Commit in small steps. Message format:
@@ -59,7 +59,7 @@ Anything not in an issue is not planned work. New ideas become issues in the
 7. Delete the branch.
 
 Opening pull requests against yourself is not pointless: it runs CI before
-anything reaches `main`, keeps `main` always working, and leaves a readable
+anything reaches `master`, keeps `master` always working, and leaves a readable
 record of why each change was made. That record is visible to anyone reviewing
 the repository later.
 
@@ -77,7 +77,7 @@ never edit the old record.
 ## Session start and end
 
 **Start:** open Docker Desktop, run `docker compose start`, pull the latest
-`main`, and open this week's issue.
+`master`, and open this week's issue.
 
 **End:** commit and push, run `docker compose stop`, quit Docker Desktop, and
 move any unfinished issue to next week's iteration on the board.

@@ -106,6 +106,14 @@ Values that differ between machines and must not be shared: the database URL
 today, API keys later. Ignored by Git. Its role is to keep secrets out of source
 control, the same rule as keeping Stripe keys out of a committed config file.
 
+`.env.test` is the exception, and it **is** committed. It points the test suite
+at `farhand_test`, a second database in the same container, and holds only the
+throwaway credentials already in `docker-compose.yml` — so there is nothing
+secret in it, and committing it lets a fresh clone and CI run the tests without
+a setup step. `vitest.config.ts` loads it *over* the shell environment, so a
+`DATABASE_URL` left exported in your terminal cannot point the tests at
+development data.
+
 ## Git and GitHub
 
 Git records the project's history locally. GitHub stores a copy remotely and
@@ -125,6 +133,7 @@ being added to `.gitignore`, which is what `git rm --cached` fixes.
 | `npx prisma generate` | Regenerate the typed client | no |
 | `npx prisma studio` | Browse the data in a browser | yes |
 | `npm install` | Install dependencies from `package.json` | no |
+| `npm test` | Run the test suite against `farhand_test` | yes |
 
 ## Why not simpler
 

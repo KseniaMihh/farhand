@@ -70,6 +70,42 @@ failing dependency is a normal answer from this endpoint, not an error.
 | POST | `/auth/forgot-password` | — | Always responds identically |
 | POST | `/auth/reset-password` | — | Token plus new password; revokes all sessions |
 
+### `POST /auth/register`
+
+```json
+{
+  "email": "anna@example.com",
+  "password": "a decent long passphrase",
+  "displayName": "Anna",
+  "countryCode": "EE"
+}
+```
+
+| Field | Rule |
+|---|---|
+| `email` | Trimmed and lowercased, then validated as an email. `" Anna@Example.COM "` is stored as `anna@example.com` |
+| `password` | 8–72 characters. Not trimmed. No composition rules |
+| `displayName` | 1–50 characters after trimming |
+| `countryCode` | Two letters, ISO 3166-1 alpha-2, uppercased. `"ee"` becomes `"EE"`; `"12"` is rejected |
+
+Unknown fields are dropped, so a request cannot set `role` or `status`.
+
+Returns `201`:
+
+```json
+{ "message": "Check your email to verify your account." }
+```
+
+**The same `201` and the same body when the email is already registered.** No
+second account is created and the existing one is untouched. Answering "that
+email is taken" would let anyone discover who uses Farhand; the owner of the
+address can still log in or reset their password. The password is hashed on
+this path too, so the two cases take roughly the same time.
+
+A body that fails the rules above returns `422` with `details` naming each
+field. The new account is unverified — `emailVerifiedAt` stays null until the
+address is confirmed.
+
 ## Profile
 
 | Method | Path | Auth | Notes |
