@@ -15,6 +15,7 @@ import {
   SESSION_COOKIE,
   sessionCookieOptions,
 } from "../sessions.js";
+import { requireAuth, getAuth } from "../middleware/auth.js";
 
 export const authRouter: Router = Router();
 
@@ -269,4 +270,60 @@ authRouter.post("/auth/login", async (req, res) => {
       emailVerified: user.emailVerifiedAt !== null,
     },
   });
+});
+
+/**
+ * GET /auth/me
+ *
+ * Who is logged in. The frontend calls this when the app first loads, to
+ * decide between "Log in" and "Hello, Anna". requireAuth has already found the
+ * user, so there is no database query here.
+ *
+ * status and suspendedUntil are in the reply so the frontend can show "your
+ * account is suspended until …". The object is built field by field on
+ * purpose: spreading the user row (`...user`) would send passwordHash to the
+ * browser.
+ */
+authRouter.get("/auth/me", requireAuth, (req, res) => {
+  const { user } = getAuth(req);
+
+  res.status(200).json({
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      suspendedUntil: user.suspendedUntil,
+      emailVerified: user.emailVerifiedAt !== null,
+      profile: {
+        displayName: user.profile?.displayName,
+        bio: user.profile?.bio,
+        countryCode: user.profile?.countryCode,
+        city: user.profile?.city,
+        avatarUrl: user.profile?.avatarUrl,
+      },
+    },
+  });
+});
+
+/**
+ * POST /auth/logout
+ *
+ * Ends THIS session — the device the request came from. Other devices stay
+ * logged in. Deleting the row is what really logs out: the cookie may survive
+ * on the device, but it no longer points at anything, so requireAuth rejects
+ * it.
+ */
+authRouter.post("/auth/logout", requireAuth, async (req, res) => {
+  const { session } = getAuth(req);
+
+  // deleteMany, not delete. Two logouts at once (a double-click) both pass
+  // requireAuth; by the time the second deletes, the first already has, and
+  // Prisma's delete throws when nothing matches — a 500 for clicking twice.
+  // deleteMany just reports count: 0, so logging out twice ends exactly where
+  // logging out once does, and both requests can honestly answer 204.
+  await prisma.session.deleteMany({ where: { id: session.id } });
+
+  res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
+  res.status(204).end();
 });

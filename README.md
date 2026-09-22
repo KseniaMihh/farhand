@@ -196,6 +196,8 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
 | `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
+| `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
+| `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
 
 Every error response uses the same shape, so the frontend can write one handler
 rather than guessing per endpoint:
@@ -250,6 +252,8 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/register.test.ts` | Registration: validation, hashing, the one-transaction rule, and the identical duplicate response |
 | `tests/auth/verify-email.test.ts` | Verification: single use (including a staged double-click), expiry, wrong token type, identical rejections |
 | `tests/auth/login.test.ts` | Login: the cookie settings, hashed session storage, identical and equally slow failures, banned vs suspended |
+| `tests/auth/me-logout.test.ts` | `/auth/me`, logout, and requireAuth: expired sessions, bans landing on the next request, one device at a time |
+| `tests/auth/guards.test.ts` | requireVerified, requireActive and requireRole, each on a one-route test app |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -342,9 +346,11 @@ farhand/
 │   │   ├── mailer.ts           outgoing email; logs the token in development
 │   │   ├── sessions.ts         login sessions and the cookie settings
 │   │   ├── middleware/
+│   │   │   ├── error-handler.ts
+│   │   │   └── auth.ts         requireAuth, requireVerified, requireActive, requireRole
 │   │   └── routes/
 │   │       ├── health.ts
-│   │       └── auth.ts         registration, email verification, login
+│   │       └── auth.ts         register, verify email, log in, me, log out
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
@@ -353,7 +359,11 @@ farhand/
 │       ├── auth/
 │       │   ├── register.test.ts
 │       │   ├── verify-email.test.ts
-│       │   └── login.test.ts
+│       │   ├── login.test.ts
+│       │   ├── me-logout.test.ts
+│       │   └── guards.test.ts
+│       ├── helpers/
+│       │   └── auth.ts         signUpAndLogIn() for tests that need a user
 │       ├── health.test.ts
 │       └── isolation.test.ts   proves the harness isolates tests
 └── farhand-web/                planned: Next.js frontend
@@ -369,7 +379,7 @@ farhand/
 - [x] Hand-written constraints: one active deal per need, rating range, non-negative money
 - [x] API skeleton: Express 5, validated env, structured logging, error contract, health checks
 - [x] Seed script for categories
-- [ ] Auth: registration, password hashing, session cookies, logout, `GET /me`, route protection
+- [x] Auth: registration, password hashing, session cookies, logout, `GET /me`, route protection
 - [x] Tests (Vitest + Supertest against a test database) and CI on every push
 - [ ] Needs and helps: CRUD, filtering by country and category, cursor pagination
 - [ ] Proposals: send, accept, decline — with the accept running as one transaction
