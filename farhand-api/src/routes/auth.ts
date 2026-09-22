@@ -15,6 +15,8 @@ import {
   SESSION_COOKIE,
   sessionCookieOptions,
 } from "../sessions.js";
+import { requireAuth } from "../middleware/auth.js";
+// TODO(#12): you will also want getAuth from "../middleware/auth.js".
 
 export const authRouter: Router = Router();
 
@@ -268,5 +270,58 @@ authRouter.post("/auth/login", async (req, res) => {
       displayName: user.profile?.displayName,
       emailVerified: user.emailVerifiedAt !== null,
     },
+  });
+});
+
+/**
+ * GET /auth/me
+ *
+ * Who is logged in. The frontend calls this when the app first loads, to
+ * decide between "Log in" and "Hello, Anna". requireAuth has already found the
+ * user, so there is no database query here.
+ *
+ * TODO(#12): take the user from getAuth(req).user and reply 200 with:
+ *
+ *   {
+ *     user: {
+ *       id, email, role, status, suspendedUntil,
+ *       emailVerified,            // a boolean, like login's reply
+ *       profile: { displayName, bio, countryCode, city, avatarUrl }
+ *     }
+ *   }
+ *
+ * status and suspendedUntil are there so the frontend can show "your account
+ * is suspended until …". Build the object field by field. Spreading the user
+ * row (`...user`) would send passwordHash to the browser — the test checks.
+ */
+authRouter.get("/auth/me", requireAuth, (_req, res) => {
+  // TODO(#12): replace this whole body.
+  res.status(501).json({
+    error: { code: "INTERNAL", message: "Not implemented yet" },
+  });
+});
+
+/**
+ * POST /auth/logout
+ *
+ * Ends THIS session — the device the request came from. Other devices stay
+ * logged in.
+ *
+ * TODO(#12):
+ *   1. Delete the session row: prisma.session.delete with
+ *      getAuth(req).session.id. Deleting the row is what really logs out —
+ *      the cookie might survive on the device, but it no longer points at
+ *      anything, so requireAuth will reject it.
+ *   2. Tell the browser to forget the cookie:
+ *        res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
+ *      Same options as when it was set: a cookie is only cleared if the path
+ *      matches.
+ *   3. Reply 204 No Content: res.status(204).end().
+ */
+authRouter.post("/auth/logout", requireAuth, async (_req, res) => {
+  // TODO(#12): replace this whole body.
+  await Promise.resolve();
+  res.status(501).json({
+    error: { code: "INTERNAL", message: "Not implemented yet" },
   });
 });
