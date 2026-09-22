@@ -1,7 +1,20 @@
 # API contract — version 1
 
 REST over JSON. Cookie-based sessions. All money in integer cents.
-`AUTH` means a signed-in, active, email-confirmed user.
+
+Who may call an endpoint, and the middleware in `src/middleware/auth.ts` that
+enforces it:
+
+| Marker | Who | Middleware |
+|---|---|---|
+| — | Anyone | none |
+| `SESSION` | Any signed-in user whose account is not banned or deleted — unverified and suspended users included | `requireAuth` |
+| `AUTH` | A signed-in user with a confirmed email who is not suspended | `requireAuth`, `requireVerified`, `requireActive` |
+| `MOD` | A moderator or an admin | `requireAuth`, `requireRole("MODERATOR")` |
+
+A suspended user can still see their own deals
+(`docs/02-roles-and-permissions.md`), so read-only endpoints like that are marked
+`SESSION` as they are built.
 
 ## Conventions
 
@@ -65,8 +78,8 @@ failing dependency is a normal answer from this endpoint, not an error.
 | POST | `/auth/register` | — | Email, password, display name, country. Always responds the same whether or not the email exists |
 | POST | `/auth/verify-email` | — | Token from the email |
 | POST | `/auth/login` | — | Sets an httpOnly session cookie. Rate limited (#14) |
-| POST | `/auth/logout` | AUTH | Deletes the session |
-| GET | `/auth/me` | AUTH | Current user and profile |
+| POST | `/auth/logout` | SESSION | Deletes this device's session |
+| GET | `/auth/me` | SESSION | Current user and profile |
 | POST | `/auth/forgot-password` | — | Always responds identically |
 | POST | `/auth/reset-password` | — | Token plus new password; revokes all sessions |
 
@@ -180,6 +193,59 @@ long as a wrong password, and only someone who knows the password can learn that
 an account is banned.
 
 Rate limiting arrives in #14.
+
+### `GET /auth/me`
+
+Who is logged in. `SESSION`: works for unverified and suspended users too, so
+the frontend can tell them what they need to do.
+
+Returns `200`:
+
+```json
+{
+  "user": {
+    "id": "cm1…",
+    "email": "anna@example.com",
+    "role": "USER",
+    "status": "ACTIVE",
+    "suspendedUntil": null,
+    "emailVerified": false,
+    "profile": {
+      "displayName": "Anna",
+      "bio": null,
+      "countryCode": "EE",
+      "city": null,
+      "avatarUrl": null
+    }
+  }
+}
+```
+
+`status` and `suspendedUntil` are there so the frontend can show "your account
+is suspended until …". The password hash is never part of any reply.
+
+### `POST /auth/logout`
+
+Ends the session the request came from; the user's other devices stay logged
+in. Deletes the session row and clears the cookie. Returns `204` with no body.
+
+Logging out twice at the same moment (a double-click) returns `204` both times.
+
+### When a session stops working
+
+Every `SESSION` and `AUTH` request checks the session again, so these take
+effect on the very next request — not when the cookie expires:
+
+| Case | Response |
+|---|---|
+| No cookie, or a cookie that matches no session | `401` |
+| Session expired (30 days after login) | `401` |
+| Account banned or deleted since login | `401` |
+| Logged out | `401` — the cookie may linger in the browser, but it points at nothing |
+
+The body is the same in every case. Beyond `SESSION`, an `AUTH` route answers
+`403` to an unverified user ("Confirm your email address first") or a suspended
+one, and a `MOD` route answers `403` to a regular user.
 
 ## Profile
 
