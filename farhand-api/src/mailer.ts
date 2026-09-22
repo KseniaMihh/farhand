@@ -44,4 +44,28 @@ export const mailer = {
     );
     return Promise.resolve();
   },
+
+  /**
+   * Sends the link that lets someone choose a new password.
+   *
+   * A reset token is more powerful than a verification token — whoever holds
+   * it can take over the account — so the same production rule matters even
+   * more: never into a log.
+   */
+  sendPasswordResetEmail(to: string, token: string): Promise<void> {
+    if (isProduction) {
+      logger.warn(
+        { to },
+        "No mail provider configured: password reset email not sent",
+      );
+      return Promise.resolve();
+    }
+
+    logger.info(
+      { to, token },
+      "Password reset email (development only — not actually sent). " +
+        'Reset with: POST /auth/reset-password { "token": "<token>", "password": "<new password>" }',
+    );
+    return Promise.resolve();
+  },
 };

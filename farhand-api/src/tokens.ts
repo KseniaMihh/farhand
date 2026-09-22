@@ -26,6 +26,14 @@ const TOKEN_BYTES = 32;
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * How long a password reset link works: one hour — much shorter than the day a
+ * verification link gets. A reset link can take over the account, so the
+ * window in which a leaked or forwarded email is dangerous should be small.
+ * Someone who asks for a reset is usually waiting for the email right now.
+ */
+export const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+
+/**
  * A new raw token, safe to put in a URL.
  *
  * Never Math.random() — it is predictable. node:crypto is the
@@ -77,6 +85,35 @@ export async function createVerificationToken(
       type: "EMAIL_VERIFICATION",
       tokenHash: hashToken(raw),
       expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
+    },
+  });
+
+  return raw;
+}
+
+/**
+ * Issues a password-reset token for a user. Returns the RAW token, for the
+ * caller to email; stores only its hash.
+ */
+export async function createPasswordResetToken(
+  db: Prisma.TransactionClient,
+  userId: string,
+): Promise<string> {
+  // Retire every earlier, still-unused reset link first — only the newest
+  // one should ever work.
+  await db.verificationToken.updateMany({
+    where: { userId, type: "PASSWORD_RESET", usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  const raw = generateToken();
+
+  await db.verificationToken.create({
+    data: {
+      userId,
+      type: "PASSWORD_RESET",
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
     },
   });
 

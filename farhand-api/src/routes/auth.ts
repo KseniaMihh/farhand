@@ -2,7 +2,11 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { createVerificationToken, hashToken } from "../tokens.js";
+import {
+  createPasswordResetToken,
+  createVerificationToken,
+  hashToken,
+} from "../tokens.js";
 import { mailer } from "../mailer.js";
 import { HttpError } from "../errors.js";
 import {
@@ -326,4 +330,124 @@ authRouter.post("/auth/logout", requireAuth, async (req, res) => {
 
   res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
   res.status(204).end();
+});
+
+/**
+ * What a forgot-password request must contain. The email is normalised and
+ * checked exactly as at registration — registerSchema's own rule, reused.
+ */
+export const forgotPasswordSchema = z.object({
+  email: registerSchema.shape.email,
+});
+
+/**
+ * What a reset request must contain: the token from the email, and the new
+ * password.
+ *
+ * The new password follows the REGISTRATION rules — registerSchema's own
+ * rule, so there is one definition of a valid password, not two that drift
+ * apart. (Login is looser on purpose; that is about checking an old password,
+ * this is about choosing a new one.)
+ */
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(1),
+  password: registerSchema.shape.password,
+});
+
+/**
+ * POST /auth/forgot-password
+ *
+ * "I forgot my password — email me a link." Answers the same whether or not
+ * the email has an account, so it cannot be used to find out who does.
+ *
+ * Known and deliberate: the path with an account does a little more work (a
+ * database write) than the path without, so it is a few milliseconds slower.
+ * That is far smaller than #11's 4-versus-18 ms argon2 gap, but it is not
+ * zero. The complete fix comes with v2's background job queue: every request
+ * enqueues a job, and the worker decides whether there is anyone to email —
+ * then the request path is identical for everyone.
+ */
+authRouter.post("/auth/forgot-password", async (req, res) => {
+  const { email } = forgotPasswordSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  // Unverified users DO get a link — clicking it proves they own the
+  // address, same as verification does. BANNED/DELETED users do not: there
+  // is nothing useful a reset link could do for an account they can't use.
+  if (user && user.status !== "BANNED" && user.status !== "DELETED") {
+    const rawToken = await createPasswordResetToken(prisma, user.id);
+    await mailer.sendPasswordResetEmail(user.email, rawToken);
+  }
+
+  // Same reply either way — this is the point, same as registration's
+  // identical response.
+  res.status(200).json({
+    message: "If an account exists for that email, a reset link is on its way.",
+  });
+});
+
+/**
+ * POST /auth/reset-password
+ *
+ * Sets a new password with the token from the email, and logs the account out
+ * everywhere.
+ */
+authRouter.post("/auth/reset-password", async (req, res) => {
+  // Parsed first: a too-short new password gets 422 before the token is
+  // touched, so the link still works and the person can just try again.
+  const { token, password } = resetPasswordSchema.parse(req.body);
+
+  const invalid = () =>
+    new HttpError(
+      422,
+      "VALIDATION_FAILED",
+      "This link is invalid or has expired",
+    );
+
+  const row = await prisma.verificationToken.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: { user: true },
+  });
+
+  if (
+    row?.type !== "PASSWORD_RESET" ||
+    row.usedAt !== null ||
+    row.expiresAt < new Date() ||
+    row.user.status === "BANNED" ||
+    row.user.status === "DELETED"
+  ) {
+    throw invalid();
+  }
+
+  // Hash BEFORE the transaction — a transaction holds database locks while
+  // it runs, and argon2 is deliberately slow.
+  const passwordHash = await hashPassword(password);
+
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.verificationToken.updateMany({
+      where: { id: row.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    if (count === 0) throw invalid();
+
+    await tx.user.update({
+      where: { id: row.userId },
+      data: {
+        passwordHash,
+        // Reaching this link proves they own the address. Keep an existing
+        // verification date if there already was one.
+        emailVerifiedAt: row.user.emailVerifiedAt ?? new Date(),
+      },
+    });
+
+    // Someone else may know the old password — log out every device, not
+    // just this one.
+    await tx.session.deleteMany({ where: { userId: row.userId } });
+  });
+
+  res.status(200).json({
+    message: "Password changed. Log in with your new password.",
+  });
 });
