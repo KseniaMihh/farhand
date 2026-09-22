@@ -21,7 +21,8 @@ const TOKEN_BYTES = 32;
 /**
  * How long a verification link works. Long enough to survive "I'll check my
  * email after lunch", short enough that a link sitting in an old inbox is
- * dead. A new link can always be issued.
+ * dead. A new link can always be asked for, with POST
+ * /auth/resend-verification (#41).
  */
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -64,6 +65,45 @@ export function generateToken(): string {
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
+
+/*
+ * TODO(#41): refactor the two functions below into one shared helper.
+ *
+ * Right now createVerificationToken only creates a token. #41 needs it to
+ * retire older unused verification tokens first — exactly what
+ * createPasswordResetToken already does. After that, the two functions are
+ * the same except for the token type and the lifetime. Two copies of the same
+ * logic drift apart the first time someone fixes one and forgets the other.
+ *
+ * So:
+ *
+ *   1. Write one private function (not exported) that does the whole job:
+ *
+ *        async function issueToken(
+ *          db: Prisma.TransactionClient,
+ *          userId: string,
+ *          type: TokenType,
+ *          ttlMs: number,
+ *        ): Promise<string>
+ *
+ *      retire unused tokens of that type for that user → generate → create
+ *      with the hash and expiry → return the raw token. It is the body of
+ *      createPasswordResetToken with "PASSWORD_RESET" and the TTL replaced by
+ *      the parameters.
+ *
+ *   2. Make both exported functions one line each:
+ *
+ *        return issueToken(db, userId, "EMAIL_VERIFICATION", EMAIL_VERIFICATION_TTL_MS);
+ *
+ *      Keep their names and signatures: register, forgot-password and the
+ *      tests all call them, and none of that should have to change.
+ *
+ *   3. Import the TokenType type: `import type { Prisma, TokenType } from "@prisma/client";`
+ *
+ * Retiring on registration is harmless — a new user has no older tokens — so
+ * register keeps working unchanged. Run the whole suite after the refactor,
+ * not just the new tests: that is what proves nothing else broke.
+ */
 
 /**
  * Issues an email-verification token for a user. Returns the RAW token, for
