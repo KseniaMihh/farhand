@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   The four middlewares below are stubs and do not use their imports yet.
-   DELETE THIS LINE once they are implemented. */
 import type { Profile, Role, Session, User } from "@prisma/client";
 import { parseCookie } from "cookie";
 import type { Request, RequestHandler } from "express";
@@ -70,53 +67,51 @@ function readSessionToken(req: Request): string | undefined {
 /**
  * Is anyone logged in? Loads their session and user, or answers 401.
  *
- * TODO(#12):
- *
- *   1. readSessionToken(req). No cookie → throw HttpError.unauthorized().
- *
- *   2. Look the session up by hashToken(token) — the same hash login stored —
- *      including its user, and the user's profile:
- *
- *        prisma.session.findUnique({
- *          where: { tokenHash: ... },
- *          include: { user: { include: { profile: true } } },
- *        })
- *
- *   3. No session, or it has expired (expiresAt in the past) → 401.
- *
- *   4. The user is BANNED or DELETED → 401 as well. This check, on every
- *      request, is what ADR 0007 means by "banning takes effect immediately":
- *      the ban lands on the very next request, not whenever the cookie
- *      happens to expire. 401 rather than 403 because the session is no
- *      longer valid — as far as the API is concerned, nobody is logged in.
- *
- *   5. req.auth = { user: session.user, session }, then next().
- *
  * Use the same 401 — HttpError.unauthorized(), default message — for every
  * failure. The caller learns "log in again", nothing about why.
  *
  * This one is async (it queries the database). Express 5 forwards a throw
  * from an async middleware to the error handler by itself.
  */
-export const requireAuth: RequestHandler = (_req, _res, next) => {
-  // TODO(#12): replace this whole body, and make it async.
-  next(new Error("requireAuth is not implemented yet"));
+export const requireAuth: RequestHandler = async (req, _res, next) => {
+  const token = readSessionToken(req);
+  if (!token) {
+    next(HttpError.unauthorized());
+    return;
+  }
+
+  const session = await prisma.session.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: { user: { include: { profile: true } } },
+  });
+
+  if (
+    !session ||
+    session.expiresAt < new Date() ||
+    session.user.status === "BANNED" ||
+    session.user.status === "DELETED"
+  ) {
+    next(HttpError.unauthorized());
+    return;
+  }
+
+  req.auth = { user: session.user, session };
+  next();
 };
 
 /**
  * Has the user confirmed their email? 403 if not.
  *
- * TODO(#12): getAuth(req).user.emailVerifiedAt is null →
- * throw HttpError.forbidden("Confirm your email address first"). Otherwise
- * next().
- *
  * 403, not 401: we know exactly who they are. They are just not allowed yet.
  * Unverified users can log in and look around; they cannot post or propose
  * until they verify (docs/02-roles-and-permissions.md).
  */
-export const requireVerified: RequestHandler = (_req, _res, next) => {
-  // TODO(#12): replace this whole body.
-  next(new Error("requireVerified is not implemented yet"));
+export const requireVerified: RequestHandler = (req, _res, next) => {
+  if (getAuth(req).user.emailVerifiedAt === null) {
+    next(HttpError.forbidden("Confirm your email address first"));
+    return;
+  }
+  next();
 };
 
 /**
@@ -126,18 +121,22 @@ export const requireVerified: RequestHandler = (_req, _res, next) => {
  * suspended user can log in and see their deals, and this is what stops them
  * posting or messaging. Routes from #15 on will use it.
  *
- * TODO(#12): the user's status is SUSPENDED and their suspension has not
- * ended yet → throw HttpError.forbidden("Your account is suspended").
- * Otherwise next().
- *
  * "Not ended yet" means suspendedUntil is null (no end date) or in the future.
  * A suspendedUntil in the PAST means the suspension is over — nothing runs at
  * midnight to flip the status back to ACTIVE, so this check is what makes a
  * suspension end on time.
  */
-export const requireActive: RequestHandler = (_req, _res, next) => {
-  // TODO(#12): replace this whole body.
-  next(new Error("requireActive is not implemented yet"));
+export const requireActive: RequestHandler = (req, _res, next) => {
+  const { user } = getAuth(req);
+  const stillSuspended =
+    user.status === "SUSPENDED" &&
+    (user.suspendedUntil === null || user.suspendedUntil > new Date());
+
+  if (stillSuspended) {
+    next(HttpError.forbidden("Your account is suspended"));
+    return;
+  }
+  next();
 };
 
 /**
@@ -158,14 +157,14 @@ const ROLE_RANK: Record<Role, number> = {
  * A function that RETURNS a middleware, because it needs an argument:
  *
  *   router.post("/admin/users/:id/actions", requireAuth, requireRole("MODERATOR"), handler)
- *
- * TODO(#12): return a middleware that compares
- * ROLE_RANK[getAuth(req).user.role] with ROLE_RANK[minimum]. Below it →
- * throw HttpError.forbidden(). Otherwise next().
  */
 export function requireRole(minimum: Role): RequestHandler {
-  // TODO(#12): replace this whole body.
-  return (_req, _res, next) => {
-    next(new Error("requireRole is not implemented yet"));
+  return (req, _res, next) => {
+    const { user } = getAuth(req);
+    if (ROLE_RANK[user.role] < ROLE_RANK[minimum]) {
+      next(HttpError.forbidden());
+      return;
+    }
+    next();
   };
 }

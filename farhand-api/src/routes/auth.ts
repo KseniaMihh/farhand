@@ -15,8 +15,7 @@ import {
   SESSION_COOKIE,
   sessionCookieOptions,
 } from "../sessions.js";
-import { requireAuth } from "../middleware/auth.js";
-// TODO(#12): you will also want getAuth from "../middleware/auth.js".
+import { requireAuth, getAuth } from "../middleware/auth.js";
 
 export const authRouter: Router = Router();
 
@@ -280,24 +279,30 @@ authRouter.post("/auth/login", async (req, res) => {
  * decide between "Log in" and "Hello, Anna". requireAuth has already found the
  * user, so there is no database query here.
  *
- * TODO(#12): take the user from getAuth(req).user and reply 200 with:
- *
- *   {
- *     user: {
- *       id, email, role, status, suspendedUntil,
- *       emailVerified,            // a boolean, like login's reply
- *       profile: { displayName, bio, countryCode, city, avatarUrl }
- *     }
- *   }
- *
- * status and suspendedUntil are there so the frontend can show "your account
- * is suspended until …". Build the object field by field. Spreading the user
- * row (`...user`) would send passwordHash to the browser — the test checks.
+ * status and suspendedUntil are in the reply so the frontend can show "your
+ * account is suspended until …". The object is built field by field on
+ * purpose: spreading the user row (`...user`) would send passwordHash to the
+ * browser.
  */
-authRouter.get("/auth/me", requireAuth, (_req, res) => {
-  // TODO(#12): replace this whole body.
-  res.status(501).json({
-    error: { code: "INTERNAL", message: "Not implemented yet" },
+authRouter.get("/auth/me", requireAuth, (req, res) => {
+  const { user } = getAuth(req);
+
+  res.status(200).json({
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      suspendedUntil: user.suspendedUntil,
+      emailVerified: user.emailVerifiedAt !== null,
+      profile: {
+        displayName: user.profile?.displayName,
+        bio: user.profile?.bio,
+        countryCode: user.profile?.countryCode,
+        city: user.profile?.city,
+        avatarUrl: user.profile?.avatarUrl,
+      },
+    },
   });
 });
 
@@ -305,23 +310,20 @@ authRouter.get("/auth/me", requireAuth, (_req, res) => {
  * POST /auth/logout
  *
  * Ends THIS session — the device the request came from. Other devices stay
- * logged in.
- *
- * TODO(#12):
- *   1. Delete the session row: prisma.session.delete with
- *      getAuth(req).session.id. Deleting the row is what really logs out —
- *      the cookie might survive on the device, but it no longer points at
- *      anything, so requireAuth will reject it.
- *   2. Tell the browser to forget the cookie:
- *        res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
- *      Same options as when it was set: a cookie is only cleared if the path
- *      matches.
- *   3. Reply 204 No Content: res.status(204).end().
+ * logged in. Deleting the row is what really logs out: the cookie may survive
+ * on the device, but it no longer points at anything, so requireAuth rejects
+ * it.
  */
-authRouter.post("/auth/logout", requireAuth, async (_req, res) => {
-  // TODO(#12): replace this whole body.
-  await Promise.resolve();
-  res.status(501).json({
-    error: { code: "INTERNAL", message: "Not implemented yet" },
-  });
+authRouter.post("/auth/logout", requireAuth, async (req, res) => {
+  const { session } = getAuth(req);
+
+  // deleteMany, not delete. Two logouts at once (a double-click) both pass
+  // requireAuth; by the time the second deletes, the first already has, and
+  // Prisma's delete throws when nothing matches — a 500 for clicking twice.
+  // deleteMany just reports count: 0, so logging out twice ends exactly where
+  // logging out once does, and both requests can honestly answer 204.
+  await prisma.session.deleteMany({ where: { id: session.id } });
+
+  res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
+  res.status(204).end();
 });

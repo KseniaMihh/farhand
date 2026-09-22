@@ -1,5 +1,5 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
 import { SESSION_COOKIE } from "../../src/sessions.js";
@@ -217,5 +217,29 @@ describe("POST /auth/logout", () => {
     const response = await logout();
 
     expect(response.status).toBe(401);
+  });
+
+  /**
+   * The double-click on "Log out". Both requests pass requireAuth while the
+   * session still exists; the first deletes it, and the second must not fail
+   * for finding nothing left to delete.
+   *
+   * Staged rather than raced, for the reason given in verify-email.test.ts:
+   * real simultaneous requests do not reliably overlap. After the first
+   * logout, requireAuth's lookup is made to return the session as it looked
+   * before — what the second request saw.
+   */
+  it("answers a second, simultaneous logout with 204 too, not an error", async () => {
+    const anna = await signUpAndLogIn(app, "anna@example.com");
+    const before = await prisma.session.findFirstOrThrow({
+      include: { user: { include: { profile: true } } },
+    });
+
+    expect((await logout(anna.cookie)).status).toBe(204);
+
+    vi.spyOn(prisma.session, "findUnique").mockResolvedValueOnce(before);
+    const second = await logout(anna.cookie);
+
+    expect(second.status).toBe(204);
   });
 });
