@@ -3,6 +3,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hashPassword } from "../password.js";
+import { createVerificationToken, hashToken } from "../tokens.js";
+import { mailer } from "../mailer.js";
+import { HttpError } from "../errors.js";
 
 export const authRouter: Router = Router();
 
@@ -93,7 +96,7 @@ authRouter.post("/auth/register", async (req, res) => {
   try {
     // One transaction: a User without a Profile is a half-made account that
     // every later query would have to defend against. Both rows, or neither.
-    await prisma.$transaction(async (tx) => {
+    const rawToken = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: { email: data.email, passwordHash },
       });
@@ -105,20 +108,66 @@ authRouter.post("/auth/register", async (req, res) => {
           countryCode: data.countryCode,
         },
       });
-    });
-  } catch (error) {
-    // Insert-and-catch rather than check-then-insert: two simultaneous
-    // requests can both see "no such email" and both proceed. The unique index
-    // is the only thing that can decide this atomically.
-    //
-    // Only P2002 is swallowed. A database that cannot be reached must not look
-    // like a successful registration.
-    if (!isDuplicateKey(error)) throw error;
-  }
 
-  // The account stays unverified until #10 adds the email token; nothing here
-  // should set emailVerifiedAt.
+      return createVerificationToken(tx, user.id);
+    });
+
+    // Outside the transaction, after commit — mail can't be un-sent, but
+    // a row that never committed can simply not exist.
+    await mailer.sendVerificationEmail(data.email, rawToken);
+  } catch (error) {
+    if (!isDuplicateKey(error)) throw error;
+    // Duplicate path: no token, no email — the real owner already has one.
+  }
   res.status(201).json({
     message: "Check your email to verify your account.",
   });
+});
+
+/**
+ * What a verification request must contain: the raw token from the email.
+ * The shape only — whether the token is real is decided below.
+ */
+export const verifyEmailSchema = z.object({
+  token: z.string().trim().min(1),
+});
+
+authRouter.post("/auth/verify-email", async (req, res) => {
+  const { token } = verifyEmailSchema.parse(req.body);
+  const tokenHash = hashToken(token);
+
+  const invalid = () =>
+    new HttpError(
+      422,
+      "VALIDATION_FAILED",
+      "This link is invalid or has expired",
+    );
+
+  const row = await prisma.verificationToken.findUnique({
+    where: { tokenHash },
+  });
+
+  if (
+    row?.type !== "EMAIL_VERIFICATION" ||
+    row.usedAt !== null ||
+    row.expiresAt < new Date()
+  ) {
+    throw invalid();
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.verificationToken.updateMany({
+      where: { id: row.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    if (count === 0) throw invalid();
+
+    await tx.user.updateMany({
+      where: { id: row.userId, emailVerifiedAt: null },
+      data: { emailVerifiedAt: new Date() },
+    });
+  });
+
+  res.status(200).json({ message: "Email verified." });
 });

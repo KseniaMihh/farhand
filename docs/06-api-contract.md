@@ -104,7 +104,35 @@ this path too, so the two cases take roughly the same time.
 
 A body that fails the rules above returns `422` with `details` naming each
 field. The new account is unverified — `emailVerifiedAt` stays null until the
-address is confirmed.
+address is confirmed with `POST /auth/verify-email`. A new account is emailed
+a verification token; a repeat registration is not.
+
+### `POST /auth/verify-email`
+
+```json
+{ "token": "the token from the verification email" }
+```
+
+Returns `200`:
+
+```json
+{ "message": "Email verified." }
+```
+
+Sets `emailVerifiedAt` and uses up the token. An address that was already
+verified keeps its original timestamp.
+
+Returns `422` with the same body for every token that cannot be used: unknown,
+already used, expired, or of the wrong kind (a password-reset token). Telling
+"used" apart from "never existed" would help nobody who legitimately holds the
+link.
+
+Tokens are single use, even when two requests with the same token arrive at the
+same moment (a double-click). They expire 24 hours after registration.
+
+The raw token exists only in the email. The database stores its SHA-256 hash,
+so a leaked database contains no working links. In development there is no mail
+provider: the token is written to the server log instead.
 
 ## Profile
 

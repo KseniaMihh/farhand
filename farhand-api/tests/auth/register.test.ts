@@ -1,7 +1,9 @@
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
+import { mailer } from "../../src/mailer.js";
+import { EMAIL_VERIFICATION_TTL_MS } from "../../src/tokens.js";
 
 /**
  * POST /auth/register — issue #9.
@@ -93,6 +95,44 @@ describe("POST /auth/register — success", () => {
   });
 });
 
+describe("POST /auth/register — verification token (#10)", () => {
+  it("emails a verification token to the normalised address", async () => {
+    const send = vi.spyOn(mailer, "sendVerificationEmail");
+
+    await register(validPayload({ email: "  Anna@Example.COM " }));
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0]).toBe("anna@example.com");
+  });
+
+  it("stores only a hash of the token, never the token itself", async () => {
+    const send = vi.spyOn(mailer, "sendVerificationEmail");
+    await register(validPayload());
+    const rawToken = send.mock.calls[0]?.[1] ?? "";
+
+    const rows = await prisma.verificationToken.findMany();
+
+    expect(rawToken).not.toBe("");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.tokenHash).not.toBe(rawToken);
+    expect(rows[0]?.tokenHash).not.toContain(rawToken);
+  });
+
+  it("issues an unused email-verification token that expires in a day", async () => {
+    const before = Date.now();
+    await register(validPayload());
+
+    const row = await prisma.verificationToken.findFirstOrThrow();
+
+    expect(row.type).toBe("EMAIL_VERIFICATION");
+    expect(row.usedAt).toBeNull();
+    // A minute of slack either side, for a slow runner.
+    const expected = before + EMAIL_VERIFICATION_TTL_MS;
+    expect(row.expiresAt.getTime()).toBeGreaterThan(expected - 60_000);
+    expect(row.expiresAt.getTime()).toBeLessThan(expected + 60_000);
+  });
+});
+
 describe("POST /auth/register — a duplicate email is indistinguishable", () => {
   /**
    * The point of these two tests: someone who types an address into this
@@ -136,6 +176,16 @@ describe("POST /auth/register — a duplicate email is indistinguishable", () =>
     // The second attempt must not overwrite the real owner's password — that
     // would be account takeover dressed up as registration.
     expect(users[0]?.passwordHash).toBe(before.passwordHash);
+  });
+
+  it("sends no email and issues no token for the repeat attempt", async () => {
+    const send = vi.spyOn(mailer, "sendVerificationEmail");
+
+    await register(validPayload());
+
+    expect(send).not.toHaveBeenCalled();
+    // Only the token from the first registration, in beforeEach.
+    expect(await prisma.verificationToken.count()).toBe(1);
   });
 });
 
