@@ -80,7 +80,7 @@ failing dependency is a normal answer from this endpoint, not an error.
 | POST | `/auth/login` | — | Sets an httpOnly session cookie. Rate limited (#14) |
 | POST | `/auth/logout` | SESSION | Deletes this device's session |
 | GET | `/auth/me` | SESSION | Current user and profile |
-| POST | `/auth/forgot-password` | — | Always responds identically |
+| POST | `/auth/forgot-password` | — | Emails a one-hour reset link. Always responds identically |
 | POST | `/auth/reset-password` | — | Token plus new password; revokes all sessions |
 
 ### `POST /auth/register`
@@ -242,10 +242,61 @@ effect on the very next request — not when the cookie expires:
 | Session expired (30 days after login) | `401` |
 | Account banned or deleted since login | `401` |
 | Logged out | `401` — the cookie may linger in the browser, but it points at nothing |
+| Password reset since login | `401` — a reset logs out every device |
 
 The body is the same in every case. Beyond `SESSION`, an `AUTH` route answers
 `403` to an unverified user ("Confirm your email address first") or a suspended
 one, and a `MOD` route answers `403` to a regular user.
+
+### `POST /auth/forgot-password`
+
+```json
+{ "email": "anna@example.com" }
+```
+
+The email is normalised and validated as at registration. Returns `200` with the
+same body whether or not the email has an account:
+
+```json
+{ "message": "If an account exists for that email, a reset link is on its way." }
+```
+
+If the account exists and is not banned or deleted, a reset token is emailed
+(logged in development). Unverified accounts get one too. Asking again retires
+every earlier unused link, so only the newest one works. Links expire after one
+hour — much shorter than a verification link, because a reset link can take over
+the account.
+
+Known and deliberate: a real account costs one extra database write, so it
+answers a few milliseconds slower than an unknown email. The complete fix is to
+hand every request to the v2 background job queue and let the worker decide
+whether there is anyone to email.
+
+### `POST /auth/reset-password`
+
+```json
+{ "token": "the token from the reset email", "password": "a brand new passphrase" }
+```
+
+The new password follows the registration rules (8–72 characters). It is checked
+before the token, so a rejected password gets a `422` naming the field and leaves
+the link usable.
+
+Returns `200`:
+
+```json
+{ "message": "Password changed. Log in with your new password." }
+```
+
+A successful reset sets the new password, uses up the token, marks the email as
+verified if it was not already (the link reached the inbox, which proves
+ownership), and **logs the account out on every device**. It does not log the
+user in: they log in with the new password.
+
+Unknown, already used, expired and wrong-type tokens (a verification token), and
+tokens of an account banned or deleted since, all return `422` with the same
+body. Submitting the same token twice at the same moment changes the password
+once.
 
 ## Profile
 

@@ -198,6 +198,8 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
+| `POST /auth/forgot-password` | Emails a reset link that works for one hour. Answers the same whether or not the email has an account. |
+| `POST /auth/reset-password` | Sets a new password with the emailed token, and logs the account out on every device. |
 
 Every error response uses the same shape, so the frontend can write one handler
 rather than guessing per endpoint:
@@ -254,6 +256,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/login.test.ts` | Login: the cookie settings, hashed session storage, identical and equally slow failures, banned vs suspended |
 | `tests/auth/me-logout.test.ts` | `/auth/me`, logout, and requireAuth: expired sessions, bans landing on the next request, one device at a time |
 | `tests/auth/guards.test.ts` | requireVerified, requireActive and requireRole, each on a one-route test app |
+| `tests/auth/password-reset.test.ts` | Forgot and reset: identical answers, only the newest link working, expiry, reuse, and every device logged out |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -350,7 +353,7 @@ farhand/
 │   │   │   └── auth.ts         requireAuth, requireVerified, requireActive, requireRole
 │   │   └── routes/
 │   │       ├── health.ts
-│   │       └── auth.ts         register, verify email, log in, me, log out
+│   │       └── auth.ts         register, verify email, log in and out, me, reset password
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
@@ -361,7 +364,8 @@ farhand/
 │       │   ├── verify-email.test.ts
 │       │   ├── login.test.ts
 │       │   ├── me-logout.test.ts
-│       │   └── guards.test.ts
+│       │   ├── guards.test.ts
+│       │   └── password-reset.test.ts
 │       ├── helpers/
 │       │   └── auth.ts         signUpAndLogIn() for tests that need a user
 │       ├── health.test.ts
