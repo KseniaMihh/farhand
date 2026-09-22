@@ -466,36 +466,30 @@ export const resendVerificationSchema = z.object({
  * this, anyone who waited more than a day stayed unverified forever, and an
  * unverified user cannot post or propose. Found while reviewing #10.
  *
- * TODO(#41) — this is forgot-password (#13) with different conditions:
- *
- *   1. Parse the body with resendVerificationSchema.
- *
- *   2. Find the user by email.
- *
- *   3. Send a new link ONLY if the user exists, is NOT verified yet
- *      (emailVerifiedAt is null), and is not BANNED or DELETED:
- *        const rawToken = await createVerificationToken(prisma, user.id);
- *        await mailer.sendVerificationEmail(user.email, rawToken);
- *      Suspended users do get a link: they can log in, and confirming an
- *      address harms nobody.
- *
- *      Older links stop working because createVerificationToken retires them
- *      — once you have done the refactor in src/tokens.ts. This handler does
- *      not need to know about it.
- *
- *   4. Always reply 200 with one message, for example:
- *        { message: "If that account needs verifying, a new link is on its way." }
- *      The same for an unknown email, an already verified one, and one that
- *      really needed a link — so this cannot be used to learn who has an
- *      account, or whose account is verified.
- *
  * The same known few-millisecond gap as forgot-password: only the real case
  * writes to the database. Same future fix, with v2's job queue.
  */
-authRouter.post("/auth/resend-verification", async (_req, res) => {
-  // TODO(#41): implement. See the steps above.
-  await Promise.resolve();
-  res.status(501).json({
-    error: { code: "INTERNAL", message: "Not implemented yet" },
+authRouter.post("/auth/resend-verification", async (req, res) => {
+  const { email } = resendVerificationSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  // Send only when there is a real, unverified, not-banned-or-deleted
+  // account — otherwise nothing happens, and the answer looks the same.
+  //
+  // With no user, user?.emailVerifiedAt is undefined, and undefined === null
+  // is false — so this also means "and the user exists". Careful if it is ever
+  // changed to !== null: undefined !== null is true, and the meaning flips.
+  if (
+    user?.emailVerifiedAt === null &&
+    user.status !== "BANNED" &&
+    user.status !== "DELETED"
+  ) {
+    const rawToken = await createVerificationToken(prisma, user.id);
+    await mailer.sendVerificationEmail(user.email, rawToken);
+  }
+
+  res.status(200).json({
+    message: "If an account needs verifying, a new link is on its way.",
   });
 });

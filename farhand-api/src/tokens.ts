@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, TokenType } from "@prisma/client";
 
 /**
- * Single-use tokens: email verification now, password reset in #13.
+ * Single-use tokens, for email verification and password reset.
  *
  * The raw token goes to the user (by email); only its hash is stored. Anyone
  * who reads the VerificationToken table — a leaked backup, an over-broad
@@ -66,44 +66,38 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/*
- * TODO(#41): refactor the two functions below into one shared helper.
- *
- * Right now createVerificationToken only creates a token. #41 needs it to
- * retire older unused verification tokens first — exactly what
- * createPasswordResetToken already does. After that, the two functions are
- * the same except for the token type and the lifetime. Two copies of the same
- * logic drift apart the first time someone fixes one and forgets the other.
- *
- * So:
- *
- *   1. Write one private function (not exported) that does the whole job:
- *
- *        async function issueToken(
- *          db: Prisma.TransactionClient,
- *          userId: string,
- *          type: TokenType,
- *          ttlMs: number,
- *        ): Promise<string>
- *
- *      retire unused tokens of that type for that user → generate → create
- *      with the hash and expiry → return the raw token. It is the body of
- *      createPasswordResetToken with "PASSWORD_RESET" and the TTL replaced by
- *      the parameters.
- *
- *   2. Make both exported functions one line each:
- *
- *        return issueToken(db, userId, "EMAIL_VERIFICATION", EMAIL_VERIFICATION_TTL_MS);
- *
- *      Keep their names and signatures: register, forgot-password and the
- *      tests all call them, and none of that should have to change.
- *
- *   3. Import the TokenType type: `import type { Prisma, TokenType } from "@prisma/client";`
- *
- * Retiring on registration is harmless — a new user has no older tokens — so
- * register keeps working unchanged. Run the whole suite after the refactor,
- * not just the new tests: that is what proves nothing else broke.
+/**
+ * The one place a single-use token is issued. Both kinds work the same way —
+ * retire the older unused ones, store a hash, return the raw token — and
+ * differ only in type and lifetime, so they share this rather than keeping two
+ * copies that drift apart the first time one is fixed and the other is not.
  */
+async function issueToken(
+  db: Prisma.TransactionClient,
+  userId: string,
+  type: TokenType,
+  ttlMs: number,
+): Promise<string> {
+  // Retire every earlier, still-unused token of this type first — only the
+  // newest one should ever work.
+  await db.verificationToken.updateMany({
+    where: { userId, type, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  const raw = generateToken();
+
+  await db.verificationToken.create({
+    data: {
+      userId,
+      type,
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + ttlMs),
+    },
+  });
+
+  return raw;
+}
 
 /**
  * Issues an email-verification token for a user. Returns the RAW token, for
@@ -117,18 +111,12 @@ export async function createVerificationToken(
   db: Prisma.TransactionClient,
   userId: string,
 ): Promise<string> {
-  const raw = generateToken();
-
-  await db.verificationToken.create({
-    data: {
-      userId,
-      type: "EMAIL_VERIFICATION",
-      tokenHash: hashToken(raw),
-      expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
-    },
-  });
-
-  return raw;
+  return issueToken(
+    db,
+    userId,
+    "EMAIL_VERIFICATION",
+    EMAIL_VERIFICATION_TTL_MS,
+  );
 }
 
 /**
@@ -139,23 +127,5 @@ export async function createPasswordResetToken(
   db: Prisma.TransactionClient,
   userId: string,
 ): Promise<string> {
-  // Retire every earlier, still-unused reset link first — only the newest
-  // one should ever work.
-  await db.verificationToken.updateMany({
-    where: { userId, type: "PASSWORD_RESET", usedAt: null },
-    data: { usedAt: new Date() },
-  });
-
-  const raw = generateToken();
-
-  await db.verificationToken.create({
-    data: {
-      userId,
-      type: "PASSWORD_RESET",
-      tokenHash: hashToken(raw),
-      expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
-    },
-  });
-
-  return raw;
+  return issueToken(db, userId, "PASSWORD_RESET", PASSWORD_RESET_TTL_MS);
 }
