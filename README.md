@@ -193,7 +193,8 @@ npm run dev        # tsx watch - restarts on every save
 | --- | --- |
 | `GET /health` | Liveness. Is the process responding? Checks nothing else, because restarting the API won't fix a database that is down. |
 | `GET /health/ready` | Readiness. Round-trips the database and returns 503 if it's unreachable, so a load balancer can route around a broken instance. |
-| `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. |
+| `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
+| `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
 
 Every error response uses the same shape, so the frontend can write one handler
 rather than guessing per endpoint:
@@ -246,6 +247,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/setup/truncate.ts` | The safety check, and the truncation before each test |
 | `tests/health.test.ts` | `/health`, `/health/ready`, and the 404 error shape |
 | `tests/auth/register.test.ts` | Registration: validation, hashing, the one-transaction rule, and the identical duplicate response |
+| `tests/auth/verify-email.test.ts` | Verification: single use (including a staged double-click), expiry, wrong token type, identical rejections |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -334,17 +336,20 @@ farhand/
 │   │   ├── logger.ts           pino
 │   │   ├── errors.ts           HttpError and the error response shape
 │   │   ├── password.ts         argon2id hashing; the only file that imports argon2
+│   │   ├── tokens.ts           single-use tokens: generated, hashed, stored
+│   │   ├── mailer.ts           outgoing email; logs the token in development
 │   │   ├── middleware/
 │   │   └── routes/
 │   │       ├── health.ts
-│   │       └── auth.ts         registration; login and sessions to follow
+│   │       └── auth.ts         registration and email verification
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
 │       │   ├── global-setup.ts creates the test database, applies migrations
 │       │   └── truncate.ts     safety check, and TRUNCATE before each test
 │       ├── auth/
-│       │   └── register.test.ts
+│       │   ├── register.test.ts
+│       │   └── verify-email.test.ts
 │       ├── health.test.ts
 │       └── isolation.test.ts   proves the harness isolates tests
 └── farhand-web/                planned: Next.js frontend
