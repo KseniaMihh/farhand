@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   createSession below is a stub and does not use its arguments yet. DELETE
-   THIS LINE once it is implemented. */
 import type { Prisma } from "@prisma/client";
 import type { CookieOptions } from "express";
 import { isProduction } from "./env.js";
@@ -76,24 +73,24 @@ export interface SessionMeta {
 
 /**
  * Starts a session for a user. Returns the RAW token, for the cookie; stores
- * only its hash.
- *
- * TODO(#11): you have written this before — it is createVerificationToken from
- * #10 with a different table:
- *   1. generateToken()
- *   2. db.session.create with the userId, tokenHash: hashToken(raw),
- *      expiresAt: now + SESSION_TTL_MS, and the userAgent and ipAddress from
- *      `meta`
- *   3. return the raw token
- *
- * One Prisma detail: with `exactOptionalPropertyTypes` on in tsconfig, you
- * cannot pass `undefined` to a nullable column — pass `meta.userAgent ?? null`.
+ * only its hash. The same shape as createVerificationToken in tokens.ts.
  */
 export async function createSession(
   db: Prisma.TransactionClient,
   userId: string,
   meta: SessionMeta,
 ): Promise<string> {
-  // TODO(#11): replace this whole body.
-  return Promise.reject(new Error("createSession is not implemented yet"));
+  const raw = generateToken();
+
+  await db.session.create({
+    data: {
+      userId,
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+      userAgent: meta.userAgent ?? null,
+      ipAddress: meta.ipAddress ?? null,
+    },
+  });
+
+  return raw;
 }

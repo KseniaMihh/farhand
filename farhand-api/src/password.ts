@@ -1,7 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   The stubs at the bottom of this file do not use their arguments or the
-   imports yet. DELETE THIS LINE once both functions are implemented — if it
-   stops being necessary and stays, it hides real unused-variable bugs. */
 import { hash, verify } from "@node-rs/argon2";
 
 /**
@@ -65,22 +61,17 @@ export async function hashPassword(plaintext: string): Promise<string> {
 }
 
 /**
- * Checks a plaintext password against a stored hash. Needed by login (#11);
- * here now so the pair lives together.
+ * Checks a plaintext password against a stored hash. Used by login.
  *
  * Do NOT hash the input and compare strings — the salt is random per password,
  * so the digests would never match. argon2's `verify` reads the parameters and
  * salt out of the stored hash and does a constant-time comparison.
- *
- * TODO(#11): `return verify(storedHash, plaintext)` — one line. Then DELETE the
- * eslint-disable comment at the top of this file: nothing is unused any more.
  */
 export async function verifyPassword(
   storedHash: string,
   plaintext: string,
 ): Promise<boolean> {
-  // TODO(#11): replace this whole body.
-  return Promise.reject(new Error("verifyPassword is not implemented yet"));
+  return verify(storedHash, plaintext);
 }
 
 /**
