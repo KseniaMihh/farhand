@@ -94,36 +94,28 @@ export async function createVerificationToken(
 /**
  * Issues a password-reset token for a user. Returns the RAW token, for the
  * caller to email; stores only its hash.
- *
- * TODO(#13): the same as createVerificationToken above, with two differences:
- *
- *   1. type "PASSWORD_RESET" and PASSWORD_RESET_TTL_MS.
- *
- *   2. FIRST, before creating the new token, retire every earlier reset token
- *      for this user that has not been used yet:
- *
- *        db.verificationToken.updateMany({
- *          where: { userId, type: "PASSWORD_RESET", usedAt: null },
- *          data: { usedAt: new Date() },
- *        })
- *
- *      So only the newest link ever works. Someone who clicks "forgot
- *      password" three times has three emails; if an older one leaks (a
- *      forwarded message, a shared inbox), it is already dead.
- *
- * Marking them used rather than deleting them keeps the history, and a used
- * token already fails the check in reset-password, so no new rule is needed.
  */
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   Covers only this stub, which does not use its arguments yet. DELETE this
-   comment and the eslint-enable below it once the function is implemented. */
 export async function createPasswordResetToken(
   db: Prisma.TransactionClient,
   userId: string,
 ): Promise<string> {
-  // TODO(#13): replace this whole body.
-  return Promise.reject(
-    new Error("createPasswordResetToken is not implemented yet"),
-  );
+  // Retire every earlier, still-unused reset link first — only the newest
+  // one should ever work.
+  await db.verificationToken.updateMany({
+    where: { userId, type: "PASSWORD_RESET", usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  const raw = generateToken();
+
+  await db.verificationToken.create({
+    data: {
+      userId,
+      type: "PASSWORD_RESET",
+      tokenHash: hashToken(raw),
+      expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
+    },
+  });
+
+  return raw;
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */

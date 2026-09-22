@@ -2,7 +2,11 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { createVerificationToken, hashToken } from "../tokens.js";
+import {
+  createPasswordResetToken,
+  createVerificationToken,
+  hashToken,
+} from "../tokens.js";
 import { mailer } from "../mailer.js";
 import { HttpError } from "../errors.js";
 import {
@@ -356,21 +360,6 @@ export const resetPasswordSchema = z.object({
  * "I forgot my password — email me a link." Answers the same whether or not
  * the email has an account, so it cannot be used to find out who does.
  *
- * TODO(#13):
- *
- *   1. Parse the body with forgotPasswordSchema.
- *
- *   2. Find the user by email.
- *
- *   3. If there is a user, and they are not BANNED or DELETED:
- *        const rawToken = await createPasswordResetToken(prisma, user.id);
- *        await mailer.sendPasswordResetEmail(user.email, rawToken);
- *      Unverified users DO get a link — clicking it proves they own the
- *      address, which is what verification proves too.
- *
- *   4. Always reply 200 with the same message, for example:
- *        { message: "If an account exists for that email, a reset link is on its way." }
- *
  * Known and deliberate: the path with an account does a little more work (a
  * database write) than the path without, so it is a few milliseconds slower.
  * That is far smaller than #11's 4-versus-18 ms argon2 gap, but it is not
@@ -378,11 +367,23 @@ export const resetPasswordSchema = z.object({
  * enqueues a job, and the worker decides whether there is anyone to email —
  * then the request path is identical for everyone.
  */
-authRouter.post("/auth/forgot-password", async (_req, res) => {
-  // TODO(#13): implement. See the steps above.
-  await Promise.resolve();
-  res.status(501).json({
-    error: { code: "INTERNAL", message: "Not implemented yet" },
+authRouter.post("/auth/forgot-password", async (req, res) => {
+  const { email } = forgotPasswordSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  // Unverified users DO get a link — clicking it proves they own the
+  // address, same as verification does. BANNED/DELETED users do not: there
+  // is nothing useful a reset link could do for an account they can't use.
+  if (user && user.status !== "BANNED" && user.status !== "DELETED") {
+    const rawToken = await createPasswordResetToken(prisma, user.id);
+    await mailer.sendPasswordResetEmail(user.email, rawToken);
+  }
+
+  // Same reply either way — this is the point, same as registration's
+  // identical response.
+  res.status(200).json({
+    message: "If an account exists for that email, a reset link is on its way.",
   });
 });
 
@@ -391,50 +392,62 @@ authRouter.post("/auth/forgot-password", async (_req, res) => {
  *
  * Sets a new password with the token from the email, and logs the account out
  * everywhere.
- *
- * TODO(#13), in this order:
- *
- *   1. Parse the body with resetPasswordSchema. This comes FIRST: a new
- *      password that is too short gets a 422 before the token is touched, so
- *      the person can fix the password and try again with the same link.
- *
- *   2. Look the token up by hashToken(token), including its user.
- *
- *   3. One identical 422 — as in verify-email — when the token is missing, is
- *      not a PASSWORD_RESET token (a verification token must not change a
- *      password), is used, has expired, or belongs to a BANNED or DELETED
- *      user:
- *        throw new HttpError(422, "VALIDATION_FAILED",
- *          "This link is invalid or has expired");
- *
- *   4. Hash the new password with hashPassword() — BEFORE the transaction.
- *      A transaction holds database locks while it runs; the slow argon2
- *      work should not happen while it does.
- *
- *   5. In ONE transaction:
- *        a. Consume the token with updateMany({ where: { id, usedAt: null } })
- *           and check the count — your single-use pattern from #10. Count 0
- *           → throw the same 422.
- *        b. Update the user: the new passwordHash, and emailVerifiedAt set to
- *           now if it was still null. The link reached their inbox, which
- *           proves they own the address — so resetting also verifies.
- *        c. Delete ALL the user's sessions: session.deleteMany({ where:
- *           { userId } }). Someone resets a password because they think
- *           someone else might know it; every device logged in with the old
- *           one — including a stranger's — must be logged out now.
- *
- *   6. Reply 200, for example:
- *        { message: "Password changed. Log in with your new password." }
- *      Do not log them in automatically: a login proves they know the NEW
- *      password, and it starts a fresh session.
- *
- * Imports you will need: createPasswordResetToken from ../tokens.js.
- * hashToken, hashPassword, mailer and HttpError are already imported.
  */
-authRouter.post("/auth/reset-password", async (_req, res) => {
-  // TODO(#13): implement. See the steps above.
-  await Promise.resolve();
-  res.status(501).json({
-    error: { code: "INTERNAL", message: "Not implemented yet" },
+authRouter.post("/auth/reset-password", async (req, res) => {
+  // Parsed first: a too-short new password gets 422 before the token is
+  // touched, so the link still works and the person can just try again.
+  const { token, password } = resetPasswordSchema.parse(req.body);
+
+  const invalid = () =>
+    new HttpError(
+      422,
+      "VALIDATION_FAILED",
+      "This link is invalid or has expired",
+    );
+
+  const row = await prisma.verificationToken.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: { user: true },
+  });
+
+  if (
+    row?.type !== "PASSWORD_RESET" ||
+    row.usedAt !== null ||
+    row.expiresAt < new Date() ||
+    row.user.status === "BANNED" ||
+    row.user.status === "DELETED"
+  ) {
+    throw invalid();
+  }
+
+  // Hash BEFORE the transaction — a transaction holds database locks while
+  // it runs, and argon2 is deliberately slow.
+  const passwordHash = await hashPassword(password);
+
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.verificationToken.updateMany({
+      where: { id: row.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    if (count === 0) throw invalid();
+
+    await tx.user.update({
+      where: { id: row.userId },
+      data: {
+        passwordHash,
+        // Reaching this link proves they own the address. Keep an existing
+        // verification date if there already was one.
+        emailVerifiedAt: row.user.emailVerifiedAt ?? new Date(),
+      },
+    });
+
+    // Someone else may know the old password — log out every device, not
+    // just this one.
+    await tx.session.deleteMany({ where: { userId: row.userId } });
+  });
+
+  res.status(200).json({
+    message: "Password changed. Log in with your new password.",
   });
 });
