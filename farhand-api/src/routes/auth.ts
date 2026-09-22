@@ -2,10 +2,19 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { hashPassword } from "../password.js";
 import { createVerificationToken, hashToken } from "../tokens.js";
 import { mailer } from "../mailer.js";
 import { HttpError } from "../errors.js";
+import {
+  hashPassword,
+  verifyPassword,
+  DUMMY_PASSWORD_HASH,
+} from "../password.js";
+import {
+  createSession,
+  SESSION_COOKIE,
+  sessionCookieOptions,
+} from "../sessions.js";
 
 export const authRouter: Router = Router();
 
@@ -170,4 +179,94 @@ authRouter.post("/auth/verify-email", async (req, res) => {
   });
 
   res.status(200).json({ message: "Email verified." });
+});
+
+/**
+ * What a login request must contain.
+ *
+ * Deliberately looser than registerSchema. The password only has to be a
+ * non-empty string — NOT the 8–72 characters that registration demands. Two
+ * reasons: if the minimum is ever raised, people with older, shorter passwords
+ * must still be able to log in; and a 422 saying "password too short" would
+ * answer a question the attacker has no business asking. A wrong password of
+ * any length gets the same 401.
+ *
+ * The email IS normalised the same way as at registration, or "Anna@x.com"
+ * would never find the account stored as "anna@x.com".
+ */
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase(),
+  password: z.string().min(1),
+});
+
+/**
+ * POST /auth/login
+ *
+ * Checks the email and password and, if they are right, starts a session and
+ * sets it as a cookie. The order of the checks is the point of this endpoint:
+ *
+ *   - An unknown email, a wrong password and a DELETED account all get the
+ *     same 401. "No account with that email" would let anyone check whether
+ *     an address uses Farhand — the thing registration works so hard to hide.
+ *
+ *   - BANNED is checked only after the password. Checked first, typing an
+ *     email alone would reveal that the account exists.
+ *
+ *   - SUSPENDED and unverified users are let in
+ *     (docs/02-roles-and-permissions.md). What they may not do is enforced
+ *     per action, from #12 on.
+ *
+ * The reply says who is logged in — never the user row itself, which holds
+ * passwordHash. Never log the request body here: it holds a plaintext password.
+ */
+authRouter.post("/auth/login", async (req, res) => {
+  const { email, password } = loginSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { profile: true },
+  });
+
+  // Always check the password, even with no user — against a real hash that
+  // can never match, so "unknown email" and "wrong password" take the same
+  // time. See DUMMY_PASSWORD_HASH's comment for why the gap otherwise leaks
+  // who has an account.
+  const passwordOk = await verifyPassword(
+    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    password,
+  );
+
+  if (!user || !passwordOk || user.status === "DELETED") {
+    throw HttpError.unauthorized("Email or password is incorrect");
+  }
+
+  // Checked only now — after the password — so typing an email alone can
+  // never reveal whether that account is banned.
+  if (user.status === "BANNED") {
+    throw HttpError.forbidden("This account has been banned");
+  }
+
+  const rawToken = await prisma.$transaction(async (tx) => {
+    const token = await createSession(tx, user.id, {
+      userAgent: req.get("user-agent"),
+      ipAddress: req.ip,
+    });
+
+    await tx.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    return token;
+  });
+
+  res.cookie(SESSION_COOKIE, rawToken, sessionCookieOptions());
+  res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      displayName: user.profile?.displayName,
+      emailVerified: user.emailVerifiedAt !== null,
+    },
+  });
 });

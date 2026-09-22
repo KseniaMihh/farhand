@@ -64,7 +64,7 @@ failing dependency is a normal answer from this endpoint, not an error.
 |---|---|---|---|
 | POST | `/auth/register` | — | Email, password, display name, country. Always responds the same whether or not the email exists |
 | POST | `/auth/verify-email` | — | Token from the email |
-| POST | `/auth/login` | — | Sets an httpOnly session cookie. Rate limited |
+| POST | `/auth/login` | — | Sets an httpOnly session cookie. Rate limited (#14) |
 | POST | `/auth/logout` | AUTH | Deletes the session |
 | GET | `/auth/me` | AUTH | Current user and profile |
 | POST | `/auth/forgot-password` | — | Always responds identically |
@@ -133,6 +133,53 @@ same moment (a double-click). They expire 24 hours after registration.
 The raw token exists only in the email. The database stores its SHA-256 hash,
 so a leaked database contains no working links. In development there is no mail
 provider: the token is written to the server log instead.
+
+### `POST /auth/login`
+
+```json
+{ "email": "anna@example.com", "password": "a decent long passphrase" }
+```
+
+The email is trimmed and lowercased, as at registration. The password only has
+to be non-empty: registration's length rules are not applied, so a wrong short
+password is a `401`, not a `422`.
+
+Returns `200`, sets the session cookie, and says who is logged in:
+
+```json
+{
+  "user": {
+    "id": "cm1…",
+    "email": "anna@example.com",
+    "displayName": "Anna",
+    "emailVerified": false
+  }
+}
+```
+
+**The session cookie** is `farhand_session`: a random token, stored in the
+`Session` table only as a SHA-256 hash. It is `HttpOnly` (page scripts cannot
+read it), `SameSite=Lax` (not sent on requests other sites trigger in the
+background, which blocks most CSRF), `Path=/`, and `Secure` in production only —
+development runs on plain http, where a Secure cookie would never be sent back.
+Sessions last 30 days, fixed; every login starts its own session, so each device
+has one.
+
+**Failures, and the order they are checked in:**
+
+| Case | Response |
+|---|---|
+| Unknown email, wrong password, or a `DELETED` account | `401`, the same body for all three |
+| `BANNED` account, right password | `403` |
+| `SUSPENDED` or unverified account | Logged in normally — restrictions apply per action |
+| Missing email or password | `422` |
+
+The password is checked before the account status, and it is checked even when
+the email matches no account, against a dummy hash. So an unknown email takes as
+long as a wrong password, and only someone who knows the password can learn that
+an account is banned.
+
+Rate limiting arrives in #14.
 
 ## Profile
 
