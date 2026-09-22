@@ -195,6 +195,7 @@ npm run dev        # tsx watch - restarts on every save
 | `GET /health/ready` | Readiness. Round-trips the database and returns 503 if it's unreachable, so a load balancer can route around a broken instance. |
 | `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
 | `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
+| `POST /auth/resend-verification` | Sends a new verification link and retires the older ones. Answers the same for every email. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
@@ -257,6 +258,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/me-logout.test.ts` | `/auth/me`, logout, and requireAuth: expired sessions, bans landing on the next request, one device at a time |
 | `tests/auth/guards.test.ts` | requireVerified, requireActive and requireRole, each on a one-route test app |
 | `tests/auth/password-reset.test.ts` | Forgot and reset: identical answers, only the newest link working, expiry, reuse, and every device logged out |
+| `tests/auth/resend-verification.test.ts` | Resend: a working new link, older links retired, and the same answer for unknown, verified and banned accounts |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -365,7 +367,8 @@ farhand/
 │       │   ├── login.test.ts
 │       │   ├── me-logout.test.ts
 │       │   ├── guards.test.ts
-│       │   └── password-reset.test.ts
+│       │   ├── password-reset.test.ts
+│       │   └── resend-verification.test.ts
 │       ├── helpers/
 │       │   └── auth.ts         signUpAndLogIn() for tests that need a user
 │       ├── health.test.ts

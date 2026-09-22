@@ -451,3 +451,45 @@ authRouter.post("/auth/reset-password", async (req, res) => {
     message: "Password changed. Log in with your new password.",
   });
 });
+
+/**
+ * What a resend request must contain: the email, checked as at registration.
+ */
+export const resendVerificationSchema = z.object({
+  email: registerSchema.shape.email,
+});
+
+/**
+ * POST /auth/resend-verification
+ *
+ * "My verification link expired, or never arrived — send me a new one." Without
+ * this, anyone who waited more than a day stayed unverified forever, and an
+ * unverified user cannot post or propose. Found while reviewing #10.
+ *
+ * The same known few-millisecond gap as forgot-password: only the real case
+ * writes to the database. Same future fix, with v2's job queue.
+ */
+authRouter.post("/auth/resend-verification", async (req, res) => {
+  const { email } = resendVerificationSchema.parse(req.body);
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  // Send only when there is a real, unverified, not-banned-or-deleted
+  // account — otherwise nothing happens, and the answer looks the same.
+  //
+  // With no user, user?.emailVerifiedAt is undefined, and undefined === null
+  // is false — so this also means "and the user exists". Careful if it is ever
+  // changed to !== null: undefined !== null is true, and the meaning flips.
+  if (
+    user?.emailVerifiedAt === null &&
+    user.status !== "BANNED" &&
+    user.status !== "DELETED"
+  ) {
+    const rawToken = await createVerificationToken(prisma, user.id);
+    await mailer.sendVerificationEmail(user.email, rawToken);
+  }
+
+  res.status(200).json({
+    message: "If an account needs verifying, a new link is on its way.",
+  });
+});

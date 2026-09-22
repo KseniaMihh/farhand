@@ -77,6 +77,7 @@ failing dependency is a normal answer from this endpoint, not an error.
 |---|---|---|---|
 | POST | `/auth/register` | — | Email, password, display name, country. Always responds the same whether or not the email exists |
 | POST | `/auth/verify-email` | — | Token from the email |
+| POST | `/auth/resend-verification` | — | A new verification link. Always responds identically |
 | POST | `/auth/login` | — | Sets an httpOnly session cookie. Rate limited (#14) |
 | POST | `/auth/logout` | SESSION | Deletes this device's session |
 | GET | `/auth/me` | SESSION | Current user and profile |
@@ -141,11 +142,35 @@ already used, expired, or of the wrong kind (a password-reset token). Telling
 link.
 
 Tokens are single use, even when two requests with the same token arrive at the
-same moment (a double-click). They expire 24 hours after registration.
+same moment (a double-click). They expire 24 hours after they are sent. Asking for a new link with
+`POST /auth/resend-verification` retires every older one, so only the newest
+works.
 
 The raw token exists only in the email. The database stores its SHA-256 hash,
 so a leaked database contains no working links. In development there is no mail
 provider: the token is written to the server log instead.
+
+### `POST /auth/resend-verification`
+
+For someone whose verification link expired or never arrived.
+
+```json
+{ "email": "anna@example.com" }
+```
+
+The email is normalised and validated as at registration. Returns `200` with the
+same body in every case:
+
+```json
+{ "message": "If an account needs verifying, a new link is on its way." }
+```
+
+A new link is emailed only when the account exists, is not verified yet, and is
+not banned or deleted — suspended users get one. Unknown and already verified
+addresses get the same answer and no email, so the endpoint reveals neither who
+has an account nor whose is verified. The new link retires every older one.
+
+The same known few-millisecond gap as `forgot-password`, with the same v2 fix.
 
 ### `POST /auth/login`
 
