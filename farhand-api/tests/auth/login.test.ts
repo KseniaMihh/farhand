@@ -186,6 +186,42 @@ describe("POST /auth/login — wrong credentials", () => {
     expect(unknownEmail.body).toEqual(wrongPassword.body);
   });
 
+  /**
+   * The identical-body test above is not enough on its own: an unknown email
+   * that skips the password check answers about four times faster (measured:
+   * ~4 ms against ~18 ms), and the speed alone reveals which emails have
+   * accounts. DUMMY_PASSWORD_HASH exists to close that.
+   *
+   * Timing tests are usually flaky, so this one compares the two cases with
+   * each other rather than against a fixed number of milliseconds, takes the
+   * median of seven tries each, and uses a cutoff far from both outcomes.
+   * Measured ratios: 0.21–0.24 without the dummy hash, 0.93–0.97 with it.
+   */
+  it("takes as long to reject an unknown email as a wrong password", async () => {
+    await registerAnna();
+
+    const median = (xs: number[]) =>
+      [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
+    const timed = async (email: string) => {
+      const start = performance.now();
+      await login(email, "not the right passphrase");
+      return performance.now() - start;
+    };
+
+    // Pinned: two equally fast failures (say, both a 501) would pass the
+    // ratio below without the password ever being checked.
+    expect((await login(EMAIL, "not the right passphrase")).status).toBe(401);
+
+    const wrongPassword: number[] = [];
+    const unknownEmail: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      wrongPassword.push(await timed(EMAIL));
+      unknownEmail.push(await timed("nobody@example.com"));
+    }
+
+    expect(median(unknownEmail) / median(wrongPassword)).toBeGreaterThan(0.5);
+  });
+
   it("does not apply the registration password rules to a login attempt", async () => {
     await registerAnna();
 
