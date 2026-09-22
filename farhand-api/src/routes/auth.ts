@@ -3,6 +3,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { hashPassword } from "../password.js";
+// TODO(#10): as you need them — createVerificationToken and hashToken from
+// "../tokens.js", mailer from "../mailer.js", HttpError from "../errors.js".
 
 export const authRouter: Router = Router();
 
@@ -105,7 +107,22 @@ authRouter.post("/auth/register", async (req, res) => {
           countryCode: data.countryCode,
         },
       });
+
+      // TODO(#10): issue the verification token here, INSIDE the transaction,
+      // with createVerificationToken(tx, user.id) — so an account never exists
+      // without a way to verify it. Return the raw token from this callback:
+      // `$transaction` passes the callback's return value through.
     });
+
+    // TODO(#10): send the email HERE — after the transaction, not inside it.
+    // Inside, a commit that fails after the send would leave someone holding
+    // a link to an account that was rolled back. Mail cannot be un-sent;
+    // rows can be un-written. So: write first, commit, then notify.
+    //
+    //   await mailer.sendVerificationEmail(data.email, rawToken);
+    //
+    // Nothing is sent on the duplicate path (the catch below): the real owner
+    // already has an account, and the response is identical either way.
   } catch (error) {
     // Insert-and-catch rather than check-then-insert: two simultaneous
     // requests can both see "no such email" and both proceed. The unique index
@@ -120,5 +137,70 @@ authRouter.post("/auth/register", async (req, res) => {
   // should set emailVerifiedAt.
   res.status(201).json({
     message: "Check your email to verify your account.",
+  });
+});
+
+/**
+ * What a verification request must contain: the raw token from the email.
+ * The shape only — whether the token is real is decided below.
+ */
+export const verifyEmailSchema = z.object({
+  token: z.string().trim().min(1),
+});
+
+/**
+ * POST /auth/verify-email
+ *
+ * Proves the user owns their address, by presenting the token that was sent
+ * to it. Sets emailVerifiedAt, and consumes the token so it cannot work twice.
+ *
+ * TODO(#10), roughly in this order:
+ *
+ *   1. Parse the body with verifyEmailSchema.
+ *
+ *   2. Hash the incoming token with hashToken() and look the row up by its
+ *      unique tokenHash.
+ *
+ *   3. Reject — with ONE identical error for every case — when the row is
+ *      missing, is the wrong type (a PASSWORD_RESET token must not verify an
+ *      email), has usedAt set, or has expiresAt in the past.
+ *
+ *        throw new HttpError(422, "VALIDATION_FAILED",
+ *          "This link is invalid or has expired");
+ *
+ *      422 per the conventions in docs/06-api-contract.md: the request was
+ *      readable, its content was wrong. One message for all four cases,
+ *      because telling "used" apart from "never existed" helps nobody who
+ *      legitimately holds the link.
+ *
+ *   4. Consume the token and mark the email verified in ONE transaction. The
+ *      part worth getting right is single use under concurrency: a user
+ *      double-clicks the link, and two requests arrive together. Both pass
+ *      step 3 — both saw usedAt as null. If both then write, the token was
+ *      used twice.
+ *
+ *      Same lesson as P2002 in register: let the database decide. Instead of
+ *      `update({ where: { id } })`, use
+ *
+ *        tx.verificationToken.updateMany({
+ *          where: { id: row.id, usedAt: null },
+ *          data: { usedAt: new Date() },
+ *        })
+ *
+ *      which returns { count }. The condition and the write happen as one
+ *      statement, so only one request can see count === 1. The other gets 0
+ *      and throws the same 422 — and throwing inside  rolls it
+ *      back.
+ *
+ *      Then set the user's emailVerifiedAt. Consider whether an address that
+ *      was already verified should keep its original timestamp.
+ *
+ *   5. Respond 200 with a short message.
+ */
+authRouter.post("/auth/verify-email", async (_req, res) => {
+  // TODO(#10): implement. See the steps above.
+  await Promise.resolve();
+  res.status(501).json({
+    error: { code: "INTERNAL", message: "Not implemented yet" },
   });
 });
