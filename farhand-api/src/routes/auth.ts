@@ -171,3 +171,85 @@ authRouter.post("/auth/verify-email", async (req, res) => {
 
   res.status(200).json({ message: "Email verified." });
 });
+
+/**
+ * What a login request must contain.
+ *
+ * Deliberately looser than registerSchema. The password only has to be a
+ * non-empty string — NOT the 8–72 characters that registration demands. Two
+ * reasons: if the minimum is ever raised, people with older, shorter passwords
+ * must still be able to log in; and a 422 saying "password too short" would
+ * answer a question the attacker has no business asking. A wrong password of
+ * any length gets the same 401.
+ *
+ * The email IS normalised the same way as at registration, or "Anna@x.com"
+ * would never find the account stored as "anna@x.com".
+ */
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase(),
+  password: z.string().min(1),
+});
+
+/**
+ * POST /auth/login
+ *
+ * Checks the email and password and, if they are right, starts a session and
+ * sets it as a cookie.
+ *
+ * TODO(#11), in this order — the ORDER is the point of this endpoint:
+ *
+ *   1. Parse the body with loginSchema.
+ *
+ *   2. Find the user by email, including their profile (for the reply).
+ *
+ *   3. Check the password with verifyPassword — ALWAYS, even when no user was
+ *      found. When there is no user, check it against DUMMY_PASSWORD_HASH from
+ *      ../password.js instead. That makes "unknown email" and "wrong password"
+ *      take the same time; the comment on DUMMY_PASSWORD_HASH explains why.
+ *
+ *   4. No user, wrong password, or status DELETED → the same error:
+ *
+ *        throw HttpError.unauthorized("Email or password is incorrect");
+ *
+ *      One message for all three. "No account with that email" would let
+ *      anyone check whether an address uses Farhand — the thing registration
+ *      works so hard to hide. DELETED counts as "no account": it is gone.
+ *
+ *   5. ONLY NOW check whether the account is BANNED → 403:
+ *
+ *        throw HttpError.forbidden("This account has been banned");
+ *
+ *      After the password check, not before. Checked first, "banned" would
+ *      tell anyone who typed the email that the account exists. Checked after,
+ *      only someone who knows the password learns it — and they own the
+ *      account anyway.
+ *
+ *      SUSPENDED users are let in (docs/02-roles-and-permissions.md): they can
+ *      still see and finish their deals. What they may not do is enforced in
+ *      #12. Unverified users are let in too.
+ *
+ *   6. createSession(prisma, user.id, { userAgent: req.get("user-agent"),
+ *      ipAddress: req.ip }), and set the user's lastLoginAt to now.
+ *
+ *   7. Set the cookie and reply 200 with who is logged in:
+ *
+ *        res.cookie(SESSION_COOKIE, rawToken, sessionCookieOptions());
+ *        res.json({ user: { id, email, displayName, emailVerified } });
+ *
+ *      emailVerified is a boolean (emailVerifiedAt !== null) — the frontend
+ *      needs to know whether to show "please confirm your email". Never put
+ *      the user row itself in the reply: it contains passwordHash.
+ *
+ * Imports you will need: verifyPassword and DUMMY_PASSWORD_HASH from
+ * ../password.js; createSession, SESSION_COOKIE and sessionCookieOptions from
+ * ../sessions.js. HttpError is already imported.
+ *
+ * Never log the request body here: it holds a plaintext password.
+ */
+authRouter.post("/auth/login", async (_req, res) => {
+  // TODO(#11): implement. See the steps above.
+  await Promise.resolve();
+  res.status(501).json({
+    error: { code: "INTERNAL", message: "Not implemented yet" },
+  });
+});

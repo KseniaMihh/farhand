@@ -72,7 +72,8 @@ export async function hashPassword(plaintext: string): Promise<string> {
  * so the digests would never match. argon2's `verify` reads the parameters and
  * salt out of the stored hash and does a constant-time comparison.
  *
- * TODO(#11): call argon2's `verify`. Leave it until you reach login.
+ * TODO(#11): `return verify(storedHash, plaintext)` — one line. Then DELETE the
+ * eslint-disable comment at the top of this file: nothing is unused any more.
  */
 export async function verifyPassword(
   storedHash: string,
@@ -81,3 +82,22 @@ export async function verifyPassword(
   // TODO(#11): replace this whole body.
   return Promise.reject(new Error("verifyPassword is not implemented yet"));
 }
+
+/**
+ * A real argon2id hash of a random string nobody knows, made with the same
+ * cost parameters as HASH_OPTIONS.
+ *
+ * Login uses it when the email does not match any account. Verifying the typed
+ * password against THIS hash takes as long as verifying it against a real one,
+ * so an unknown email and a wrong password take the same time to answer.
+ * Without it, an unknown email would return in about a millisecond and a known
+ * one in tens of milliseconds — and the speed alone would tell an attacker
+ * which emails have accounts. Same lesson as hashing on the duplicate path in
+ * registration.
+ *
+ * It can never match anything: the input that produced it was 32 random bytes,
+ * generated once and thrown away. If HASH_OPTIONS ever changes, regenerate this
+ * with the new parameters so the timing stays equal.
+ */
+export const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=19456,t=2,p=1$Yr1nY6lC5NZ7d0sqm4OGoQ$FJzxPvt5N4h0Em/7DQu3URuiLWloCyReHE1x4EE4dwE";
