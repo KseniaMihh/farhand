@@ -158,18 +158,38 @@ describe("POST /auth/verify-email — rejected tokens", () => {
 
 describe("POST /auth/verify-email — single use under concurrency", () => {
   /**
-   * The double-click. Two requests with the same token arrive together; both
-   * find the token unused. Exactly one may succeed.
+   * The double-click: two requests with the same token arrive together, and
+   * both look the token up before either has marked it used. Both see
+   * `usedAt: null`. Exactly one may succeed.
    *
-   * A check-then-update implementation can pass this by luck on a quiet
-   * machine, so a green run here is evidence, not proof. The updateMany
-   * approach in the TODO is what makes it true by construction.
+   * Racing two real requests does not test this. The requests do not reliably
+   * overlap, so a check-then-update implementation passes by luck — this was
+   * tried, and the naive version passed every run.
+   *
+   * So the race is staged instead. The token is used once for real; then the
+   * lookup is made to return the row as it looked BEFORE that — the stale
+   * read the losing request would see. From there, only a write that
+   * re-checks `usedAt` in the same statement (the updateMany in the TODO)
+   * can refuse. A plain update by id succeeds, and this test fails.
+   *
+   * It assumes the lookup is `findUnique`, the natural call for a unique
+   * column. Use `findFirst` and the stale row is never served, and this test
+   * passes without proving anything.
    */
-  it("lets exactly one of two simultaneous requests use the token", async () => {
+  it("refuses a second use even when the lookup still saw the token as unused", async () => {
     const token = await registerAndCaptureToken();
+    const unused = await prisma.verificationToken.findUniqueOrThrow({
+      where: { tokenHash: hashToken(token) },
+    });
 
-    const [a, b] = await Promise.all([verify(token), verify(token)]);
+    const first = await verify(token);
+    expect(first.status).toBe(200);
 
-    expect([a.status, b.status].sort()).toEqual([200, REJECTED]);
+    vi.spyOn(prisma.verificationToken, "findUnique").mockResolvedValueOnce(
+      unused,
+    );
+    const second = await verify(token);
+
+    expect(second.status).toBe(REJECTED);
   });
 });
