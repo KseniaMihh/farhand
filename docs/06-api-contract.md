@@ -78,11 +78,13 @@ failing dependency is a normal answer from this endpoint, not an error.
 | POST | `/auth/register` | — | Email, password, display name, country. Always responds the same whether or not the email exists |
 | POST | `/auth/verify-email` | — | Token from the email |
 | POST | `/auth/resend-verification` | — | A new verification link. Always responds identically |
-| POST | `/auth/login` | — | Sets an httpOnly session cookie. Rate limited (#14) |
+| POST | `/auth/login` | — | Sets an httpOnly session cookie |
 | POST | `/auth/logout` | SESSION | Deletes this device's session |
 | GET | `/auth/me` | SESSION | Current user and profile |
 | POST | `/auth/forgot-password` | — | Emails a one-hour reset link. Always responds identically |
 | POST | `/auth/reset-password` | — | Token plus new password; revokes all sessions |
+
+Every endpoint in this section is rate limited — see [Rate limits](#rate-limits) below.
 
 ### `POST /auth/register`
 
@@ -322,6 +324,43 @@ Unknown, already used, expired and wrong-type tokens (a verification token), and
 tokens of an account banned or deleted since, all return `422` with the same
 body. Submitting the same token twice at the same moment changes the password
 once.
+
+### Rate limits
+
+Every authentication endpoint is limited twice over: by the address the request
+came from, and by the account it is about. Either limit alone is easy to walk
+around — an attacker with a botnet has thousands of addresses, and one address
+can try a thousand accounts once each — so both run together.
+
+| Endpoints | Per address | Per account | Window |
+|---|---|---|---|
+| `/auth/login` | 20 | 10 | 15 minutes |
+| `/auth/register` | 10 | 5 | 1 hour |
+| `/auth/forgot-password`, `/auth/resend-verification` | 10 | 5 | 1 hour |
+| `/auth/verify-email`, `/auth/reset-password` | 30 | — | 15 minutes |
+
+The two email-sending endpoints share one budget: both send mail to whatever
+address was typed in, so five in total, not five each. The token endpoints have
+no account to count by; the address limit is what makes guessing at tokens
+pointless.
+
+The account key is the email from the request body, normalised the way the
+schemas normalise it, so `" Anna@X.com "` and `anna@x.com` share a budget.
+
+Over the limit returns `429` in the usual error shape, with `Retry-After` in
+seconds:
+
+```json
+{ "error": { "code": "TOO_MANY_REQUESTS", "message": "Too many requests, please try again later" } }
+```
+
+Every reply, not only a `429`, carries `RateLimit` and `RateLimit-Policy`
+headers, so a client can see what is left instead of guessing.
+
+The counts are held in the API process's memory. That is correct for one
+instance and wrong for several — each would count separately — so the store
+moves to Redis when the API is deployed behind more than one instance
+(`src/middleware/rate-limit.ts`).
 
 ## Profile
 
