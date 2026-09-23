@@ -241,10 +241,6 @@ function isForeignKeyError(error: unknown): boolean {
 
 /* ───────────────────────────── browsing (#16) ───────────────────────────── */
 
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   The four stubs below do not use their arguments yet. DELETE THIS LINE once
-   they are implemented; everything above it is finished code. */
-
 /** How many needs a page holds when the caller does not say. */
 export const DEFAULT_PAGE_SIZE = 20;
 
@@ -309,113 +305,107 @@ export function decodeCursor(cursor: string): CursorPosition {
 /**
  * The "everything after this position" condition, in the order the list is
  * sorted: newest first, and for a tie, the larger id first.
- *
- * TODO(#16): return the Prisma `where` fragment for a page that starts after
- * `position`, or {} when there is no cursor (the first page).
- *
- * The rule in words: take rows created BEFORE the cursor's moment, plus —
- * for rows created at exactly that moment — the ones whose id sorts below the
- * cursor's id. In Prisma:
- *
- *   {
- *     OR: [
- *       { createdAt: { lt: position.createdAt } },
- *       { createdAt: position.createdAt, id: { lt: position.id } },
- *     ],
- *   }
- *
- * The second line is what makes ties stable, and it is the whole reason the
- * cursor carries both values. This is "keyset" pagination: every page asks for
- * rows past a known position, so inserts and deletes elsewhere in the list
- * cannot shift it. `skip`/`take` counting would: insert one row and every
- * later page slides by one, showing a row twice or missing one entirely.
  */
 function afterCursor(position?: CursorPosition): Prisma.NeedWhereInput {
-  // TODO(#16): replace this whole body.
-  throw new Error("afterCursor is not implemented yet");
+  if (!position) return {};
+
+  return {
+    OR: [
+      { createdAt: { lt: position.createdAt } },
+      { createdAt: position.createdAt, id: { lt: position.id } },
+    ],
+  };
+}
+
+/**
+ * Turns the rows of a keyset query into a page.
+ *
+ * Every list asks for one row more than it needs. If that extra row came back
+ * there is another page, and the last row being returned becomes the cursor
+ * for it — which is cheaper than a second query counting the rest.
+ */
+function toPage(rows: Need[], limit: number): Page<Need> {
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = items.at(-1);
+
+  return { items, nextCursor: hasMore && last ? encodeCursor(last) : null };
 }
 
 /**
  * The public list: open needs, newest first.
- *
- * TODO(#16):
- *
- *   1. Build the where clause: status "OPEN", plus each filter that was given
- *      (an absent filter must not narrow anything), plus afterCursor(position).
- *
- *      Watch one trap here: the q filter needs an OR (title or description),
- *      and afterCursor returns an OR too. Spread both into the same object and
- *      the second silently replaces the first — a search that also pages would
- *      quietly lose its cursor, or its search. Put them in an AND array:
- *
- *        { status: "OPEN", ...exactMatches, AND: [afterCursor(position), ...] }
- *
- *      - buyCountry, deliverCountry, categoryId: exact matches.
- *      - q: matches the title OR the description, case-insensitively —
- *        { contains: filters.q, mode: "insensitive" }. There is no full-text
- *        index in v1; this is a plain LIKE, and fine at this size.
- *
- *   2. Ask for `limit + 1` rows, ordered by
- *      [{ createdAt: "desc" }, { id: "desc" }] — the same order the cursor
- *      assumes. Asking for one extra row is how you learn whether another page
- *      exists without a second count query.
- *
- *   3. If more than `limit` came back, drop the extra one and build the
- *      nextCursor from the LAST row you are returning, with encodeCursor.
- *      Otherwise nextCursor is null: this was the last page.
- *
- * Only OPEN needs, whoever is asking. A draft is private to its author, and a
- * closed, expired or matched need is no longer on offer.
  */
 export async function listOpenNeeds(
   filters: NeedFilters,
   position: CursorPosition | undefined,
   limit: number,
 ): Promise<Page<Need>> {
-  // TODO(#16): replace this whole body.
-  return Promise.reject(new Error("listOpenNeeds is not implemented yet"));
+  const rows = await prisma.need.findMany({
+    where: {
+      status: "OPEN",
+      ...(filters.buyCountry ? { buyCountry: filters.buyCountry } : {}),
+      ...(filters.deliverCountry
+        ? { deliverCountry: filters.deliverCountry }
+        : {}),
+      ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+      AND: [
+        afterCursor(position),
+        filters.q
+          ? {
+              OR: [
+                { title: { contains: filters.q, mode: "insensitive" } },
+                { description: { contains: filters.q, mode: "insensitive" } },
+              ],
+            }
+          : {},
+      ],
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+  });
+
+  return toPage(rows, limit);
 }
 
 /**
  * One need, if this caller may see it.
- *
- * TODO(#16):
- *
- *   1. Load it. Missing → HttpError.notFound("Need not found").
- *
- *   2. The owner sees their own need whatever its status — that is how they
- *      find their drafts.
- *
- *   3. Everyone else sees it only when the status is OPEN or MATCHED. A
- *      MATCHED need stays readable because a deal is running on it and both
- *      sides need to see what was agreed. Anything else → the same 404 as a
- *      need that does not exist: a draft nobody published should not be
- *      discoverable by trying ids.
- *
- * viewerId is undefined when nobody is logged in.
  */
 export async function getVisibleNeed(
   needId: string,
   viewerId: string | undefined,
 ): Promise<Need> {
-  // TODO(#16): replace this whole body.
-  return Promise.reject(new Error("getVisibleNeed is not implemented yet"));
+  const need = await prisma.need.findUnique({ where: { id: needId } });
+
+  if (!need) {
+    throw HttpError.notFound("Need not found");
+  }
+
+  const isOwner = need.requesterId === viewerId;
+  const isPubliclyVisible = need.status === "OPEN" || need.status === "MATCHED";
+
+  if (!isOwner && !isPubliclyVisible) {
+    throw HttpError.notFound("Need not found");
+  }
+
+  return need;
 }
 
 /**
  * The caller's own needs, every status, newest first.
- *
- * TODO(#16): the same paging as listOpenNeeds, with
- * `where: { requesterId: actor.id, ...afterCursor(position) }` and no status
- * filter. This is the page where someone finds their drafts, so it must show
- * what the public list hides.
  */
 export async function listMyNeeds(
   actor: User,
   position: CursorPosition | undefined,
   limit: number,
 ): Promise<Page<Need>> {
-  // TODO(#16): replace this whole body.
-  return Promise.reject(new Error("listMyNeeds is not implemented yet"));
+  const rows = await prisma.need.findMany({
+    // AND rather than a spread, for the reason listOpenNeeds needs it: the
+    // day this list gains a filter of its own that uses OR, a spread would
+    // silently replace the cursor's condition instead of adding to it.
+    where: { requesterId: actor.id, AND: [afterCursor(position)] },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+  });
+
+  return toPage(rows, limit);
 }
-/* eslint-enable @typescript-eslint/no-unused-vars */
