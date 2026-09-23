@@ -376,10 +376,88 @@ moves to Redis when the API is deployed behind more than one instance
 |---|---|---|---|
 | GET | `/needs` | — | Filters: `buyCountry`, `deliverCountry`, `categoryId`, `q`. Only `OPEN` |
 | GET | `/needs/:id` | — | Public |
-| POST | `/needs` | AUTH | Limited to N open needs per account |
+| POST | `/needs` | AUTH | Limited to 5 open needs per account |
 | PATCH | `/needs/:id` | AUTH | Owner only, `DRAFT` or `OPEN` only |
-| DELETE | `/needs/:id` | AUTH | Owner only, no live deal |
+| DELETE | `/needs/:id` | AUTH | Owner only, no live deal. Closes it; the row stays |
 | GET | `/me/needs` | AUTH | Includes non-public statuses |
+
+### `POST /needs`
+
+```json
+{
+  "categoryId": "cm1…",
+  "title": "Japanese sunscreen, 50 ml",
+  "description": "The Biore one that is not sold in Europe. Two bottles.",
+  "buyCountry": "JP",
+  "deliverCountry": "EE",
+  "currency": "EUR",
+  "estimatedPrice": 2400,
+  "thankYouAmount": 0,
+  "status": "OPEN",
+  "productUrl": null,
+  "storeName": null,
+  "expiresAt": null
+}
+```
+
+| Field | Rule |
+|---|---|
+| `categoryId` | Must be an existing category, or `400` |
+| `title` | 1–120 characters |
+| `description` | 1–2000 characters |
+| `buyCountry`, `deliverCountry` | Two letters, upper-cased |
+| `currency` | Three letters, ISO 4217, upper-cased |
+| `estimatedPrice` | Whole cents, above zero |
+| `thankYouAmount` | Whole cents, zero or more. Defaults to `0` |
+| `status` | `DRAFT` or `OPEN` only. Defaults to `OPEN` |
+| `productUrl`, `storeName`, `expiresAt` | May be `null` |
+
+Only `DRAFT` and `OPEN` can be asked for. `MATCHED` happens when a proposal is
+accepted, `CLOSED` when the requester takes the need down, `EXPIRED` when its
+date passes, and `REMOVED` when a moderator hides it.
+
+Returns `201` with `{ "need": { … } }`.
+
+**One account may have 5 open needs at a time** (`MAX_OPEN_NEEDS` in
+`src/services/needs.ts`), one of the three defences against spam listings in
+docs/07-trust-and-safety.md. A sixth returns `409` — the request is well
+formed, it is the account's state that conflicts. Drafts do not count; closed,
+expired and matched needs do not count.
+
+### `PATCH /needs/:id`
+
+Any subset of the fields above; what is not mentioned is not changed. Returns
+`200` with the updated need.
+
+Allowed only while the need is `DRAFT` or `OPEN`. Once it is `MATCHED` someone
+has agreed to shop for exactly what it said, so editing returns `409`.
+Publishing a draft (`status` from `DRAFT` to `OPEN`) counts against the
+open-needs limit, or saving drafts would be a way around it.
+
+### `DELETE /needs/:id`
+
+Returns `204`. **Closes the need — it does not erase it.** The status becomes
+`CLOSED` and the row stays, because proposals and messages point at it and
+"soft deletion everywhere" is deliberate (docs/05-data-model.md). Deleting an
+already closed need returns `204` again.
+
+Refused with `409` while a deal is live, meaning any deal on this need whose
+status is not `CANCELLED` — the same definition the database's
+`one_active_deal_per_need` index uses.
+
+### Who may change a need
+
+| Case | Response |
+|---|---|
+| Not signed in | `401` |
+| Email not confirmed, or account suspended | `403` |
+| Someone else's need | `403` |
+| No such need | `404` |
+
+`403` rather than `404` for someone else's need, unlike most of this API: a
+need is public, so refusing reveals nothing that `GET /needs/:id` would not.
+The rules themselves are enforced in `src/services/needs.ts`, not in the
+routes, so every future caller gets them too.
 
 ## Helps
 

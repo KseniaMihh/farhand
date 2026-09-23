@@ -1,0 +1,64 @@
+import type { Need } from "@prisma/client";
+import { prisma } from "../../src/db.js";
+
+/**
+ * Fixtures for need tests: a category to file a need under, and a deal to
+ * stand in the way of deleting one.
+ */
+
+/** A category, since a need cannot exist without one and tests start empty. */
+export async function createCategory(slug = "electronics") {
+  return prisma.category.create({
+    data: { slug, name: `${slug[0]?.toUpperCase() ?? ""}${slug.slice(1)}` },
+  });
+}
+
+/** A complete, valid request body for POST /needs. Override what matters. */
+export function needBody(
+  categoryId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    categoryId,
+    title: "Japanese sunscreen, 50 ml",
+    description: "The Biore one that is not sold in Europe. Two bottles.",
+    buyCountry: "JP",
+    deliverCountry: "EE",
+    currency: "EUR",
+    estimatedPrice: 2400,
+    ...overrides,
+  };
+}
+
+/**
+ * A deal on a need, which is what makes it undeletable.
+ *
+ * A deal cannot exist on its own: it hangs off a proposal, which is the single
+ * junction between a need and a helper (docs/05-data-model.md). So this makes
+ * both.
+ */
+export async function createDealFor(
+  need: Need,
+  helperId: string,
+  status: "MATCHED" | "CANCELLED" = "MATCHED",
+) {
+  const proposal = await prisma.proposal.create({
+    data: {
+      needId: need.id,
+      helperId,
+      initiatedBy: "HELPER",
+      status: "ACCEPTED",
+    },
+  });
+
+  return prisma.deal.create({
+    data: {
+      proposalId: proposal.id,
+      needId: need.id,
+      requesterId: need.requesterId,
+      helperId,
+      status,
+      currency: need.currency,
+    },
+  });
+}
