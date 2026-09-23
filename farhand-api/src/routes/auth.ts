@@ -20,6 +20,9 @@ import {
   sessionCookieOptions,
 } from "../sessions.js";
 import { requireAuth, getAuth } from "../middleware/auth.js";
+// Which endpoint gets which limit, and why: docs/06-api-contract.md and the
+// comment at the top of ../middleware/rate-limit.js.
+import { limiters } from "../middleware/rate-limit.js";
 
 export const authRouter: Router = Router();
 
@@ -99,44 +102,49 @@ function isDuplicateKey(error: unknown): boolean {
  * Never log the request body from here: it holds a plaintext password, and
  * pino would write it to disk.
  */
-authRouter.post("/auth/register", async (req, res) => {
-  const data = registerSchema.parse(req.body);
+authRouter.post(
+  "/auth/register",
+  limiters.registerByIp,
+  limiters.registerByAccount,
+  async (req, res) => {
+    const data = registerSchema.parse(req.body);
 
-  // Before the insert, and on the duplicate path too. Hashing only for new
-  // accounts would make duplicate requests measurably faster, which hands back
-  // the same oracle the identical response was meant to close.
-  const passwordHash = await hashPassword(data.password);
+    // Before the insert, and on the duplicate path too. Hashing only for new
+    // accounts would make duplicate requests measurably faster, which hands back
+    // the same oracle the identical response was meant to close.
+    const passwordHash = await hashPassword(data.password);
 
-  try {
-    // One transaction: a User without a Profile is a half-made account that
-    // every later query would have to defend against. Both rows, or neither.
-    const rawToken = await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: { email: data.email, passwordHash },
+    try {
+      // One transaction: a User without a Profile is a half-made account that
+      // every later query would have to defend against. Both rows, or neither.
+      const rawToken = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: { email: data.email, passwordHash },
+        });
+
+        await tx.profile.create({
+          data: {
+            userId: user.id,
+            displayName: data.displayName,
+            countryCode: data.countryCode,
+          },
+        });
+
+        return createVerificationToken(tx, user.id);
       });
 
-      await tx.profile.create({
-        data: {
-          userId: user.id,
-          displayName: data.displayName,
-          countryCode: data.countryCode,
-        },
-      });
-
-      return createVerificationToken(tx, user.id);
+      // Outside the transaction, after commit — mail can't be un-sent, but
+      // a row that never committed can simply not exist.
+      await mailer.sendVerificationEmail(data.email, rawToken);
+    } catch (error) {
+      if (!isDuplicateKey(error)) throw error;
+      // Duplicate path: no token, no email — the real owner already has one.
+    }
+    res.status(201).json({
+      message: "Check your email to verify your account.",
     });
-
-    // Outside the transaction, after commit — mail can't be un-sent, but
-    // a row that never committed can simply not exist.
-    await mailer.sendVerificationEmail(data.email, rawToken);
-  } catch (error) {
-    if (!isDuplicateKey(error)) throw error;
-    // Duplicate path: no token, no email — the real owner already has one.
-  }
-  res.status(201).json({
-    message: "Check your email to verify your account.",
-  });
-});
+  },
+);
 
 /**
  * What a verification request must contain: the raw token from the email.
@@ -146,7 +154,7 @@ export const verifyEmailSchema = z.object({
   token: z.string().trim().min(1),
 });
 
-authRouter.post("/auth/verify-email", async (req, res) => {
+authRouter.post("/auth/verify-email", limiters.tokenByIp, async (req, res) => {
   const { token } = verifyEmailSchema.parse(req.body);
   const tokenHash = hashToken(token);
 
@@ -224,57 +232,62 @@ export const loginSchema = z.object({
  * The reply says who is logged in — never the user row itself, which holds
  * passwordHash. Never log the request body here: it holds a plaintext password.
  */
-authRouter.post("/auth/login", async (req, res) => {
-  const { email, password } = loginSchema.parse(req.body);
+authRouter.post(
+  "/auth/login",
+  limiters.loginByIp,
+  limiters.loginByAccount,
+  async (req, res) => {
+    const { email, password } = loginSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: { profile: true },
-  });
-
-  // Always check the password, even with no user — against a real hash that
-  // can never match, so "unknown email" and "wrong password" take the same
-  // time. See DUMMY_PASSWORD_HASH's comment for why the gap otherwise leaks
-  // who has an account.
-  const passwordOk = await verifyPassword(
-    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
-    password,
-  );
-
-  if (!user || !passwordOk || user.status === "DELETED") {
-    throw HttpError.unauthorized("Email or password is incorrect");
-  }
-
-  // Checked only now — after the password — so typing an email alone can
-  // never reveal whether that account is banned.
-  if (user.status === "BANNED") {
-    throw HttpError.forbidden("This account has been banned");
-  }
-
-  const rawToken = await prisma.$transaction(async (tx) => {
-    const token = await createSession(tx, user.id, {
-      userAgent: req.get("user-agent"),
-      ipAddress: req.ip,
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { profile: true },
     });
 
-    await tx.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+    // Always check the password, even with no user — against a real hash that
+    // can never match, so "unknown email" and "wrong password" take the same
+    // time. See DUMMY_PASSWORD_HASH's comment for why the gap otherwise leaks
+    // who has an account.
+    const passwordOk = await verifyPassword(
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+      password,
+    );
+
+    if (!user || !passwordOk || user.status === "DELETED") {
+      throw HttpError.unauthorized("Email or password is incorrect");
+    }
+
+    // Checked only now — after the password — so typing an email alone can
+    // never reveal whether that account is banned.
+    if (user.status === "BANNED") {
+      throw HttpError.forbidden("This account has been banned");
+    }
+
+    const rawToken = await prisma.$transaction(async (tx) => {
+      const token = await createSession(tx, user.id, {
+        userAgent: req.get("user-agent"),
+        ipAddress: req.ip,
+      });
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+
+      return token;
     });
 
-    return token;
-  });
-
-  res.cookie(SESSION_COOKIE, rawToken, sessionCookieOptions());
-  res.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.profile?.displayName,
-      emailVerified: user.emailVerifiedAt !== null,
-    },
-  });
-});
+    res.cookie(SESSION_COOKIE, rawToken, sessionCookieOptions());
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.profile?.displayName,
+        emailVerified: user.emailVerifiedAt !== null,
+      },
+    });
+  },
+);
 
 /**
  * GET /auth/me
@@ -367,25 +380,31 @@ export const resetPasswordSchema = z.object({
  * enqueues a job, and the worker decides whether there is anyone to email —
  * then the request path is identical for everyone.
  */
-authRouter.post("/auth/forgot-password", async (req, res) => {
-  const { email } = forgotPasswordSchema.parse(req.body);
+authRouter.post(
+  "/auth/forgot-password",
+  limiters.emailToAddressByIp,
+  limiters.emailToAddressByAccount,
+  async (req, res) => {
+    const { email } = forgotPasswordSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email } });
 
-  // Unverified users DO get a link — clicking it proves they own the
-  // address, same as verification does. BANNED/DELETED users do not: there
-  // is nothing useful a reset link could do for an account they can't use.
-  if (user && user.status !== "BANNED" && user.status !== "DELETED") {
-    const rawToken = await createPasswordResetToken(prisma, user.id);
-    await mailer.sendPasswordResetEmail(user.email, rawToken);
-  }
+    // Unverified users DO get a link — clicking it proves they own the
+    // address, same as verification does. BANNED/DELETED users do not: there
+    // is nothing useful a reset link could do for an account they can't use.
+    if (user && user.status !== "BANNED" && user.status !== "DELETED") {
+      const rawToken = await createPasswordResetToken(prisma, user.id);
+      await mailer.sendPasswordResetEmail(user.email, rawToken);
+    }
 
-  // Same reply either way — this is the point, same as registration's
-  // identical response.
-  res.status(200).json({
-    message: "If an account exists for that email, a reset link is on its way.",
-  });
-});
+    // Same reply either way — this is the point, same as registration's
+    // identical response.
+    res.status(200).json({
+      message:
+        "If an account exists for that email, a reset link is on its way.",
+    });
+  },
+);
 
 /**
  * POST /auth/reset-password
@@ -393,64 +412,68 @@ authRouter.post("/auth/forgot-password", async (req, res) => {
  * Sets a new password with the token from the email, and logs the account out
  * everywhere.
  */
-authRouter.post("/auth/reset-password", async (req, res) => {
-  // Parsed first: a too-short new password gets 422 before the token is
-  // touched, so the link still works and the person can just try again.
-  const { token, password } = resetPasswordSchema.parse(req.body);
+authRouter.post(
+  "/auth/reset-password",
+  limiters.tokenByIp,
+  async (req, res) => {
+    // Parsed first: a too-short new password gets 422 before the token is
+    // touched, so the link still works and the person can just try again.
+    const { token, password } = resetPasswordSchema.parse(req.body);
 
-  const invalid = () =>
-    new HttpError(
-      422,
-      "VALIDATION_FAILED",
-      "This link is invalid or has expired",
-    );
+    const invalid = () =>
+      new HttpError(
+        422,
+        "VALIDATION_FAILED",
+        "This link is invalid or has expired",
+      );
 
-  const row = await prisma.verificationToken.findUnique({
-    where: { tokenHash: hashToken(token) },
-    include: { user: true },
-  });
-
-  if (
-    row?.type !== "PASSWORD_RESET" ||
-    row.usedAt !== null ||
-    row.expiresAt < new Date() ||
-    row.user.status === "BANNED" ||
-    row.user.status === "DELETED"
-  ) {
-    throw invalid();
-  }
-
-  // Hash BEFORE the transaction — a transaction holds database locks while
-  // it runs, and argon2 is deliberately slow.
-  const passwordHash = await hashPassword(password);
-
-  await prisma.$transaction(async (tx) => {
-    const { count } = await tx.verificationToken.updateMany({
-      where: { id: row.id, usedAt: null },
-      data: { usedAt: new Date() },
+    const row = await prisma.verificationToken.findUnique({
+      where: { tokenHash: hashToken(token) },
+      include: { user: true },
     });
 
-    if (count === 0) throw invalid();
+    if (
+      row?.type !== "PASSWORD_RESET" ||
+      row.usedAt !== null ||
+      row.expiresAt < new Date() ||
+      row.user.status === "BANNED" ||
+      row.user.status === "DELETED"
+    ) {
+      throw invalid();
+    }
 
-    await tx.user.update({
-      where: { id: row.userId },
-      data: {
-        passwordHash,
-        // Reaching this link proves they own the address. Keep an existing
-        // verification date if there already was one.
-        emailVerifiedAt: row.user.emailVerifiedAt ?? new Date(),
-      },
+    // Hash BEFORE the transaction — a transaction holds database locks while
+    // it runs, and argon2 is deliberately slow.
+    const passwordHash = await hashPassword(password);
+
+    await prisma.$transaction(async (tx) => {
+      const { count } = await tx.verificationToken.updateMany({
+        where: { id: row.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      if (count === 0) throw invalid();
+
+      await tx.user.update({
+        where: { id: row.userId },
+        data: {
+          passwordHash,
+          // Reaching this link proves they own the address. Keep an existing
+          // verification date if there already was one.
+          emailVerifiedAt: row.user.emailVerifiedAt ?? new Date(),
+        },
+      });
+
+      // Someone else may know the old password — log out every device, not
+      // just this one.
+      await tx.session.deleteMany({ where: { userId: row.userId } });
     });
 
-    // Someone else may know the old password — log out every device, not
-    // just this one.
-    await tx.session.deleteMany({ where: { userId: row.userId } });
-  });
-
-  res.status(200).json({
-    message: "Password changed. Log in with your new password.",
-  });
-});
+    res.status(200).json({
+      message: "Password changed. Log in with your new password.",
+    });
+  },
+);
 
 /**
  * What a resend request must contain: the email, checked as at registration.
@@ -469,27 +492,32 @@ export const resendVerificationSchema = z.object({
  * The same known few-millisecond gap as forgot-password: only the real case
  * writes to the database. Same future fix, with v2's job queue.
  */
-authRouter.post("/auth/resend-verification", async (req, res) => {
-  const { email } = resendVerificationSchema.parse(req.body);
+authRouter.post(
+  "/auth/resend-verification",
+  limiters.emailToAddressByIp,
+  limiters.emailToAddressByAccount,
+  async (req, res) => {
+    const { email } = resendVerificationSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email } });
 
-  // Send only when there is a real, unverified, not-banned-or-deleted
-  // account — otherwise nothing happens, and the answer looks the same.
-  //
-  // With no user, user?.emailVerifiedAt is undefined, and undefined === null
-  // is false — so this also means "and the user exists". Careful if it is ever
-  // changed to !== null: undefined !== null is true, and the meaning flips.
-  if (
-    user?.emailVerifiedAt === null &&
-    user.status !== "BANNED" &&
-    user.status !== "DELETED"
-  ) {
-    const rawToken = await createVerificationToken(prisma, user.id);
-    await mailer.sendVerificationEmail(user.email, rawToken);
-  }
+    // Send only when there is a real, unverified, not-banned-or-deleted
+    // account — otherwise nothing happens, and the answer looks the same.
+    //
+    // With no user, user?.emailVerifiedAt is undefined, and undefined === null
+    // is false — so this also means "and the user exists". Careful if it is ever
+    // changed to !== null: undefined !== null is true, and the meaning flips.
+    if (
+      user?.emailVerifiedAt === null &&
+      user.status !== "BANNED" &&
+      user.status !== "DELETED"
+    ) {
+      const rawToken = await createVerificationToken(prisma, user.id);
+      await mailer.sendVerificationEmail(user.email, rawToken);
+    }
 
-  res.status(200).json({
-    message: "If an account needs verifying, a new link is on its way.",
-  });
-});
+    res.status(200).json({
+      message: "If an account needs verifying, a new link is on its way.",
+    });
+  },
+);

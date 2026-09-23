@@ -259,6 +259,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/guards.test.ts` | requireVerified, requireActive and requireRole, each on a one-route test app |
 | `tests/auth/password-reset.test.ts` | Forgot and reset: identical answers, only the newest link working, expiry, reuse, and every device logged out |
 | `tests/auth/resend-verification.test.ts` | Resend: a working new link, older links retired, and the same answer for unknown, verified and banned accounts |
+| `tests/auth/rate-limit.test.ts` | Rate limiting: counting by address and by account, the 429 shape, windows resetting, and the real endpoints being wired up |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -352,6 +353,7 @@ farhand/
 │   │   ├── sessions.ts         login sessions and the cookie settings
 │   │   ├── middleware/
 │   │   │   ├── error-handler.ts
+│   │   │   ├── rate-limit.ts   per-address and per-account limits on the auth endpoints
 │   │   │   └── auth.ts         requireAuth, requireVerified, requireActive, requireRole
 │   │   └── routes/
 │   │       ├── health.ts
@@ -368,7 +370,8 @@ farhand/
 │       │   ├── me-logout.test.ts
 │       │   ├── guards.test.ts
 │       │   ├── password-reset.test.ts
-│       │   └── resend-verification.test.ts
+│       │   ├── resend-verification.test.ts
+│       │   └── rate-limit.test.ts
 │       ├── helpers/
 │       │   └── auth.ts         signUpAndLogIn() for tests that need a user
 │       ├── health.test.ts

@@ -26,6 +26,14 @@ const envSchema = z.object({
       "DATABASE_URL must be a PostgreSQL connection string",
     ),
 
+  // Rate limiting is on everywhere except the test suite, where a hundred
+  // requests from one address is normal and not an attack. The tests that
+  // cover rate limiting turn it back on for themselves.
+  RATE_LIMIT_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),

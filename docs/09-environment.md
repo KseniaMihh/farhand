@@ -114,6 +114,10 @@ a setup step. `vitest.config.ts` loads it *over* the shell environment, so a
 `DATABASE_URL` left exported in your terminal cannot point the tests at
 development data.
 
+It also sets `RATE_LIMIT_ENABLED=false`. A test file makes dozens of requests
+from one address on purpose, which is exactly what rate limiting exists to stop;
+`tests/auth/rate-limit.test.ts` turns it back on for its own requests.
+
 ## Git and GitHub
 
 Git records the project's history locally. GitHub stores a copy remotely and

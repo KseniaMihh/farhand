@@ -63,6 +63,12 @@ export class HttpError extends Error {
     return new HttpError(404, "NOT_FOUND", message);
   }
 
+  static tooManyRequests(
+    message = "Too many requests, please try again later",
+  ): HttpError {
+    return new HttpError(429, "TOO_MANY_REQUESTS", message);
+  }
+
   static conflict(message: string, details?: unknown): HttpError {
     return new HttpError(409, "CONFLICT", message, details);
   }
