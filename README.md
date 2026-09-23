@@ -202,6 +202,9 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /needs` | Posts a need. Five open per account; drafts do not count. |
 | `PATCH /needs/:id` | Edits a need, while it is a draft or open, and only the owner's own. |
 | `DELETE /needs/:id` | Closes a need. Refused while a deal is live; the row is kept either way. |
+| `POST /helps` | Posts an offer to buy and send: a country, the countries it ships to, and its categories. |
+| `PATCH /helps/:id` | Edits an offer. Sending categories replaces the list. |
+| `DELETE /helps/:id` | Takes an offer down. The row stays, because proposals point at it. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
@@ -268,6 +271,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/rate-limit.test.ts` | Rate limiting: counting by address and by account, the 429 shape, windows resetting, and the real endpoints being wired up |
 | `tests/needs/needs.test.ts` | Needs: every permission rule — ownership, editable statuses, the open-needs limit, and what blocks a delete |
 | `tests/needs/browse.test.ts` | Browsing: filters, what each visitor may see, and paging that stays correct while needs are posted |
+| `tests/helps/helps.test.ts` | Helps: ownership, categories replaced rather than added, empty shipsTo meaning anywhere, and a delete that keeps proposals |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -363,12 +367,17 @@ farhand/
 │   │   │   ├── error-handler.ts
 │   │   │   ├── rate-limit.ts   per-address and per-account limits on the auth endpoints
 │   │   │   └── auth.ts         requireAuth, requireVerified, requireActive, requireRole
+│   │   ├── schemas/
+│   │   │   └── common.ts       field rules more than one router needs
 │   │   ├── services/
-│   │   │   └── needs.ts        who may create, edit and close a need
+│   │   │   ├── shared.ts       pieces both listing services use
+│   │   │   ├── needs.ts        who may create, edit and close a need
+│   │   │   └── helps.ts        the same, for offers to carry something
 │   │   └── routes/
 │   │       ├── health.ts
 │   │       ├── auth.ts         register, verify email, log in and out, me, reset password
-│   │       └── needs.ts        create, edit and delete a need
+│   │       ├── needs.ts        create, edit, delete and browse needs
+│   │       └── helps.ts        create, edit and delete offers
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
