@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   createRateLimiter is a stub and does not use its imports yet. DELETE THIS
-   LINE once it is implemented. */
 import type { Request, RequestHandler } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { env } from "../env.js";
@@ -63,53 +60,24 @@ export interface RateLimiterOptions {
 
 /**
  * Builds one rate limiter.
- *
- * TODO(#14): return rateLimit({ ... }) from express-rate-limit, configured
- * with:
- *
- *   windowMs, limit    from the options. (The option is called `limit`; `max`
- *                      is its old name.)
- *
- *   standardHeaders    "draft-8" — the modern RateLimit headers, so a client
- *                      can see how much budget is left instead of guessing.
- *
- *   legacyHeaders      false. Nothing needs the old X-RateLimit-* ones.
- *
- *   keyGenerator       what the limit counts per. For "ip", return
- *                      ipKeyGenerator(req.ip ?? "") — use that helper rather
- *                      than req.ip itself, because IPv6 hands every visitor
- *                      trillions of addresses, and the helper groups a whole
- *                      allocation into one key. For "account", return the
- *                      email from the body (see accountKey below).
- *
- *   skip               () => !env.RATE_LIMIT_ENABLED, so the test suite can
- *                      make a hundred requests without being throttled.
- *
- *   handler            what happens when someone goes over. Do NOT let the
- *                      library send its own plain-text "Too many requests":
- *                      every error from this API has the same shape
- *                      (docs/06-api-contract.md). So:
- *
- *                        - set the Retry-After header, in seconds:
- *                            res.setHeader("Retry-After",
- *                              String(retryAfterSeconds(req, options.windowMs)))
- *                          The handler's parameters are
- *                          (req, res, next, options)
- *                        - throw HttpError.tooManyRequests()
- *
- *                      Express 5 hands a throw from a handler to our error
- *                      middleware, which turns it into
- *                      { error: { code: "TOO_MANY_REQUESTS", ... } } with a
- *                      429. One error shape, no exceptions.
  */
 export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
-  // TODO(#14): replace this whole body.
-  //
-  // Until then this lets every request through, so the rest of the suite still
-  // passes and only tests/auth/rate-limit.test.ts is red.
-  return (_req, _res, next) => {
-    next();
-  };
+  return rateLimit({
+    windowMs: options.windowMs,
+    limit: options.max,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    skip: () => !env.RATE_LIMIT_ENABLED,
+    keyGenerator: (req) =>
+      options.by === "ip" ? ipKeyGenerator(req.ip ?? "") : accountKey(req),
+    handler: (req, res, _next, opts) => {
+      res.setHeader(
+        "Retry-After",
+        String(retryAfterSeconds(req, opts.windowMs)),
+      );
+      throw HttpError.tooManyRequests();
+    },
+  });
 }
 
 /**
