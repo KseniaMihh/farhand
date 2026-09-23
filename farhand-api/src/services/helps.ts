@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   The three functions below are stubs and do not use their arguments or
-   imports yet. DELETE THIS LINE once they are implemented. */
 import { Prisma } from "@prisma/client";
 import type { Help, HelpStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
@@ -83,87 +80,82 @@ async function loadOwnHelp(
 
 /**
  * Posts an offer.
- *
- * TODO(#17):
- *
- *   1. prisma.help.create, with helperId: actor.id, the plain fields from
- *      input, `include: withCategories`, and the categories attached:
- *
- *        categories: { connect: input.categoryIds.map((id) => ({ id })) }
- *
- *      `connect` links rows that already exist. This is the many-to-many part
- *      of the issue: Prisma writes the join table rows for you.
- *
- *   2. A categoryId that matches nothing makes `connect` fail with Prisma's
- *      code "P2025" — note that it is NOT the "P2003" a need gets. A need
- *      stores a categoryId in its own column, so the database rejects it as a
- *      foreign key; a help asks Prisma to find rows and link them, and Prisma
- *      refuses before that. isMissingRelated() below recognises it. Turn it
- *      into HttpError.badRequest("Unknown category") rather than a 500.
- *
- * There is no limit on how many offers one account may post. A need takes a
- * place in a queue someone must answer; an offer just sits there. If that
- * turns out to be wrong, the limit belongs here, beside the needs one.
  */
 export async function createHelp(
   actor: User,
   input: CreateHelpInput,
 ): Promise<HelpWithCategories> {
-  // TODO(#17): replace this whole body.
-  return Promise.reject(new Error("createHelp is not implemented yet"));
+  try {
+    return await prisma.help.create({
+      data: {
+        helperId: actor.id,
+        country: input.country,
+        shipsTo: input.shipsTo,
+        description: input.description,
+        status: input.status,
+        categories: {
+          connect: input.categoryIds.map((id) => ({ id })),
+        },
+      },
+      include: withCategories,
+    });
+  } catch (error) {
+    if (isMissingRelated(error)) {
+      throw HttpError.badRequest("Unknown category");
+    }
+    throw error;
+  }
 }
 
 /**
  * Changes an offer the user owns.
- *
- * TODO(#17):
- *
- *   1. loadOwnHelp — that is the ownership rule, already written.
- *
- *   2. A REMOVED offer cannot be edited → HttpError.conflict(...). PAUSED can:
- *      pausing is how a helper says "not this month", and they should be able
- *      to fix a typo while paused.
- *
- *   3. Update with onlyProvided(...) for the plain fields, and — only when
- *      input.categoryIds was given — replace the categories:
- *
- *        categories: { set: input.categoryIds.map((id) => ({ id })) }
- *
- *      `set` REPLACES the list, where `connect` adds to it. That is what a
- *      PATCH means here: the categories you send are the categories it has.
- *      Leaving categoryIds out must change nothing.
- *
- *   4. Catch P2025 for an unknown category, as in createHelp.
  */
 export async function updateHelp(
   actor: User,
   helpId: string,
   input: UpdateHelpInput,
 ): Promise<HelpWithCategories> {
-  // TODO(#17): replace this whole body.
-  return Promise.reject(new Error("updateHelp is not implemented yet"));
+  const help = await loadOwnHelp(actor, helpId);
+
+  if (help.status === "REMOVED") {
+    throw HttpError.conflict("This offer can no longer be edited");
+  }
+
+  const { categoryIds, ...rest } = input;
+
+  try {
+    return await prisma.help.update({
+      where: { id: helpId },
+      data: {
+        ...onlyProvided(rest),
+        ...(categoryIds
+          ? { categories: { set: categoryIds.map((id) => ({ id })) } }
+          : {}),
+      },
+      include: withCategories,
+    });
+  } catch (error) {
+    if (isMissingRelated(error)) {
+      throw HttpError.badRequest("Unknown category");
+    }
+    throw error;
+  }
 }
 
 /**
  * Takes an offer down.
- *
- * TODO(#17):
- *
- *   1. loadOwnHelp. Already REMOVED → return quietly, as deleting a closed
- *      need does.
- *
- *   2. Set status to "REMOVED". Do not delete the row: proposals point at a
- *      help (`Proposal.helpId`), and deleting it would either fail or tear a
- *      hole in somebody's deal history.
- *
- * HelpStatus has no CLOSED, so REMOVED covers both a helper taking their offer
- * down and a moderator hiding it (#27). The two stay distinguishable because a
- * moderator's action is recorded in AdminAction — the audit log is what says
- * who did it and why.
  */
 export async function deleteHelp(actor: User, helpId: string): Promise<void> {
-  // TODO(#17): replace this whole body.
-  return Promise.reject(new Error("deleteHelp is not implemented yet"));
+  const help = await loadOwnHelp(actor, helpId);
+
+  if (help.status === "REMOVED") {
+    return;
+  }
+
+  await prisma.help.update({
+    where: { id: helpId },
+    data: { status: "REMOVED" },
+  });
 }
 
 /**
