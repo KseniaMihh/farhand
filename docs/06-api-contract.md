@@ -31,8 +31,14 @@ A suspended user can still see their own deals
 - Errors share one shape: `{ "error": { "code": "...", "message": "...", "details": [...] } }`.
 - Never reveal existence through status codes: a need you may not see returns
   `404`, not `403`.
-- Lists are cursor-paginated: `?cursor=<id>&limit=20`, returning
-  `{ items: [...], nextCursor: string | null }`.
+- Lists are cursor-paginated: `?cursor=<cursor>&limit=20`, returning
+  `{ items: [...], nextCursor: string | null }`. `nextCursor` is `null` on the
+  last page.
+- A cursor is an opaque string. It encodes the sort position — for needs, the
+  `createdAt` and `id` of the last row of the page before — so paging is by
+  position rather than by counting: rows inserted or removed while someone
+  pages cannot make a row appear twice or disappear (`docs/11-risks.md`).
+  Clients send back what they were given and never build one.
 
 ## Health
 
@@ -379,7 +385,51 @@ moves to Redis when the API is deployed behind more than one instance
 | POST | `/needs` | AUTH | Limited to 5 open needs per account |
 | PATCH | `/needs/:id` | AUTH | Owner only, `DRAFT` or `OPEN` only |
 | DELETE | `/needs/:id` | AUTH | Owner only, no live deal. Closes it; the row stays |
-| GET | `/me/needs` | AUTH | Includes non-public statuses |
+| GET | `/me/needs` | SESSION | Includes non-public statuses |
+
+### `GET /needs`
+
+The public list. Open needs only, newest first.
+
+| Query | Meaning |
+|---|---|
+| `buyCountry` | Two letters. Where the product must be bought |
+| `deliverCountry` | Two letters. Where it must be shipped |
+| `categoryId` | Exact category |
+| `q` | Free text, matched against the title and the description, ignoring case |
+| `limit` | 1–50, default 20 |
+| `cursor` | From the previous page's `nextCursor` |
+
+An absent filter narrows nothing. Filters combine: all of them must match.
+
+```json
+{
+  "items": [{ "id": "cm1…", "title": "Japanese sunscreen, 50 ml", "…": "…" }],
+  "nextCursor": "MjAyNi0wOS0yM1QxMDoxMjozMy4wMDBafGNtMWFiYw"
+}
+```
+
+`nextCursor` is `null` on the last page. Searching is a plain case-insensitive
+match, not a full-text index — fine at this size, and worth revisiting when the
+list grows.
+
+### `GET /needs/:id`
+
+Public, but what "public" means depends on the need:
+
+| Who is asking | Sees |
+|---|---|
+| Its requester | Any status, including their own drafts |
+| Anyone else | `OPEN` and `MATCHED` only |
+
+A matched need stays readable because a deal is running on it and both sides
+need to see what was agreed. Everything else answers `404`, not `403`: a draft
+nobody published should not be discoverable by trying ids.
+
+### `GET /me/needs`
+
+`SESSION`. The caller's own needs, every status, newest first, paged exactly
+like the public list. This is where someone finds their drafts.
 
 ### `POST /needs`
 

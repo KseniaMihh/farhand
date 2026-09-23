@@ -196,6 +196,9 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
 | `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
 | `POST /auth/resend-verification` | Sends a new verification link and retires the older ones. Answers the same for every email. |
+| `GET /needs` | The public list: open needs, newest first, filtered by country, category or text, paged by cursor. |
+| `GET /needs/:id` | One need. Its owner sees any status; everyone else sees open and matched ones. |
+| `GET /me/needs` | The caller's own needs, drafts included. |
 | `POST /needs` | Posts a need. Five open per account; drafts do not count. |
 | `PATCH /needs/:id` | Edits a need, while it is a draft or open, and only the owner's own. |
 | `DELETE /needs/:id` | Closes a need. Refused while a deal is live; the row is kept either way. |
@@ -264,6 +267,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/resend-verification.test.ts` | Resend: a working new link, older links retired, and the same answer for unknown, verified and banned accounts |
 | `tests/auth/rate-limit.test.ts` | Rate limiting: counting by address and by account, the 429 shape, windows resetting, and the real endpoints being wired up |
 | `tests/needs/needs.test.ts` | Needs: every permission rule — ownership, editable statuses, the open-needs limit, and what blocks a delete |
+| `tests/needs/browse.test.ts` | Browsing: filters, what each visitor may see, and paging that stays correct while needs are posted |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
