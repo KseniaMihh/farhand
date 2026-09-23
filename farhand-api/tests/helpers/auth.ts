@@ -59,3 +59,23 @@ export async function logIn(app: Express, email: string): Promise<TestUser> {
   const user = await prisma.user.findUniqueOrThrow({ where: { email } });
   return { id: user.id, email, cookie };
 }
+
+/**
+ * A user who has confirmed their email — what most endpoints require (AUTH in
+ * docs/06-api-contract.md). Verifying through the real flow would mean
+ * fetching the token out of the mailer in every test, which tests #10 all over
+ * again; this sets the column directly.
+ */
+export async function signUpVerifiedAndLogIn(
+  app: Express,
+  email: string,
+  displayName = "Anna",
+): Promise<TestUser> {
+  const user = await signUpAndLogIn(app, email, displayName);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerifiedAt: new Date() },
+  });
+
+  return user;
+}

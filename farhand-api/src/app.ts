@@ -4,6 +4,7 @@ import { logger } from "./logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
+import { needsRouter } from "./routes/needs.js";
 
 /**
  * Builds the Express app.
@@ -39,6 +40,7 @@ export function createApp(): Express {
 
   app.use(healthRouter);
   app.use(authRouter);
+  app.use(needsRouter);
 
   // Both of these must stay at the bottom, in this order.
   app.use(notFoundHandler);
