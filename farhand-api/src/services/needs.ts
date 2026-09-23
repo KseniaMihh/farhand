@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   The three functions below are stubs and do not use their arguments or
-   imports yet. DELETE THIS LINE once they are implemented. */
 import { Prisma } from "@prisma/client";
 import type { Need, NeedStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
@@ -91,105 +88,144 @@ export function onlyProvided<T extends object>(input: T): Provided<T> {
 }
 
 /**
- * Creates a need for this user.
+ * Enforces MAX_OPEN_NEEDS. Shared by create and by publishing a draft — the
+ * limit applies the same way whichever path reaches OPEN.
+ */
+async function assertUnderOpenNeedsLimit(requesterId: string): Promise<void> {
+  const openCount = await prisma.need.count({
+    where: { requesterId, status: "OPEN" },
+  });
+
+  if (openCount >= MAX_OPEN_NEEDS) {
+    throw HttpError.conflict(
+      `You already have ${String(MAX_OPEN_NEEDS)} open needs. Close one first.`,
+    );
+  }
+}
+
+/**
+ * Loads a need that this user is allowed to change, or explains why not.
  *
- * TODO(#15):
+ * The ownership rule lives here rather than in each function, which is what
+ * issue #15 means by enforcing it in the service layer: one place to read, one
+ * place to change, and nothing for #16's /me/needs or #19's proposals to copy.
  *
- *   1. If input.status is "OPEN", count the user's OPEN needs. At
- *      MAX_OPEN_NEEDS or more:
- *
- *        throw HttpError.conflict(
- *          `You already have ${String(MAX_OPEN_NEEDS)} open needs. Close one first.`,
- *        );
- *
- *      409, not 422: the request is perfectly well formed, it just conflicts
- *      with the state of the account (docs/06-api-contract.md).
- *
- *      A need created as a DRAFT skips this check.
- *
- *   2. Create the row with prisma.need.create, requesterId: actor.id, and the
- *      fields from input.
- *
- *   3. A categoryId that matches no category makes Prisma throw a foreign key
- *      error, code "P2003". That is the caller's mistake, not ours, so catch
- *      it and throw HttpError.badRequest("Unknown category") — otherwise it
- *      surfaces as a 500 and looks like our bug. isForeignKeyError() below
- *      recognises it.
- *
- *   4. Return the created need.
+ * 403 rather than 404 for someone else's need, unlike most of this API: a need
+ * is public (GET /needs/:id is open to anyone), so refusing tells the caller
+ * nothing they could not already read. The 404-instead-of-403 rule in
+ * docs/06-api-contract.md is about things you may not know exist.
+ */
+async function loadOwnNeed(actor: User, needId: string): Promise<Need> {
+  const need = await prisma.need.findUnique({ where: { id: needId } });
+
+  if (!need) {
+    throw HttpError.notFound("Need not found");
+  }
+
+  if (need.requesterId !== actor.id) {
+    throw HttpError.forbidden("This need belongs to someone else");
+  }
+
+  return need;
+}
+
+/**
+ * Creates a need for this user. A draft skips the open-needs limit: nobody can
+ * be spammed by something only its author can see.
  */
 export async function createNeed(
   actor: User,
   input: CreateNeedInput,
 ): Promise<Need> {
-  // TODO(#15): replace this whole body.
-  return Promise.reject(new Error("createNeed is not implemented yet"));
+  if (input.status === "OPEN") {
+    await assertUnderOpenNeedsLimit(actor.id);
+  }
+
+  try {
+    return await prisma.need.create({
+      data: {
+        requesterId: actor.id,
+        ...input,
+      },
+    });
+  } catch (error) {
+    if (isForeignKeyError(error)) {
+      throw HttpError.badRequest("Unknown category");
+    }
+    throw error;
+  }
 }
 
 /**
  * Changes a need the user owns.
  *
- * TODO(#15), and the order matters as much as it did in login:
- *
- *   1. Load the need. Missing → throw HttpError.notFound("Need not found").
- *
- *   2. Not theirs (need.requesterId !== actor.id) → throw
- *      HttpError.forbidden("This need belongs to someone else").
- *
- *      403 rather than 404 here, unlike most of this API: a need is public
- *      (GET /needs/:id is open to anyone), so refusing tells the caller
- *      nothing they could not already read. The 404-instead-of-403 rule in
- *      docs/06-api-contract.md is about things you may not KNOW EXIST.
- *
- *   3. Status is not DRAFT or OPEN → throw HttpError.conflict(...). Once a
- *      need is MATCHED, someone has agreed to shop for exactly what it said;
- *      editing it afterwards would change the deal under their feet.
- *
- *   4. If the change publishes a draft (the need is DRAFT and input.status is
- *      "OPEN"), the open-needs limit applies, exactly as at creation. Pull
- *      that check out of createNeed into a small shared function rather than
- *      writing it twice.
- *
- *   5. Update and return the need, with data: onlyProvided(input) — see the
- *      note on that helper. Catch P2003 for an unknown categoryId, as in
- *      createNeed.
+ * Only while the need is a draft or open. Once it is MATCHED someone has
+ * agreed to shop for exactly what it said, and editing it afterwards would
+ * change the deal under their feet.
  */
 export async function updateNeed(
   actor: User,
   needId: string,
   input: UpdateNeedInput,
 ): Promise<Need> {
-  // TODO(#15): replace this whole body.
-  return Promise.reject(new Error("updateNeed is not implemented yet"));
+  const need = await loadOwnNeed(actor, needId);
+
+  if (need.status !== "DRAFT" && need.status !== "OPEN") {
+    throw HttpError.conflict("This need can no longer be edited");
+  }
+
+  const isPublishing = need.status === "DRAFT" && input.status === "OPEN";
+  if (isPublishing) {
+    await assertUnderOpenNeedsLimit(actor.id);
+  }
+
+  try {
+    return await prisma.need.update({
+      where: { id: needId },
+      data: onlyProvided(input),
+    });
+  } catch (error) {
+    if (isForeignKeyError(error)) {
+      throw HttpError.badRequest("Unknown category");
+    }
+    throw error;
+  }
 }
 
 /**
- * Takes a need down.
+ * Takes a need down — by closing it, not by erasing it. Proposals and messages
+ * point at this need, and "soft deletion everywhere" is a deliberate choice in
+ * docs/05-data-model.md: the history has to survive. CLOSED is the requester
+ * taking it down; REMOVED is a moderator doing it (#27).
  *
- * TODO(#15):
+ * Refused while a deal is live, meaning any deal that is not CANCELLED — the
+ * same definition the database's one_active_deal_per_need index uses. Someone
+ * is shopping for this; it cannot vanish from under them.
  *
- *   1. Load the need. Missing → 404. Not theirs → 403, as above.
- *
- *   2. Already CLOSED → return, quietly. Deleting twice should not be an
- *      error: the second request wants the same end state as the first, and
- *      it is already true. (The same reasoning as deleteMany in #12's logout.)
- *
- *   3. A live deal exists → throw HttpError.conflict(...). "No live deal"
- *      is the rule in docs/06-api-contract.md. Live means any deal for this
- *      need whose status is not CANCELLED — the database's own
- *      one_active_deal_per_need index uses the same definition
- *      (docs/05-data-model.md). Someone is shopping for this; it cannot
- *      vanish from under them.
- *
- *   4. Otherwise set status to "CLOSED" — do NOT delete the row. Proposals
- *      and messages point at this need, and "soft deletion everywhere" is a
- *      deliberate choice in docs/05-data-model.md: history has to survive.
- *      CLOSED is the requester taking it down; REMOVED is a moderator doing
- *      it (#27).
+ * Closing an already closed need is not an error: the second request wants the
+ * state the first one already reached.
  */
 export async function deleteNeed(actor: User, needId: string): Promise<void> {
-  // TODO(#15): replace this whole body.
-  return Promise.reject(new Error("deleteNeed is not implemented yet"));
+  const need = await loadOwnNeed(actor, needId);
+
+  if (need.status === "CLOSED") {
+    return;
+  }
+
+  const liveDeal = await prisma.deal.findFirst({
+    where: { needId, status: { not: "CANCELLED" } },
+  });
+
+  if (liveDeal) {
+    throw HttpError.conflict(
+      "This need has an active deal and cannot be closed",
+    );
+  }
+
+  await prisma.need.update({
+    where: { id: needId },
+    data: { status: "CLOSED" },
+  });
 }
 
 /**
