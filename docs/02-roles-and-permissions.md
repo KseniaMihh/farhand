@@ -41,7 +41,7 @@ the API on every request.
 
 | Action | Rule |
 |---|---|
-| Edit or delete a need | Only its requester, and only while status is `DRAFT` or `OPEN` |
+| Edit or delete a need | Only its requester, and only while status is `DRAFT` or `OPEN`. Deleting closes it (`CLOSED`); the row stays |
 | Send a proposal | Any active user except the need's own requester |
 | Accept or decline a proposal | Only the need's requester |
 | Withdraw a proposal | Only the helper who sent it |

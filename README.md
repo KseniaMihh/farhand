@@ -196,6 +196,9 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
 | `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
 | `POST /auth/resend-verification` | Sends a new verification link and retires the older ones. Answers the same for every email. |
+| `POST /needs` | Posts a need. Five open per account; drafts do not count. |
+| `PATCH /needs/:id` | Edits a need, while it is a draft or open, and only the owner's own. |
+| `DELETE /needs/:id` | Closes a need. Refused while a deal is live; the row is kept either way. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
@@ -260,6 +263,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/auth/password-reset.test.ts` | Forgot and reset: identical answers, only the newest link working, expiry, reuse, and every device logged out |
 | `tests/auth/resend-verification.test.ts` | Resend: a working new link, older links retired, and the same answer for unknown, verified and banned accounts |
 | `tests/auth/rate-limit.test.ts` | Rate limiting: counting by address and by account, the 429 shape, windows resetting, and the real endpoints being wired up |
+| `tests/needs/needs.test.ts` | Needs: every permission rule — ownership, editable statuses, the open-needs limit, and what blocks a delete |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -355,9 +359,12 @@ farhand/
 │   │   │   ├── error-handler.ts
 │   │   │   ├── rate-limit.ts   per-address and per-account limits on the auth endpoints
 │   │   │   └── auth.ts         requireAuth, requireVerified, requireActive, requireRole
+│   │   ├── services/
+│   │   │   └── needs.ts        who may create, edit and close a need
 │   │   └── routes/
 │   │       ├── health.ts
-│   │       └── auth.ts         register, verify email, log in and out, me, reset password
+│   │       ├── auth.ts         register, verify email, log in and out, me, reset password
+│   │       └── needs.ts        create, edit and delete a need
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
