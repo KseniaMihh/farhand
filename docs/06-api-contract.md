@@ -515,9 +515,67 @@ routes, so every future caller gets them too.
 |---|---|---|---|
 | GET | `/helps` | — | Filters: `country`, `shipsTo`, `categoryId` |
 | GET | `/helps/:id` | — | Public |
-| POST | `/helps` | AUTH | |
+| POST | `/helps` | AUTH | Categories are a list; empty `shipsTo` means anywhere |
 | PATCH | `/helps/:id` | AUTH | Owner only |
-| DELETE | `/helps/:id` | AUTH | Owner only |
+| DELETE | `/helps/:id` | AUTH | Owner only. Marks it removed; the row stays |
+
+### `POST /helps`
+
+```json
+{
+  "country": "JP",
+  "shipsTo": ["EE", "FI"],
+  "description": "I live in Tokyo and post to the Baltics every other week.",
+  "categoryIds": ["cm1…", "cm2…"],
+  "status": "ACTIVE"
+}
+```
+
+| Field | Rule |
+|---|---|
+| `country` | Two letters. Where the helper can buy |
+| `shipsTo` | Up to 50 two-letter codes, upper-cased, duplicates dropped. **Empty means anywhere**, and it is the default |
+| `description` | 1–1000 characters |
+| `categoryIds` | 1–10 existing categories. Unknown one → `400` |
+| `status` | `ACTIVE` or `PAUSED`. Defaults to `ACTIVE` |
+
+Returns `201` with `{ "help": { …, "categories": [{ "id", "slug", "name" }] } }`.
+An offer always comes back with its categories.
+
+`REMOVED` is never something a caller asks for: it is what taking an offer down
+does, and what a moderator does (#27).
+
+There is no limit on offers per account, unlike the five open needs. A need
+takes a place in a queue somebody has to answer; an offer waits to be found.
+
+### `PATCH /helps/:id`
+
+Any subset of the fields above; what is not mentioned is not changed. Returns
+`200` with the updated offer.
+
+`categoryIds` **replaces** the list — the categories you send are the
+categories the offer has afterwards. Leaving the field out changes nothing.
+
+A `PAUSED` offer can still be edited: pausing means "not this month", and
+fixing a typo should not require restarting it. A `REMOVED` one cannot (`409`).
+
+### `DELETE /helps/:id`
+
+Returns `204`. Sets the status to `REMOVED` and keeps the row, because
+proposals point at a help and that history has to survive. Asking twice returns
+`204` again.
+
+### Who may change an offer
+
+| Case | Response |
+|---|---|
+| Not signed in | `401` |
+| Email not confirmed, or account suspended | `403` |
+| Someone else's offer | `403` |
+| No such offer | `404` |
+| Editing a removed offer | `409` |
+
+Enforced in `src/services/helps.ts`, not in the routes.
 
 ## Proposals
 

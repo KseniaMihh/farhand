@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { Need, NeedStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { onlyProvided } from "./shared.js";
 
 /**
  * Needs: the rules about who may do what to a listing.
@@ -69,23 +70,6 @@ export interface CreateNeedInput {
 export type UpdateNeedInput = {
   [K in keyof CreateNeedInput]?: CreateNeedInput[K] | undefined;
 };
-
-/** The same fields with the undefineds gone: what Prisma's update accepts. */
-type Provided<T> = { [K in keyof T]?: Exclude<T[K], undefined> };
-
-/**
- * Drops the keys whose value is undefined.
- *
- * Prisma wants a field it should not change to be absent, while the parsed
- * PATCH body is typed as if every key might be present and undefined. At
- * runtime the two already agree — a parsed body only carries the keys it
- * mentioned — so this states that in the type system, in one place.
- */
-export function onlyProvided<T extends object>(input: T): Provided<T> {
-  return Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== undefined),
-  ) as Provided<T>;
-}
 
 /**
  * Enforces MAX_OPEN_NEEDS. Shared by create and by publishing a draft — the

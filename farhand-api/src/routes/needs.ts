@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { countryCode, currencyCode } from "../schemas/common.js";
 import {
   getAuth,
   optionalAuth,
@@ -33,20 +34,6 @@ export const needsRouter: Router = Router();
  * Every route here is AUTH: signed in, email confirmed, not suspended. That is
  * the three guards in the order docs/06-api-contract.md defines for the marker.
  */
-
-/** Two letters, as in the Profile's country. */
-const countryCode = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{2}$/, "Must be a two-letter country code");
-
-/** ISO 4217, as stored on Need.currency. */
-const currencyCode = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{3}$/, "Must be a three-letter currency code");
 
 /**
  * What a new need must contain. The lengths match the columns in
