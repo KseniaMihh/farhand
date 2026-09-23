@@ -51,8 +51,15 @@ export const createNeedSchema = z.object({
   categoryId: z.string().trim().min(1),
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().min(1).max(2000),
-  productUrl: z.url().max(2000).optional(),
-  storeName: z.string().trim().min(1).max(100).optional(),
+  /**
+   * The three columns that may be empty use .nullable().default(null) rather
+   * than .optional(). Both mean "you may leave this out", but they produce
+   * different values: .optional() gives undefined, and a nullable database
+   * column wants null. Settling it here means the service and Prisma agree,
+   * instead of every caller converting.
+   */
+  productUrl: z.url().max(2000).nullable().default(null),
+  storeName: z.string().trim().min(1).max(100).nullable().default(null),
   buyCountry: countryCode,
   deliverCountry: countryCode,
   currency: currencyCode,
@@ -64,7 +71,7 @@ export const createNeedSchema = z.object({
    * something happening, never by asking for them here.
    */
   status: z.enum(["DRAFT", "OPEN"]).default("OPEN"),
-  expiresAt: z.coerce.date().optional(),
+  expiresAt: z.coerce.date().nullable().default(null),
 });
 
 /** Every field optional: a PATCH changes only what it mentions. */

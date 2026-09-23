@@ -42,37 +42,53 @@ export const MAX_OPEN_NEEDS = 5;
 /**
  * The fields a caller may set when creating a need.
  *
- * The optional ones say "string | undefined" rather than just "string",
- * because tsconfig has exactOptionalPropertyTypes: with that on, "may be
- * absent" and "may be present and undefined" are different things, and a
- * parsed request body is the second.
+ * The three that may be empty are "string | null", never undefined: they
+ * match the nullable columns in prisma/schema.prisma, and the schema in
+ * ../routes/needs.js has already turned a missing value into null.
  */
 export interface CreateNeedInput {
   categoryId: string;
   title: string;
   description: string;
-  productUrl?: string | undefined;
-  storeName?: string | undefined;
+  productUrl: string | null;
+  storeName: string | null;
   buyCountry: string;
   deliverCountry: string;
   currency: string;
   estimatedPrice: number;
   thankYouAmount: number;
   status: Extract<NeedStatus, "DRAFT" | "OPEN">;
-  expiresAt?: Date | undefined;
+  expiresAt: Date | null;
 }
 
 /**
  * The fields a caller may change afterwards: all of them, all optional.
  *
- * Written out rather than Partial<CreateNeedInput>, for the same
- * exactOptionalPropertyTypes reason as above — Partial makes a field optional
- * but still refuses an explicit undefined, which is what a parsed PATCH body
- * hands over.
+ * Written out rather than Partial<CreateNeedInput> because Zod's .partial()
+ * types every key as possibly undefined, and tsconfig's
+ * exactOptionalPropertyTypes treats "absent" and "present and undefined" as
+ * different things.
  */
 export type UpdateNeedInput = {
   [K in keyof CreateNeedInput]?: CreateNeedInput[K] | undefined;
 };
+
+/** The same fields with the undefineds gone: what Prisma's update accepts. */
+type Provided<T> = { [K in keyof T]?: Exclude<T[K], undefined> };
+
+/**
+ * Drops the keys whose value is undefined.
+ *
+ * Prisma wants a field it should not change to be absent, while the parsed
+ * PATCH body is typed as if every key might be present and undefined. At
+ * runtime the two already agree — a parsed body only carries the keys it
+ * mentioned — so this states that in the type system, in one place.
+ */
+export function onlyProvided<T extends object>(input: T): Provided<T> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as Provided<T>;
+}
 
 /**
  * Creates a need for this user.
@@ -134,8 +150,9 @@ export async function createNeed(
  *      that check out of createNeed into a small shared function rather than
  *      writing it twice.
  *
- *   5. Update and return the need. Catch P2003 for an unknown categoryId, as
- *      in createNeed.
+ *   5. Update and return the need, with data: onlyProvided(input) — see the
+ *      note on that helper. Catch P2003 for an unknown categoryId, as in
+ *      createNeed.
  */
 export async function updateNeed(
   actor: User,
