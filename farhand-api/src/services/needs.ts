@@ -238,3 +238,184 @@ function isForeignKeyError(error: unknown): boolean {
     error.code === "P2003"
   );
 }
+
+/* ───────────────────────────── browsing (#16) ───────────────────────────── */
+
+/* eslint-disable @typescript-eslint/no-unused-vars --
+   The four stubs below do not use their arguments yet. DELETE THIS LINE once
+   they are implemented; everything above it is finished code. */
+
+/** How many needs a page holds when the caller does not say. */
+export const DEFAULT_PAGE_SIZE = 20;
+
+/** The most a caller may ask for in one page. */
+export const MAX_PAGE_SIZE = 50;
+
+/** What a caller may narrow the public list by. */
+export interface NeedFilters {
+  buyCountry?: string | undefined;
+  deliverCountry?: string | undefined;
+  categoryId?: string | undefined;
+  /** Free text, matched against the title and the description. */
+  q?: string | undefined;
+}
+
+/** One page of anything, in the shape docs/06-api-contract.md defines. */
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+/**
+ * Where a page starts: the createdAt and id of the last row of the page
+ * before it.
+ *
+ * Both, not just the id, because several needs can share a createdAt — a
+ * seeded database or a busy second. Sorting by createdAt alone leaves their
+ * order undefined, so a row can appear on two pages, or on none
+ * (docs/11-risks.md).
+ */
+interface CursorPosition {
+  createdAt: Date;
+  id: string;
+}
+
+/**
+ * Packs a position into one opaque string for the client to send back.
+ *
+ * base64url of "<iso date>|<id>". Opaque on purpose: a client that takes it
+ * apart and builds its own would be relying on a shape we want to stay free to
+ * change. It is not a secret — anyone can decode it — it is simply not an API.
+ */
+export function encodeCursor(position: CursorPosition): string {
+  const raw = `${position.createdAt.toISOString()}|${position.id}`;
+  return Buffer.from(raw, "utf8").toString("base64url");
+}
+
+/** Unpacks a cursor, or refuses it. */
+export function decodeCursor(cursor: string): CursorPosition {
+  const [date, id] = Buffer.from(cursor, "base64url")
+    .toString("utf8")
+    .split("|");
+  const createdAt = date === undefined ? new Date(NaN) : new Date(date);
+
+  if (!id || Number.isNaN(createdAt.getTime())) {
+    throw new HttpError(422, "VALIDATION_FAILED", "Invalid cursor");
+  }
+
+  return { createdAt, id };
+}
+
+/**
+ * The "everything after this position" condition, in the order the list is
+ * sorted: newest first, and for a tie, the larger id first.
+ *
+ * TODO(#16): return the Prisma `where` fragment for a page that starts after
+ * `position`, or {} when there is no cursor (the first page).
+ *
+ * The rule in words: take rows created BEFORE the cursor's moment, plus —
+ * for rows created at exactly that moment — the ones whose id sorts below the
+ * cursor's id. In Prisma:
+ *
+ *   {
+ *     OR: [
+ *       { createdAt: { lt: position.createdAt } },
+ *       { createdAt: position.createdAt, id: { lt: position.id } },
+ *     ],
+ *   }
+ *
+ * The second line is what makes ties stable, and it is the whole reason the
+ * cursor carries both values. This is "keyset" pagination: every page asks for
+ * rows past a known position, so inserts and deletes elsewhere in the list
+ * cannot shift it. `skip`/`take` counting would: insert one row and every
+ * later page slides by one, showing a row twice or missing one entirely.
+ */
+function afterCursor(position?: CursorPosition): Prisma.NeedWhereInput {
+  // TODO(#16): replace this whole body.
+  throw new Error("afterCursor is not implemented yet");
+}
+
+/**
+ * The public list: open needs, newest first.
+ *
+ * TODO(#16):
+ *
+ *   1. Build the where clause: status "OPEN", plus each filter that was given
+ *      (an absent filter must not narrow anything), plus afterCursor(position).
+ *
+ *      Watch one trap here: the q filter needs an OR (title or description),
+ *      and afterCursor returns an OR too. Spread both into the same object and
+ *      the second silently replaces the first — a search that also pages would
+ *      quietly lose its cursor, or its search. Put them in an AND array:
+ *
+ *        { status: "OPEN", ...exactMatches, AND: [afterCursor(position), ...] }
+ *
+ *      - buyCountry, deliverCountry, categoryId: exact matches.
+ *      - q: matches the title OR the description, case-insensitively —
+ *        { contains: filters.q, mode: "insensitive" }. There is no full-text
+ *        index in v1; this is a plain LIKE, and fine at this size.
+ *
+ *   2. Ask for `limit + 1` rows, ordered by
+ *      [{ createdAt: "desc" }, { id: "desc" }] — the same order the cursor
+ *      assumes. Asking for one extra row is how you learn whether another page
+ *      exists without a second count query.
+ *
+ *   3. If more than `limit` came back, drop the extra one and build the
+ *      nextCursor from the LAST row you are returning, with encodeCursor.
+ *      Otherwise nextCursor is null: this was the last page.
+ *
+ * Only OPEN needs, whoever is asking. A draft is private to its author, and a
+ * closed, expired or matched need is no longer on offer.
+ */
+export async function listOpenNeeds(
+  filters: NeedFilters,
+  position: CursorPosition | undefined,
+  limit: number,
+): Promise<Page<Need>> {
+  // TODO(#16): replace this whole body.
+  return Promise.reject(new Error("listOpenNeeds is not implemented yet"));
+}
+
+/**
+ * One need, if this caller may see it.
+ *
+ * TODO(#16):
+ *
+ *   1. Load it. Missing → HttpError.notFound("Need not found").
+ *
+ *   2. The owner sees their own need whatever its status — that is how they
+ *      find their drafts.
+ *
+ *   3. Everyone else sees it only when the status is OPEN or MATCHED. A
+ *      MATCHED need stays readable because a deal is running on it and both
+ *      sides need to see what was agreed. Anything else → the same 404 as a
+ *      need that does not exist: a draft nobody published should not be
+ *      discoverable by trying ids.
+ *
+ * viewerId is undefined when nobody is logged in.
+ */
+export async function getVisibleNeed(
+  needId: string,
+  viewerId: string | undefined,
+): Promise<Need> {
+  // TODO(#16): replace this whole body.
+  return Promise.reject(new Error("getVisibleNeed is not implemented yet"));
+}
+
+/**
+ * The caller's own needs, every status, newest first.
+ *
+ * TODO(#16): the same paging as listOpenNeeds, with
+ * `where: { requesterId: actor.id, ...afterCursor(position) }` and no status
+ * filter. This is the page where someone finds their drafts, so it must show
+ * what the public list hides.
+ */
+export async function listMyNeeds(
+  actor: User,
+  position: CursorPosition | undefined,
+  limit: number,
+): Promise<Page<Need>> {
+  // TODO(#16): replace this whole body.
+  return Promise.reject(new Error("listMyNeeds is not implemented yet"));
+}
+/* eslint-enable @typescript-eslint/no-unused-vars */

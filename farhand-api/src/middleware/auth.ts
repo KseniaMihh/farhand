@@ -168,3 +168,26 @@ export function requireRole(minimum: Role): RequestHandler {
     next();
   };
 }
+
+/**
+ * Notices who is logged in, without insisting on it.
+ *
+ * For routes anyone may call, where being the owner changes what you see —
+ * GET /needs/:id shows its author their own draft, and shows everyone else
+ * nothing at all.
+ *
+ * It runs requireAuth and turns its 401 into "carry on as a stranger". Any
+ * other failure still counts: a database that cannot be reached is not the
+ * same thing as not being logged in.
+ */
+export const optionalAuth: RequestHandler = (req, res, next) => {
+  const done = (error?: unknown): void => {
+    if (error instanceof HttpError && error.status === 401) {
+      next();
+      return;
+    }
+    next(error);
+  };
+
+  void Promise.resolve(requireAuth(req, res, done)).catch(done);
+};

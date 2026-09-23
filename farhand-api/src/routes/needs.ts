@@ -2,11 +2,22 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   getAuth,
+  optionalAuth,
   requireActive,
   requireAuth,
   requireVerified,
 } from "../middleware/auth.js";
-import { createNeed, deleteNeed, updateNeed } from "../services/needs.js";
+import {
+  createNeed,
+  decodeCursor,
+  DEFAULT_PAGE_SIZE,
+  deleteNeed,
+  getVisibleNeed,
+  listMyNeeds,
+  listOpenNeeds,
+  MAX_PAGE_SIZE,
+  updateNeed,
+} from "../services/needs.js";
 
 export const needsRouter: Router = Router();
 
@@ -123,3 +134,63 @@ needsRouter.delete(
     res.status(204).end();
   },
 );
+
+/* ───────────────────────────── browsing (#16) ───────────────────────────── */
+
+/**
+ * The query string of a list request.
+ *
+ * Everything arrives as text, so numbers are coerced and blanks are treated as
+ * absent — `?q=` should not narrow the list to needs containing an empty
+ * string. `limit` is capped: an unbounded page size is a way to ask the
+ * database for the entire table in one request.
+ */
+const listQuerySchema = z.object({
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PAGE_SIZE)
+    .default(DEFAULT_PAGE_SIZE),
+  buyCountry: countryCode.optional(),
+  deliverCountry: countryCode.optional(),
+  categoryId: z.string().trim().min(1).optional(),
+  q: z.string().trim().min(1).max(100).optional(),
+});
+
+needsRouter.get("/needs", async (req, res) => {
+  const { cursor, limit, ...filters } = listQuerySchema.parse(req.query);
+  const page = await listOpenNeeds(
+    filters,
+    cursor === undefined ? undefined : decodeCursor(cursor),
+    limit,
+  );
+
+  res.json(page);
+});
+
+/**
+ * Public, but "public" depends on the need: the owner sees their own drafts,
+ * everyone else sees only what is on offer. The service decides.
+ *
+ * requireAuth is NOT used here, since anyone may look. The session cookie is
+ * read only to know whether the caller happens to be the owner.
+ */
+needsRouter.get("/needs/:id", optionalAuth, async (req, res) => {
+  const { id } = needParams.parse(req.params);
+  const need = await getVisibleNeed(id, req.auth?.user.id);
+
+  res.json({ need });
+});
+
+needsRouter.get("/me/needs", requireAuth, async (req, res) => {
+  const { cursor, limit } = listQuerySchema.parse(req.query);
+  const page = await listMyNeeds(
+    getAuth(req).user,
+    cursor === undefined ? undefined : decodeCursor(cursor),
+    limit,
+  );
+
+  res.json(page);
+});
