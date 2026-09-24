@@ -686,7 +686,39 @@ slot: that helper cannot propose on that need again, and a later
 helper per need", and it is deliberate — a proposal is a record that the two of
 them have already been in touch about this, not a message that can be unsent.
 
-### Who may propose, decline and withdraw
+### `POST /proposals/:id/accept`
+
+The requester says yes. Returns `201` — it creates something new — with
+`{ "deal": { …, "proposal": { … }, "events": [ { … } ] } }`, the deal being the
+only thing in the system the two of them act on afterwards.
+
+**Five writes, one decision.** In one transaction:
+
+1. this proposal → `ACCEPTED`, `respondedAt` now
+2. every other `PENDING` proposal on the need → `DECLINED`, same `respondedAt`
+3. the need → `MATCHED`
+4. the `Deal` is created, `MATCHED`, with `currency` and `thankYouAmount`
+   **copied off the need**, so later edits to the need cannot move an agreed
+   deal (docs/04-deal-lifecycle.md)
+5. the first `DealEvent`: `fromStatus` `null`, `toStatus` `MATCHED`, the
+   requester as actor
+
+Either all five happen or none do. A partly finished accept — a deal whose
+proposal is still pending, a need still open with a deal already running — is a
+state nothing else in the system knows how to read, which is why
+docs/11-risks.md names this the hardest part of the project.
+
+Proposals already `WITHDRAWN` or `DECLINED` are left as they are: step 2 means
+the ones still waiting, not rewriting history. The response is read back from
+the database rather than assembled in memory, so what the caller gets is what
+was written.
+
+The last line of defence is the database's own: the partial unique index
+`one_active_deal_per_need` (docs/05-data-model.md) refuses a second live deal on
+one need even if every check above somehow passed, and that refusal is answered
+as `409`, not `500`.
+
+### Who may propose, accept, decline and withdraw
 
 | Case | Response |
 |---|---|
@@ -694,12 +726,13 @@ them have already been in touch about this, not a message that can be unsent.
 | Email not confirmed, or account suspended | `403` |
 | Your own need, or your own offer | `403` |
 | Introducing a need that is not yours | `403` |
-| Declining as the helper, or withdrawing as the requester | `403` |
+| Accepting or declining as the helper, or withdrawing as the requester | `403` |
 | No such need, offer or proposal | `404` |
 | A need or offer nobody but its owner may see | `404` |
 | The need is no longer `OPEN` | `409` |
 | A proposal already exists between those two for that need | `409` |
 | The proposal is no longer `PENDING` | `409` |
+| The need already has a live deal | `409` |
 
 Enforced in `src/services/proposals.ts`, not in the routes.
 

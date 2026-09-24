@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { Proposal, User } from "@prisma/client";
+import type { Deal, DealEvent, Proposal, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import {
@@ -42,6 +42,12 @@ export interface ProposalMessageInput {
 /** A proposal with enough of its need to be worth reading in a list. */
 export type ProposalWithNeed = Proposal & {
   need: { id: string; title: string; status: string; requesterId: string };
+};
+
+/** What accepting produces: the new deal, its proposal and its first event. */
+export type AcceptedDeal = Deal & {
+  proposal: Proposal;
+  events: DealEvent[];
 };
 
 /** Lists and single reads always carry that much of the need. */
@@ -241,6 +247,122 @@ export async function withdrawProposal(
     data: { status: "WITHDRAWN", respondedAt: new Date() },
     include: withNeed,
   });
+}
+
+/**
+ * The requester accepts, and the deal begins: journey J1, step 5.
+ *
+ * Five writes that are one decision. docs/11-risks.md names this as the
+ * project's hardest part, and the reason is that a half-finished accept is
+ * worse than a failed one: a deal with no accepted proposal, or a need still
+ * open with a deal already running, is a state nothing in the system knows how
+ * to read.
+ */
+export async function acceptProposal(
+  actor: User,
+  proposalId: string,
+): Promise<AcceptedDeal> {
+  const proposal = await prisma.proposal.findUnique({
+    where: { id: proposalId },
+    include: withNeed,
+  });
+
+  if (!proposal) {
+    throw HttpError.notFound("Proposal not found");
+  }
+
+  if (proposal.need.requesterId !== actor.id) {
+    throw HttpError.forbidden("Only the requester may accept a proposal");
+  }
+
+  if (proposal.status !== "PENDING") {
+    throw HttpError.conflict("This proposal is no longer pending");
+  }
+
+  if (proposal.need.status !== "OPEN") {
+    throw HttpError.conflict("This need is no longer open");
+  }
+
+  // One moment for all five writes: the proposal accepted and the ones declined
+  // in its place answered at the same instant, because they are one decision.
+  const respondedAt = new Date();
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // a. Accept THIS proposal — guarded again, in case another accept won
+      // the race since step 1's read.
+      const acceptedCount = await tx.proposal.updateMany({
+        where: { id: proposalId, status: "PENDING" },
+        data: { status: "ACCEPTED", respondedAt },
+      });
+      if (acceptedCount.count === 0) {
+        throw HttpError.conflict("This proposal is no longer pending");
+      }
+
+      // b. Every other still-pending proposal on this need → DECLINED.
+      await tx.proposal.updateMany({
+        where: {
+          needId: proposal.needId,
+          id: { not: proposalId },
+          status: "PENDING",
+        },
+        data: { status: "DECLINED", respondedAt },
+      });
+
+      // c. The need → MATCHED, guarded the same way.
+      const need = await tx.need.findUniqueOrThrow({
+        where: { id: proposal.needId },
+      });
+
+      const matchedCount = await tx.need.updateMany({
+        where: { id: proposal.needId, status: "OPEN" },
+        data: { status: "MATCHED" },
+      });
+      if (matchedCount.count === 0) {
+        throw HttpError.conflict("This need is no longer open");
+      }
+
+      // d. Create the deal — money copied now, so later edits to the need
+      // (docs/04-deal-lifecycle.md) cannot change an agreed deal.
+      const deal = await tx.deal.create({
+        data: {
+          proposalId,
+          needId: proposal.needId,
+          requesterId: proposal.need.requesterId,
+          helperId: proposal.helperId,
+          status: "MATCHED",
+          currency: need.currency,
+          thankYouAmount: need.thankYouAmount,
+        },
+      });
+
+      // e. The first event: append-only, starts here.
+      await tx.dealEvent.create({
+        data: {
+          dealId: deal.id,
+          actorId: proposal.need.requesterId,
+          fromStatus: null,
+          toStatus: "MATCHED",
+        },
+      });
+
+      // Read it back rather than assembling the answer by hand: a copy built
+      // from the rows we held a moment ago drifts from what was actually
+      // written — a stale updatedAt, and the need we joined on the way in.
+      return tx.deal.findUniqueOrThrow({
+        where: { id: deal.id },
+        include: { proposal: true, events: true },
+      });
+    });
+  } catch (error) {
+    // The last line of defence: the partial unique index refuses a second live
+    // deal on this need even if every check above passed.
+    // The index: see docs/05-data-model.md
+    if (isDuplicate(error)) {
+      throw HttpError.conflict("This need already has an active deal");
+    }
+    throw error;
+  }
 }
 
 /**
