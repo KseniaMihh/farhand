@@ -60,7 +60,13 @@ fast.
 helper. It exists so that both directions of contact (helper answers a need,
 requester approaches a helper) converge on one shape. `initiatedBy` records the
 direction for display only. A unique constraint on `(needId, helperId)` stops
-duplicate proposals.
+duplicate proposals. It is what decides them, too: the service inserts and
+catches the violation rather than reading first, because two requests arriving
+together would both read "no proposal yet" and both write.
+
+The constraint takes no notice of `status`, so the row a helper withdraws keeps
+its slot and they cannot propose on that need again. That is deliberate — the
+consequence is spelled out in docs/06-api-contract.md.
 
 **`Conversation`** — one per proposal, so questions can be asked before
 agreeing. Unread state is two timestamps, `requesterLastReadAt` and

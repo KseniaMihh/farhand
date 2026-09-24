@@ -207,6 +207,11 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /helps` | Posts an offer to buy and send: a country, the countries it ships to, and its categories. |
 | `PATCH /helps/:id` | Edits an offer. Sending categories replaces the list. |
 | `DELETE /helps/:id` | Takes an offer down. The row stays, because proposals point at it. |
+| `POST /needs/:id/proposals` | A helper offers to shop for somebody else's need. One proposal per helper per need, decided by a unique constraint rather than by a look-first check. |
+| `POST /helps/:id/proposals` | A requester approaches a helper about a need of their own. The same row, the other way round. |
+| `GET /me/proposals` | Everything the caller is part of, sent and received, in one paged list. |
+| `POST /proposals/:id/decline` | The requester says no. Only while the proposal is pending. |
+| `POST /proposals/:id/withdraw` | The helper changes their mind. Not undo: the slot stays taken. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
