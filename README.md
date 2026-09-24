@@ -210,6 +210,7 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /needs/:id/proposals` | A helper offers to shop for somebody else's need. One proposal per helper per need, decided by a unique constraint rather than by a look-first check. |
 | `POST /helps/:id/proposals` | A requester approaches a helper about a need of their own. The same row, the other way round. |
 | `GET /me/proposals` | Everything the caller is part of, sent and received, in one paged list. |
+| `POST /proposals/:id/accept` | The requester says yes. Five writes in one transaction — accept this, decline the rest, match the need, create the deal, log the first event — or none of them. |
 | `POST /proposals/:id/decline` | The requester says no. Only while the proposal is pending. |
 | `POST /proposals/:id/withdraw` | The helper changes their mind. Not undo: the slot stays taken. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |

@@ -14,6 +14,11 @@ the rules live.
 
 ## States
 
+A deal begins at `MATCHED`, and the only thing that creates one is
+`POST /proposals/:id/accept` — five writes in one transaction, described in
+docs/06-api-contract.md. The first `DealEvent` is written there too, with
+`fromStatus` `null`: the log starts at the same moment the deal does.
+
 | Status | Meaning |
 |---|---|
 | `MATCHED` | The proposal was accepted. Nothing agreed yet. |

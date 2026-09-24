@@ -7,6 +7,7 @@ import {
   requireVerified,
 } from "../middleware/auth.js";
 import {
+  acceptProposal,
   declineProposal,
   listMyProposals,
   proposeAsHelper,
@@ -91,6 +92,23 @@ proposalsRouter.post(
     );
 
     res.status(201).json({ proposal });
+  },
+);
+
+/**
+ * Accepting is the one endpoint here that writes five rows, and it answers 201
+ * because it creates something new: the deal.
+ */
+proposalsRouter.post(
+  "/proposals/:id/accept",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const deal = await acceptProposal(getAuth(req).user, id);
+
+    res.status(201).json({ deal });
   },
 );
 
