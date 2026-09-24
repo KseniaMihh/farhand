@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import {
   afterCursor,
+  NEWEST_FIRST,
   type CursorPosition,
   onlyProvided,
   type Page,
@@ -216,7 +217,7 @@ export async function listActiveHelps(
       ],
     },
     include: withCategories,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: NEWEST_FIRST,
     take: limit + 1,
   });
 

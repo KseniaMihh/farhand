@@ -80,6 +80,19 @@ export function decodeCursor(cursor: string): CursorPosition {
 }
 
 /**
+ * The order every keyset list is sorted by.
+ *
+ * Not decoration: afterCursor() below assumes exactly this order, and a cursor
+ * is only meaningful against it. Change the order in one list and that list
+ * pages wrongly — no error, just rows quietly served twice or skipped — so the
+ * two live next to each other and are used together.
+ */
+export const NEWEST_FIRST = [
+  { createdAt: "desc" as const },
+  { id: "desc" as const },
+];
+
+/**
  * The "everything after this position" condition, in the order every list here
  * is sorted: newest first, and for a tie, the larger id first.
  *

@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import {
   afterCursor,
+  NEWEST_FIRST,
   type CursorPosition,
   onlyProvided,
   type Page,
@@ -268,7 +269,7 @@ export async function listOpenNeeds(
           : {},
       ],
     },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: NEWEST_FIRST,
     take: limit + 1,
   });
 
@@ -311,7 +312,7 @@ export async function listMyNeeds(
     // day this list gains a filter of its own that uses OR, a spread would
     // silently replace the cursor's condition instead of adding to it.
     where: { requesterId: actor.id, AND: [afterCursor(position)] },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: NEWEST_FIRST,
     take: limit + 1,
   });
 
