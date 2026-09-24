@@ -1,8 +1,17 @@
+/* eslint-disable @typescript-eslint/no-unused-vars --
+   The browsing stubs at the bottom do not use their arguments or the paging
+   imports yet. DELETE THIS LINE once they are implemented. */
 import { Prisma } from "@prisma/client";
 import type { Help, HelpStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
-import { onlyProvided } from "./shared.js";
+import {
+  afterCursor,
+  type CursorPosition,
+  onlyProvided,
+  type Page,
+  toPage,
+} from "./shared.js";
 
 /**
  * Helps: what someone offers to carry.
@@ -169,4 +178,79 @@ function isMissingRelated(error: unknown): boolean {
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2025"
   );
+}
+
+/* ───────────────────────────── browsing (#18) ───────────────────────────── */
+
+/** What a caller may narrow the public list of offers by. */
+export interface HelpFilters {
+  /** Where the helper is: an exact match. */
+  country?: string | undefined;
+  /** "I need it sent to EE" — see the note in listActiveHelps. */
+  shipsTo?: string | undefined;
+  categoryId?: string | undefined;
+}
+
+/**
+ * The public list: active offers, newest first.
+ *
+ * TODO(#18):
+ *
+ *   1. where: status "ACTIVE", plus the filters that were given, plus the
+ *      cursor condition. Paused and removed offers are not on show — a paused
+ *      offer is a helper saying "not this month".
+ *
+ *      - country, categoryId are ordinary matches. A help has MANY categories,
+ *        so the category filter is `categories: { some: { id: … } }`: "at
+ *        least one of its categories is this one".
+ *
+ *      - shipsTo is the interesting one. An EMPTY shipsTo means the helper
+ *        posts anywhere, so a search for "EE" must match both the offers
+ *        listing EE and the offers listing nothing at all:
+ *
+ *          OR: [
+ *            { shipsTo: { isEmpty: true } },
+ *            { shipsTo: { has: filters.shipsTo } },
+ *          ]
+ *
+ *        `has` asks "does this array contain that value", which is the
+ *        question the GIN index on shipsTo exists to answer
+ *        (prisma/schema.prisma). Miss the isEmpty half and every
+ *        ships-anywhere helper quietly disappears from every search — the
+ *        most useful helpers, invisible.
+ *
+ *      Both that OR and afterCursor's OR go in the same AND array, for the
+ *      reason listOpenNeeds spells out: two ORs in one object, and the second
+ *      silently replaces the first.
+ *
+ *   2. include: withCategories, orderBy [{ createdAt: "desc" }, { id: "desc" }],
+ *      take limit + 1, then return toPage(rows, limit) — the same shape as
+ *      needs, from ./shared.js.
+ */
+export async function listActiveHelps(
+  filters: HelpFilters,
+  position: CursorPosition | undefined,
+  limit: number,
+): Promise<Page<HelpWithCategories>> {
+  // TODO(#18): replace this whole body.
+  return Promise.reject(new Error("listActiveHelps is not implemented yet"));
+}
+
+/**
+ * One offer, if this caller may see it.
+ *
+ * TODO(#18): the same shape as getVisibleNeed:
+ *
+ *   1. Load it with `include: withCategories`. Missing → 404.
+ *   2. The helper sees their own offer whatever its status, which is how they
+ *      find a paused one to restart.
+ *   3. Everyone else sees it only while it is ACTIVE. Paused and removed
+ *      answer the same 404 as an offer that never existed.
+ */
+export async function getVisibleHelp(
+  helpId: string,
+  viewerId: string | undefined,
+): Promise<HelpWithCategories> {
+  // TODO(#18): replace this whole body.
+  return Promise.reject(new Error("getVisibleHelp is not implemented yet"));
 }

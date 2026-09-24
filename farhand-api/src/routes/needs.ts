@@ -10,15 +10,17 @@ import {
 } from "../middleware/auth.js";
 import {
   createNeed,
-  decodeCursor,
-  DEFAULT_PAGE_SIZE,
   deleteNeed,
   getVisibleNeed,
   listMyNeeds,
   listOpenNeeds,
-  MAX_PAGE_SIZE,
   updateNeed,
 } from "../services/needs.js";
+import {
+  decodeCursor,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from "../services/shared.js";
 
 export const needsRouter: Router = Router();
 

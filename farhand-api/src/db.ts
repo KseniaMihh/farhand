@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import { env } from "./env.js";
+import { env, isTest } from "./env.js";
 
 /**
  * The Prisma client, created once and shared by the whole app.
@@ -15,7 +15,17 @@ import { env } from "./env.js";
  */
 const adapter = new PrismaPg({ connectionString: env.DATABASE_URL });
 
-export const prisma = new PrismaClient({ adapter });
+export const prisma = new PrismaClient({
+  adapter,
+  // In the test suite only, Prisma announces every statement it sends. One
+  // test in tests/helps/browse.test.ts listens for that, takes the SQL the
+  // browse endpoint really produced, and runs EXPLAIN on it — which is how
+  // #18 proves the GIN index answers the query we actually make, rather than
+  // one written by hand to look like it.
+  ...(isTest
+    ? { log: [{ emit: "event" as const, level: "query" as const }] }
+    : {}),
+});
 
 /** Cheap round-trip to prove the database is reachable. Used by /health. */
 export async function pingDatabase(): Promise<void> {

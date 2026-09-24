@@ -3,7 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
-import { MAX_PAGE_SIZE } from "../../src/services/needs.js";
+import { MAX_PAGE_SIZE } from "../../src/services/shared.js";
 import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import { createCategory } from "../helpers/needs.js";
 
