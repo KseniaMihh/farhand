@@ -213,6 +213,10 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /proposals/:id/accept` | The requester says yes. Five writes in one transaction — accept this, decline the rest, match the need, create the deal, log the first event — or none of them. |
 | `POST /proposals/:id/decline` | The requester says no. Only while the proposal is pending. |
 | `POST /proposals/:id/withdraw` | The helper changes their mind. Not undo: the slot stays taken. |
+| `POST /proposals/:id/messages` | Sends a message. The first one opens the thread, which is why this is addressed by the proposal. Rate limited per sender. |
+| `GET /conversations` | The inbox: threads the caller is in, most recently spoken in first, with unread counts. |
+| `GET /conversations/:id/messages` | One thread. Participants and moderators only; paged like a chat window, newest page first, read forwards. |
+| `POST /conversations/:id/read` | Records that the caller has read a thread, on their own side only. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
