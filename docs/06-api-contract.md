@@ -513,11 +513,47 @@ routes, so every future caller gets them too.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/helps` | — | Filters: `country`, `shipsTo`, `categoryId` |
+| GET | `/helps` | — | Filters: `country`, `shipsTo`, `categoryId`. Only `ACTIVE`. An empty `shipsTo` matches every country |
 | GET | `/helps/:id` | — | Public |
 | POST | `/helps` | AUTH | Categories are a list; empty `shipsTo` means anywhere |
 | PATCH | `/helps/:id` | AUTH | Owner only |
 | DELETE | `/helps/:id` | AUTH | Owner only. Marks it removed; the row stays |
+
+### `GET /helps`
+
+The public list. Active offers only, newest first.
+
+| Query | Meaning |
+|---|---|
+| `country` | Two letters. Where the helper is |
+| `shipsTo` | Two letters. Where the parcel must go |
+| `categoryId` | Matches an offer with that category among its categories |
+| `limit` | 1–50, default 20 |
+| `cursor` | From the previous page's `nextCursor` |
+
+```json
+{
+  "items": [{ "id": "cm1…", "country": "JP", "shipsTo": ["EE", "FI"], "categories": [], "…": "…" }],
+  "nextCursor": null
+}
+```
+
+**`shipsTo` also matches the offers that ship anywhere.** An empty `shipsTo` is
+a helper saying "I post anywhere", so a search for `EE` returns both the offers
+listing `EE` and the offers listing nothing. Leaving them out would hide the
+most useful helpers from every search.
+
+Paused and removed offers are not listed. Paging is the same as for needs:
+keyset on `(createdAt, id)`, with an opaque cursor.
+
+### `GET /helps/:id`
+
+| Who is asking | Sees |
+|---|---|
+| Its helper | Any status, including their own paused offer |
+| Anyone else | `ACTIVE` only |
+
+Anything else answers `404` rather than `403`, as with needs.
 
 ### `POST /helps`
 

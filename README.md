@@ -202,6 +202,8 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /needs` | Posts a need. Five open per account; drafts do not count. |
 | `PATCH /needs/:id` | Edits a need, while it is a draft or open, and only the owner's own. |
 | `DELETE /needs/:id` | Closes a need. Refused while a deal is live; the row is kept either way. |
+| `GET /helps` | The public list of offers: filter by the helper's country, where they ship, or a category. |
+| `GET /helps/:id` | One offer. Its helper sees any status; everyone else sees active ones. |
 | `POST /helps` | Posts an offer to buy and send: a country, the countries it ships to, and its categories. |
 | `PATCH /helps/:id` | Edits an offer. Sending categories replaces the list. |
 | `DELETE /helps/:id` | Takes an offer down. The row stays, because proposals point at it. |
@@ -272,6 +274,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/needs/needs.test.ts` | Needs: every permission rule — ownership, editable statuses, the open-needs limit, and what blocks a delete |
 | `tests/needs/browse.test.ts` | Browsing: filters, what each visitor may see, and paging that stays correct while needs are posted |
 | `tests/helps/helps.test.ts` | Helps: ownership, categories replaced rather than added, empty shipsTo meaning anywhere, and a delete that keeps proposals |
+| `tests/helps/browse.test.ts` | Browsing offers: filters, ships-anywhere matching every search, paging, and what EXPLAIN says about the GIN index |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -377,7 +380,7 @@ farhand/
 │   │       ├── health.ts
 │   │       ├── auth.ts         register, verify email, log in and out, me, reset password
 │   │       ├── needs.ts        create, edit, delete and browse needs
-│   │       └── helps.ts        create, edit and delete offers
+│   │       └── helps.ts        create, edit, delete and browse offers
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
