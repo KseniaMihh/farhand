@@ -23,7 +23,7 @@ buried in terms of service.
 | Helper takes the money and disappears | Reputation, reports, bans; requester warned before paying | Escrow via payment provider |
 | Requester never reimburses | Helper does not buy until paid | Escrow |
 | Prohibited or illegal items | Prohibited list at posting time, reports, moderation | Automated screening |
-| Harassment in messages | Report on every message, moderator visibility, block | Filtering |
+| Harassment in messages | Report on every message, moderator visibility, block; 20 messages a minute per sender, so flooding somebody's inbox takes effort | Filtering |
 | Fake reviews | Reviews only after a `COMPLETED` deal, one per side | Anomaly detection |
 | Scraping personal data | Profiles show display name and country only; no email addresses anywhere in the API | Rate limiting per IP |
 

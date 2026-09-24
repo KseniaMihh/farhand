@@ -73,9 +73,17 @@ agreeing. Unread state is two timestamps, `requesterLastReadAt` and
 `helperLastReadAt`; anything newer is unread. This is one small write per read,
 instead of a read flag on every message.
 
+The row is made by the first message, not by the proposal, so an unused thread
+never reaches an inbox. `lastMessageAt` exists to sort that inbox and is kept
+in step with the newest message; it is null until somebody writes, and a null
+sorts *first* in a descending order, which is why the inbox filters those rows
+out rather than trusting them to be absent.
+
 **`Message`** — `senderId` is nullable: a null sender means a system message such
 as "deal marked as shipped", so the timeline reads as one story. `removedAt`
-hides a moderated message without destroying evidence.
+hides a moderated message without destroying evidence. `body` is **not**
+nullable — a message always had words — so a removed one is served with its
+body blanked rather than stored that way.
 
 ## Deals
 

@@ -47,10 +47,17 @@ export const RATE_LIMITS = {
   emailToAddress: { windowMs: 60 * 60 * 1000, perIp: 10, perAccount: 5 },
   /** Token guessing: no account to key on, so by IP only. */
   token: { windowMs: 15 * 60 * 1000, perIp: 30 },
+  /**
+   * Messages, per signed-in user: sending one needs a session, so there is
+   * somebody better to count than an address two colleagues share. Generous
+   * enough for a real back-and-forth, mean enough that flooding somebody's
+   * inbox takes effort (docs/07-trust-and-safety.md).
+   */
+  message: { windowMs: 60 * 1000, perUser: 20 },
 } as const;
 
 /** What a limiter counts by. */
-export type LimitBy = "ip" | "account";
+export type LimitBy = "ip" | "account" | "user";
 
 export interface RateLimiterOptions {
   windowMs: number;
@@ -68,8 +75,11 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
     standardHeaders: "draft-8",
     legacyHeaders: false,
     skip: () => !env.RATE_LIMIT_ENABLED,
-    keyGenerator: (req) =>
-      options.by === "ip" ? ipKeyGenerator(req.ip ?? "") : accountKey(req),
+    keyGenerator: (req) => {
+      if (options.by === "ip") return ipKeyGenerator(req.ip ?? "");
+      if (options.by === "user") return signedInKey(req);
+      return accountKey(req);
+    },
     handler: (req, res, _next, opts) => {
       res.setHeader(
         "Retry-After",
@@ -119,6 +129,27 @@ export function accountKey(req: Request): string {
 }
 
 /**
+ * The key for a signed-in caller: the user behind the session.
+ *
+ * `accountKey` above reads the email out of the body, which is the only thing
+ * available when nobody is signed in yet — login and register. Behind
+ * `requireAuth` there is something better, and using the body there would key
+ * every message on the sender's address instead, which is to say on nothing
+ * (issue #21).
+ *
+ * The limiter runs after `requireAuth`, so `req.auth` is set; the fallback is
+ * only for a limiter mounted in the wrong order, and it fails closed onto the
+ * address rather than handing out an unlimited budget.
+ */
+export function signedInKey(req: Request): string {
+  const auth = (req as Request & { auth?: { user: { id: string } } }).auth;
+
+  return auth
+    ? `user:${auth.user.id}`
+    : `user-unknown:${ipKeyGenerator(req.ip ?? "")}`;
+}
+
+/**
  * The limiters the routes use. Built once, here, so every endpoint of a kind
  * shares one set of counters — forgot-password and resend-verification both
  * send an email to whatever address was typed in, so they share a budget
@@ -159,5 +190,10 @@ export const limiters = {
     windowMs: RATE_LIMITS.token.windowMs,
     max: RATE_LIMITS.token.perIp,
     by: "ip",
+  }),
+  messageByUser: createRateLimiter({
+    windowMs: RATE_LIMITS.message.windowMs,
+    max: RATE_LIMITS.message.perUser,
+    by: "user",
   }),
 };

@@ -740,10 +740,99 @@ Enforced in `src/services/proposals.ts`, not in the routes.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/conversations` | AUTH | Inbox, newest first, with unread counts |
-| GET | `/conversations/:id/messages` | AUTH | Participants only, paginated |
-| POST | `/conversations/:id/messages` | AUTH | Rate limited |
+| POST | `/proposals/:id/messages` | AUTH | Send. Opens the thread if there isn't one. Rate limited |
+| GET | `/conversations` | AUTH | Inbox, most recently spoken in first, with unread counts |
+| GET | `/conversations/:id/messages` | AUTH | Participants and moderators, paginated |
 | POST | `/conversations/:id/read` | AUTH | Updates the reader's timestamp |
+
+### One thread per proposal, made by the first message
+
+A conversation belongs to a **proposal**, not to a deal: "what size?" and "does
+it ship to Estonia?" are exactly the questions people need answered *before*
+accepting (docs/05-data-model.md). A declined proposal keeps its thread,
+because the conversation is a record of what was said.
+
+It does not exist until somebody writes. An empty thread is noise in an inbox,
+so the first message creates it — **and that is why sending is addressed by the
+proposal**: there is no conversation id to post to yet. This replaces the
+earlier `POST /conversations/:id/messages`, which could only have worked if
+every proposal came with a thread nobody had used.
+
+### `POST /proposals/:id/messages`
+
+```json
+{ "body": "I can get the 50 ml one. Do you want two?" }
+```
+
+`body` is 1–4000 characters, matching `Message.body` in the schema. Returns
+`201` with `{ "message": { … } }`.
+
+Only the two of them may write: the need's requester and the proposal's helper.
+Everyone else gets `403` — **moderators included**. They read threads; they do
+not join them.
+
+Nothing here looks at the proposal's status. A declined proposal can still be
+talked about: "sorry, and good luck" is a reasonable last word, and stopping it
+would be a rule nobody asked for.
+
+**Rate limited to 20 a minute, per signed-in sender** (`RATE_LIMITS.message`).
+Counted per *user* and not by address, because two people in one office share
+an address, and because a message has no email in its body to count by. A
+message the server then refuses still spends budget — the limiter runs before
+the handler, or a flood of invalid requests would be free.
+
+### `GET /conversations/:id/messages`
+
+The two participants and any moderator may read; for anybody else the thread
+`404`s, because one you may not read is one you have no business knowing
+exists.
+
+**Paged like a chat window.** The first request returns the newest page,
+ordered **oldest to newest within the page**; its cursor asks for the page
+*before* that one. So you open a thread at the end of it, as you would expect,
+and page backwards through what came before.
+
+A message a moderator has removed keeps its place in the thread and comes back
+with `body: null` (docs/07-trust-and-safety.md keeps the row as evidence). A
+hole that says "removed" is honest; one that silently closes up makes the
+thread read as though nothing was ever sent.
+
+### `GET /conversations`
+
+The caller's own threads, **most recently spoken in first** — ordered by
+`lastMessageAt`, which exists on the row for that purpose, so the cursor
+carries that column rather than `createdAt`. Each entry carries the proposal,
+enough of the need to show a title, and `unreadCount`.
+
+Unread means: messages the other person sent after the caller's own
+`requesterLastReadAt` or `helperLastReadAt`. A thread never read counts
+everything from the other side. Two timestamps rather than a flag per message —
+one small write when you open a thread, instead of one per message read.
+
+### `POST /conversations/:id/read`
+
+Sets the caller's own timestamp and returns `200` with the conversation.
+Marking an already-read thread read again is the same request twice, and lands
+on the same answer.
+
+A moderator gets `403` here, not `404`: they may read the thread, so pretending
+it does not exist would be a lie they can disprove — but reading somebody
+else's conversation is not the same as having read it.
+
+### Who may write, read and mark read
+
+| Case | Response |
+|---|---|
+| Not signed in | `401` |
+| Email not confirmed, or account suspended | `403` |
+| Writing to a proposal that is not yours, moderators included | `403` |
+| A moderator marking a thread read | `403` |
+| No such proposal or conversation | `404` |
+| Reading or marking a thread you are not in | `404` |
+| Message empty, or over 4000 characters | `422` |
+| More than 20 messages in a minute | `429` |
+
+Enforced in `src/services/conversations.ts`, not in the routes.
 
 ## Deals
 

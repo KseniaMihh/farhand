@@ -102,14 +102,32 @@ export const NEWEST_FIRST = [
  * filters, and two ORs in one object means the second wins silently.
  */
 export function afterCursor(position?: CursorPosition) {
+  return afterCursorOn("createdAt", position);
+}
+
+/**
+ * The same condition on a different timestamp column.
+ *
+ * The inbox is ordered by `lastMessageAt` — the column exists for that, see
+ * schema.prisma — so its cursor has to compare that column and not
+ * `createdAt`. Everything else about keyset paging is unchanged, which is why
+ * this is one function with the column as an argument rather than a second
+ * copy of the logic that could drift from the first.
+ */
+export function afterCursorOn(field: string, position?: CursorPosition) {
   if (!position) return {};
 
   return {
     OR: [
-      { createdAt: { lt: position.createdAt } },
-      { createdAt: position.createdAt, id: { lt: position.id } },
+      { [field]: { lt: position.createdAt } },
+      { [field]: position.createdAt, id: { lt: position.id } },
     ],
   };
+}
+
+/** NEWEST_FIRST on a different timestamp column, for the same reason. */
+export function newestFirstOn(field: string) {
+  return [{ [field]: "desc" as const }, { id: "desc" as const }];
 }
 
 /**
@@ -123,9 +141,45 @@ export function toPage<T extends CursorPosition>(
   rows: T[],
   limit: number,
 ): Page<T> {
+  return toPageWith(rows, limit, (row) => row);
+}
+
+/**
+ * The same, for rows whose position is not their own `createdAt`.
+ *
+ * `positionOf` says which timestamp the cursor is built from — the inbox is
+ * ordered by `lastMessageAt`, so that is what its cursor has to carry.
+ */
+export function toPageWith<T>(
+  rows: T[],
+  limit: number,
+  positionOf: (row: T) => CursorPosition,
+): Page<T> {
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
   const last = items.at(-1);
 
-  return { items, nextCursor: hasMore && last ? encodeCursor(last) : null };
+  return {
+    items,
+    nextCursor: hasMore && last ? encodeCursor(positionOf(last)) : null,
+  };
+}
+
+/**
+ * A page read backwards but shown forwards.
+ *
+ * Messages page like a chat window: the first request returns the newest
+ * handful, the cursor asks for the ones before those — but within a page they
+ * read oldest to newest, the way a conversation is read (issue #21). Only the
+ * order of `items` changes; the cursor still comes from the last row of the
+ * query, which is the oldest message on the page and therefore the right place
+ * for the next one to start.
+ */
+export function toPageOldestFirst<T extends CursorPosition>(
+  rows: T[],
+  limit: number,
+): Page<T> {
+  const page = toPage(rows, limit);
+
+  return { ...page, items: [...page.items].reverse() };
 }
