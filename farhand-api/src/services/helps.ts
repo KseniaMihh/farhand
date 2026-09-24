@@ -2,7 +2,14 @@ import { Prisma } from "@prisma/client";
 import type { Help, HelpStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
-import { onlyProvided } from "./shared.js";
+import {
+  afterCursor,
+  NEWEST_FIRST,
+  type CursorPosition,
+  onlyProvided,
+  type Page,
+  toPage,
+} from "./shared.js";
 
 /**
  * Helps: what someone offers to carry.
@@ -169,4 +176,76 @@ function isMissingRelated(error: unknown): boolean {
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2025"
   );
+}
+
+/* ───────────────────────────── browsing (#18) ───────────────────────────── */
+
+/** What a caller may narrow the public list of offers by. */
+export interface HelpFilters {
+  /** Where the helper is: an exact match. */
+  country?: string | undefined;
+  /** "I need it sent to EE" — see the note in listActiveHelps. */
+  shipsTo?: string | undefined;
+  categoryId?: string | undefined;
+}
+
+/**
+ * The public list: active offers, newest first.
+ */
+export async function listActiveHelps(
+  filters: HelpFilters,
+  position: CursorPosition | undefined,
+  limit: number,
+): Promise<Page<HelpWithCategories>> {
+  const rows = await prisma.help.findMany({
+    where: {
+      status: "ACTIVE",
+      ...(filters.country ? { country: filters.country } : {}),
+      ...(filters.categoryId
+        ? { categories: { some: { id: filters.categoryId } } }
+        : {}),
+      AND: [
+        afterCursor(position),
+        filters.shipsTo
+          ? {
+              OR: [
+                { shipsTo: { isEmpty: true } },
+                { shipsTo: { has: filters.shipsTo } },
+              ],
+            }
+          : {},
+      ],
+    },
+    include: withCategories,
+    orderBy: NEWEST_FIRST,
+    take: limit + 1,
+  });
+
+  return toPage(rows, limit);
+}
+
+/**
+ * One offer, if this caller may see it.
+ */
+export async function getVisibleHelp(
+  helpId: string,
+  viewerId: string | undefined,
+): Promise<HelpWithCategories> {
+  const help = await prisma.help.findUnique({
+    where: { id: helpId },
+    include: withCategories,
+  });
+
+  if (!help) {
+    throw HttpError.notFound("Help not found");
+  }
+
+  const isOwner = help.helperId === viewerId;
+  const isPubliclyVisible = help.status === "ACTIVE";
+
+  if (!isOwner && !isPubliclyVisible) {
+    throw HttpError.notFound("Help not found");
+  }
+
+  return help;
 }

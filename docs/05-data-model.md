@@ -124,6 +124,18 @@ ALTER TABLE "Review" ADD CONSTRAINT "rating_range" CHECK ("rating" BETWEEN 1 AND
 
 ## Known gaps, to decide later
 
+- The GIN index on `Help.shipsTo` is not used by the browse filter, and this
+  was measured rather than assumed. The index answers containment
+  (`shipsTo @> ARRAY['EE']` plans as a bitmap scan on
+  `Help_shipsTo_idx`), but "empty means anywhere" makes the live condition
+  `shipsTo = '{}' OR shipsTo @> ARRAY['EE']`, and no GIN array index can
+  answer the first half — so Postgres scans by status and filters. Adding a
+  partial index for the empty half did not change the plan, and neither did
+  forbidding plain index scans. The fix, when the table is big enough to care,
+  is to replace the OR with two index-friendly queries combined by UNION ALL,
+  one per half. Covered by tests in `tests/helps/browse.test.ts`, including
+  one that fails if this is ever fixed.
+
 - No notification table yet; email sending is V2.
 - No currency conversion, by design.
 - No address storage: delivery addresses are exchanged in messages in V1. This is

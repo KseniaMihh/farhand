@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   getAuth,
+  optionalAuth,
   requireActive,
   requireAuth,
   requireVerified,
@@ -10,10 +11,17 @@ import { countryCode } from "../schemas/common.js";
 import {
   createHelp,
   deleteHelp,
+  getVisibleHelp,
+  listActiveHelps,
   MAX_HELP_CATEGORIES,
   MAX_SHIPS_TO,
   updateHelp,
 } from "../services/helps.js";
+import {
+  decodeCursor,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from "../services/shared.js";
 
 export const helpsRouter: Router = Router();
 
@@ -107,3 +115,42 @@ helpsRouter.delete(
     res.status(204).end();
   },
 );
+
+/* ───────────────────────────── browsing (#18) ───────────────────────────── */
+
+/**
+ * The query string of a list request. The same shape as needs', minus the
+ * text search — an offer is a sentence about a person, not a product listing,
+ * so there is nothing useful to match yet.
+ */
+const listQuerySchema = z.object({
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PAGE_SIZE)
+    .default(DEFAULT_PAGE_SIZE),
+  country: countryCode.optional(),
+  shipsTo: countryCode.optional(),
+  categoryId: z.string().trim().min(1).optional(),
+});
+
+helpsRouter.get("/helps", async (req, res) => {
+  const { cursor, limit, ...filters } = listQuerySchema.parse(req.query);
+  const page = await listActiveHelps(
+    filters,
+    cursor === undefined ? undefined : decodeCursor(cursor),
+    limit,
+  );
+
+  res.json(page);
+});
+
+/** Public, but the helper sees their own paused offer. As with a need. */
+helpsRouter.get("/helps/:id", optionalAuth, async (req, res) => {
+  const { id } = helpParams.parse(req.params);
+  const help = await getVisibleHelp(id, req.auth?.user.id);
+
+  res.json({ help });
+});
