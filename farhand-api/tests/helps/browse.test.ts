@@ -282,27 +282,30 @@ describe("GET /helps/:id — one offer", () => {
 /**
  * The acceptance criterion: "GIN index actually used, verified with EXPLAIN".
  *
- * Two different questions, both worth asking:
+ * Verifying it turned up something worth knowing, so these tests record what
+ * is actually true rather than what we hoped:
  *
- *   1. Does the browse endpoint ask the database something a GIN index can
- *      answer? The index covers the containment operator `@>`; a filter
- *      written any other way would never touch it, however well the index is
- *      built.
+ *   1. The browse endpoint asks the containment question, `@>`, which is the
+ *      one a GIN index answers.
+ *   2. The index does answer that question.
+ *   3. The live filter does NOT use it, because "empty means anywhere" makes
+ *      the condition an OR whose other half — `shipsTo = '{}'` — no GIN index
+ *      can answer. Postgres cannot combine the halves, so it filters instead.
  *
- *   2. Can the planner use the index for exactly that query?
+ * At this size that costs nothing, and the fix is written down in
+ * docs/05-data-model.md. The third test exists so the day someone fixes it,
+ * a test says so out loud instead of the docs quietly going stale.
  *
- * The SQL is taken from a real request rather than written here by hand — a
- * hand-written query would only prove something about the query we wrote. The
- * shared client announces its statements while NODE_ENV is test (see
+ * The SQL comes from a real request rather than being written here by hand —
+ * a hand-written query would only prove something about the query we wrote.
+ * The shared client announces its statements while NODE_ENV is test (see
  * src/db.ts), so the test listens, makes the request, and explains what it
  * heard.
  *
- * The second question needs one trick. With a handful of test rows Postgres
- * correctly decides a sequential scan is cheaper and ignores every index, so
- * asking "did it use the index" would only measure how small the table is.
- * Turning sequential scans off for one transaction changes the question to
- * "CAN you use it" — that the index exists, covers this column, and matches
- * this operator.
+ * One trick is needed throughout. With a handful of test rows Postgres
+ * correctly decides a sequential scan is cheapest and ignores every index, so
+ * "did it use the index" would only measure how small the table is. Turning
+ * sequential scans off for one transaction asks "CAN you use it" instead.
  */
 describe("the shipsTo filter and the GIN index", () => {
   interface QueryEvent {
@@ -313,8 +316,8 @@ describe("the shipsTo filter and the GIN index", () => {
   /**
    * The SQL the shared client sent while `run` was happening.
    *
-   * `$on("query")` is only typed when the client is constructed with query
-   * logging, which ours is in tests alone — hence the cast.
+   * `$on("query")` is only typed when the client is built with query logging,
+   * which ours is in tests alone — hence the cast.
    */
   async function sqlDuring(
     run: () => Promise<unknown>,
@@ -340,6 +343,19 @@ describe("the shipsTo filter and the GIN index", () => {
     return captured;
   }
 
+  /** EXPLAIN, with sequential scans refused so the planner has to show its options. */
+  async function explain(sql: string, params: unknown[] = []): Promise<string> {
+    const rows = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      return tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(
+        `EXPLAIN ${sql}`,
+        ...params,
+      );
+    });
+
+    return rows.map((row) => row["QUERY PLAN"]).join("\n");
+  }
+
   it("asks the database the question a GIN index can answer", async () => {
     await makeHelp({ shipsTo: ["EE"] });
 
@@ -349,20 +365,28 @@ describe("the shipsTo filter and the GIN index", () => {
     expect(query).toContain('"shipsTo" @>');
   });
 
-  it("can answer that question with the index rather than a table scan", async () => {
+  it("has an index that answers it", async () => {
+    await makeHelp({ shipsTo: ["EE"] });
+
+    const plan = await explain(
+      `SELECT id FROM "Help" WHERE "shipsTo" @> ARRAY['EE']`,
+    );
+
+    expect(plan).toContain("Help_shipsTo_idx");
+    expect(plan).toContain("Bitmap Index Scan");
+  });
+
+  it("cannot use it while empty means anywhere — the known limitation", async () => {
     await makeHelp({ shipsTo: ["EE"] });
     const { query, params } = await sqlDuring(() => browse({ shipsTo: "EE" }));
 
-    const plan = await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
-      return tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(
-        `EXPLAIN ${query}`,
-        ...params,
-      );
-    });
-    const planText = plan.map((row) => row["QUERY PLAN"]).join("\n");
+    const plan = await explain(query, params);
 
-    expect(planText).toContain("Help_shipsTo_idx");
-    expect(planText).toContain("Bitmap Index Scan");
+    // The OR is why: one half is containment, which the GIN index answers, and
+    // the other is "= '{}'", which it cannot, so Postgres filters instead.
+    expect(plan).toContain("Filter:");
+    expect(plan).not.toContain("Help_shipsTo_idx");
+    // If this test ever fails, that is good news: the query became
+    // index-friendly. Delete it and update docs/05-data-model.md.
   });
 });
