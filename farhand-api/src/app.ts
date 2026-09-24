@@ -6,6 +6,7 @@ import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { helpsRouter } from "./routes/helps.js";
 import { needsRouter } from "./routes/needs.js";
+import { proposalsRouter } from "./routes/proposals.js";
 
 /**
  * Builds the Express app.
@@ -43,6 +44,7 @@ export function createApp(): Express {
   app.use(authRouter);
   app.use(needsRouter);
   app.use(helpsRouter);
+  app.use(proposalsRouter);
 
   // Both of these must stay at the bottom, in this order.
   app.use(notFoundHandler);

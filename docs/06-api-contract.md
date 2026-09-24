@@ -617,11 +617,91 @@ Enforced in `src/services/helps.ts`, not in the routes.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/needs/:id/proposals` | AUTH | Not your own need; one per helper per need |
-| GET | `/me/proposals` | AUTH | Both sent and received |
+| POST | `/needs/:id/proposals` | AUTH | A helper answers a need. Not your own need; one per helper per need |
+| POST | `/helps/:id/proposals` | AUTH | A requester approaches a helper about a need. Not your own offer; the need must be yours |
+| GET | `/me/proposals` | SESSION | Both sent and received |
 | POST | `/proposals/:id/accept` | AUTH | Requester only. Transaction: accept this, decline the rest, close the need, create the deal, log the first event |
 | POST | `/proposals/:id/decline` | AUTH | Requester only |
 | POST | `/proposals/:id/withdraw` | AUTH | Helper only |
+
+### Two ways in, one row
+
+People find each other both ways round (docs/03-user-journeys.md), so there are
+two paths that create the same kind of row:
+
+| Path | Who calls it | `initiatedBy` | `helpId` |
+|---|---|---|---|
+| `POST /needs/:id/proposals` | The helper, about somebody else's need | `HELPER` | `null` |
+| `POST /helps/:id/proposals` | The requester, about their own need | `REQUESTER` | The offer |
+
+The ownership rules are opposites — the first refuses the need's owner, the
+second insists on it — which is why they are two paths rather than one that
+guesses from who is asking. Everything afterwards is identical: the same
+statuses, the same conversation, the same accept. `initiatedBy` is recorded for
+display and nothing branches on it.
+
+### `POST /needs/:id/proposals`
+
+```json
+{ "message": "I live in Tokyo and can get this within the week." }
+```
+
+`message` is optional, 1–1000 characters, and `null` when left out.
+
+Returns `201` with `{ "proposal": { … } }`, status `PENDING`, `respondedAt`
+`null`. The proposal carries the need it is about: `id`, `title`, `status` and
+`requesterId`.
+
+### `POST /helps/:id/proposals`
+
+```json
+{ "needId": "cm1…", "message": "Would you get this for me?" }
+```
+
+`needId` is required and must be a need the caller owns; `message` is the same
+optional note. Returns `201` in the same shape, with `initiatedBy` set to
+`REQUESTER` and `helpId` set to the offer the requester was reading.
+
+### `GET /me/proposals`
+
+`SESSION`. Everything the caller is part of, whichever side they are on: the
+proposals they sent as a helper and the ones they received on their own needs,
+in one list, newest first, paged exactly like needs and offers.
+
+`SESSION` rather than `AUTH` for the same reason as `GET /me/needs`: reading
+what you already sent should not depend on having confirmed your email.
+
+### `POST /proposals/:id/decline` and `POST /proposals/:id/withdraw`
+
+The same shape from opposite sides. Declining is the requester's word, and only
+the need's requester may do it; withdrawing is the helper's, and only the helper
+who sent the proposal may do it. Both return `200` with the updated proposal,
+set `respondedAt`, and work only while the proposal is `PENDING` — anything else
+is `409`.
+
+**Withdrawing is not undo.** The unique constraint is on `(needId, helperId)`
+and takes no notice of status, so a withdrawn or declined proposal keeps the
+slot: that helper cannot propose on that need again, and a later
+`POST /needs/:id/proposals` returns `409`. It follows from "one proposal per
+helper per need", and it is deliberate — a proposal is a record that the two of
+them have already been in touch about this, not a message that can be unsent.
+
+### Who may propose, decline and withdraw
+
+| Case | Response |
+|---|---|
+| Not signed in | `401` |
+| Email not confirmed, or account suspended | `403` |
+| Your own need, or your own offer | `403` |
+| Introducing a need that is not yours | `403` |
+| Declining as the helper, or withdrawing as the requester | `403` |
+| No such need, offer or proposal | `404` |
+| A need or offer nobody but its owner may see | `404` |
+| The need is no longer `OPEN` | `409` |
+| A proposal already exists between those two for that need | `409` |
+| The proposal is no longer `PENDING` | `409` |
+
+Enforced in `src/services/proposals.ts`, not in the routes.
 
 ## Messages
 
