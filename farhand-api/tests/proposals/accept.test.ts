@@ -6,6 +6,7 @@ import { prisma } from "../../src/db.js";
 import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
 import { createCategory } from "../helpers/needs.js";
+import { breakInsideTransaction } from "../helpers/transactions.js";
 
 /**
  * Accepting a proposal — issue #20.
@@ -65,49 +66,6 @@ async function needWithTwoProposals() {
   if (!yukis || !mareks) throw new Error("setup failed");
 
   return { need, yukis, mareks };
-}
-
-/**
- * Break one model's `create` from inside the real transaction.
- *
- * Spying on `prisma.dealEvent.create` does not work: inside `$transaction` the
- * service writes through a different client, the `tx` handed to the callback,
- * and the spy never fires. So we let the real transaction begin and pass the
- * service a `tx` whose chosen model refuses to write. The rollback that
- * follows is Postgres's own, not something the test arranged.
- *
- * An implementation that never calls `$transaction` never reaches this, writes
- * its rows one by one, and fails the assertions. That is the point of it.
- */
-function breakInsideTransaction(model: "deal" | "dealEvent") {
-  const record = { attempts: 0 };
-  const real = prisma.$transaction.bind(prisma) as (
-    run: (tx: unknown) => Promise<unknown>,
-  ) => Promise<unknown>;
-
-  vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
-    run: (tx: unknown) => Promise<unknown>,
-  ) =>
-    real((tx) =>
-      run(
-        new Proxy(tx as object, {
-          get(target, property) {
-            if (property !== model) {
-              return Reflect.get(target, property) as unknown;
-            }
-
-            return {
-              create: () => {
-                record.attempts += 1;
-                return Promise.reject(new Error(`${model} is on fire`));
-              },
-            };
-          },
-        }),
-      ),
-    )) as never);
-
-  return record;
 }
 
 function accept(user: TestUser, proposalId: string) {

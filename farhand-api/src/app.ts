@@ -4,6 +4,7 @@ import { logger } from "./logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { authRouter } from "./routes/auth.js";
 import { conversationsRouter } from "./routes/conversations.js";
+import { dealsRouter } from "./routes/deals.js";
 import { healthRouter } from "./routes/health.js";
 import { helpsRouter } from "./routes/helps.js";
 import { needsRouter } from "./routes/needs.js";
@@ -47,6 +48,7 @@ export function createApp(): Express {
   app.use(helpsRouter);
   app.use(proposalsRouter);
   app.use(conversationsRouter);
+  app.use(dealsRouter);
 
   // Both of these must stay at the bottom, in this order.
   app.use(notFoundHandler);
