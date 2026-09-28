@@ -53,6 +53,13 @@ The helper submits a quote; it is not itself a status. The deal stays `MATCHED`
 until the requester accepts it. A helper may revise a quote while the deal is
 still `MATCHED`; each revision replaces the previous one and is logged.
 
+Concretely: a quote is a row in `Quote`, and revising writes another one. The
+newest row is the offer on the table, the older rows are the log, and the row
+whose `acceptedAt` is set is the one that became the deal's own amounts. The
+deal's `productAmount` and `shippingEstimate` stay `null` until that happens, so
+"offered" and "agreed" are never the same field. Endpoints in
+docs/06-api-contract.md.
+
 ## Money rules
 
 - All amounts are integers in the smallest unit of the currency (cents), never

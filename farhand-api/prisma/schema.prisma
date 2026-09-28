@@ -322,12 +322,32 @@ model Deal {
   updatedAt        DateTime   @updatedAt
 
   events  DealEvent[]
+  quotes  Quote[]
   reviews Review[]
   files   File[]
 
   @@index([requesterId, status])
   @@index([helperId, status])
   @@index([needId])
+}
+
+/// What the helper says it will actually cost, before anyone has agreed to it.
+///
+/// A row per revision rather than a column per amount: "each revision replaces
+/// the previous one and is logged" (docs/04-deal-lifecycle.md), and a row that
+/// stays is the log. The newest row is the offer on the table; the one with
+/// `acceptedAt` set is the one that became the deal's own amounts.
+model Quote {
+  id               String    @id @default(cuid())
+  dealId           String
+  deal             Deal      @relation(fields: [dealId], references: [id])
+  currency         String    @db.Char(3)
+  productAmount    Int // cents, what the item itself costs
+  shippingEstimate Int // cents, what the helper expects postage to be
+  acceptedAt       DateTime? // set on the one the requester agreed to
+  createdAt        DateTime  @default(now())
+
+  @@index([dealId, createdAt])
 }
 
 // Append-only history: every status change, who did it, when.
@@ -439,6 +459,10 @@ model File {
 // CREATE UNIQUE INDEX "one_active_deal_per_need"
 //   ON "Deal" ("needId") WHERE "status" <> 'CANCELLED';
 //
+// -- Only one accepted quote per deal (partial unique index):
+// CREATE UNIQUE INDEX "one_accepted_quote_per_deal"
+//   ON "Quote" ("dealId") WHERE "acceptedAt" IS NOT NULL;
+//
 // -- Ratings must be 1–5:
 // ALTER TABLE "Review" ADD CONSTRAINT "rating_range"
 //   CHECK ("rating" BETWEEN 1 AND 5);
@@ -451,3 +475,5 @@ model File {
 //      AND COALESCE("shippingEstimate", 0) >= 0
 //      AND COALESCE("shippingActual", 0) >= 0
 //      AND "thankYouAmount" >= 0);
+// ALTER TABLE "Quote" ADD CONSTRAINT "quote_amounts_non_negative"
+//   CHECK ("productAmount" >= 0 AND "shippingEstimate" >= 0);

@@ -841,11 +841,86 @@ Enforced in `src/services/conversations.ts`, not in the routes.
 | GET | `/me/deals` | AUTH | Filter by status |
 | GET | `/deals/:id` | AUTH | Participants and moderators only |
 | POST | `/deals/:id/quote` | AUTH | Helper submits amounts and currency |
+| GET | `/deals/:id/quotes` | AUTH | Every revision, newest first. Participants only |
 | POST | `/deals/:id/transition` | AUTH | Body: `{ to, note?, trackingNumber?, shippingActual? }`. Validated against the transition table |
 | GET | `/deals/:id/events` | AUTH | Full history |
 
 One transition endpoint rather than one endpoint per status keeps the rules in a
 single place. The alternative is recorded in the decisions folder.
+
+**A deal is private to its two people.** Everywhere in this section, a caller
+who is neither the requester nor the helper gets `404`, never `403`: telling a
+stranger that a deal exists is itself a leak. Moderators are the exception the
+table above notes, and that arrives with the moderation issues.
+
+### `POST /deals/:id/quote`
+
+```json
+{ "currency": "JPY", "productAmount": 3200, "shippingEstimate": 1100 }
+```
+
+| Field | Rule |
+|---|---|
+| `currency` | Three letters, ISO 4217, upper-cased |
+| `productAmount` | Whole cents, above zero |
+| `shippingEstimate` | Whole cents, zero or more — free postage is a real offer |
+
+Returns `201` with `{ "quote": { … } }`.
+
+**Only the helper may quote**, and **only while the deal is `MATCHED`** (`409`
+otherwise). Being quoted at is not the same as quoting, and once a quote is
+agreed the amounts are locked.
+
+**A quote is not a status.** Submitting again is how a helper revises: a new
+row each time, the newest being the offer on the table. Nothing is overwritten
+and nothing is deleted, which is what makes "what did you quote me last week?"
+answerable — the requirement in docs/04-deal-lifecycle.md that each revision is
+logged.
+
+**The deal's own `productAmount` and `shippingEstimate` stay `null` until
+something is agreed.** Those columns are what was *agreed*, not what was
+*offered*; a reader can tell the difference without consulting the status.
+
+### `GET /deals/:id/quotes`
+
+Every quote on the deal, newest first, for either of its two people. Not paged:
+a deal has a handful of revisions, not a thousand.
+
+### `POST /deals/:id/transition`
+
+```json
+{ "to": "QUOTE_AGREED" }
+```
+
+Returns `200` with the deal and its events. The full transition table lives in
+docs/04-deal-lifecycle.md; the endpoint currently implements one move,
+`MATCHED` → `QUOTE_AGREED`, and any other `to` is `422` rather than silently
+accepted. The rest of the table follows in its own issue — the URL and the body
+are already their final shape (docs/10-decisions/0008).
+
+For this transition:
+
+| Rule | Response if broken |
+|---|---|
+| Only the requester may agree | `403` |
+| The deal must still be `MATCHED` | `409` |
+| There must be a quote to agree to | `409` |
+
+Agreeing does four things at once, in one transaction — all of them or none:
+
+1. the deal moves to `QUOTE_AGREED`
+2. `currency`, `productAmount` and `shippingEstimate` are **copied from the
+   quote** onto the deal, and are immutable from then on
+3. that quote's `acceptedAt` is set; a partial unique index
+   (`one_accepted_quote_per_deal`) refuses a second accepted quote whatever the
+   code does
+4. a `DealEvent` records `MATCHED` → `QUOTE_AGREED` and who did it
+
+**The currency comes from the quote, not the need.** A deal is created with the
+need's currency (#20), but nothing is agreed then; the helper may quote in the
+currency they will actually be spending, and accepting is the moment it stops
+being negotiable. That is what docs/04-deal-lifecycle.md means by "one currency
+per deal, chosen at quote time".
 
 ## Reports and moderation
 

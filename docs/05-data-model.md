@@ -93,6 +93,22 @@ proposal. This is deliberate denormalisation: "show me my deals" becomes one
 indexed query instead of a join chain. The cost is that these fields must never
 be edited after creation.
 
+**`Quote`** — what the helper says it will cost, before anybody has agreed. A
+row per revision rather than a column per amount, because "each revision is
+logged" (docs/04-deal-lifecycle.md) and a row that stays *is* the log. The
+newest row is the offer on the table; the one with `acceptedAt` set is the one
+that became the deal's own amounts. A partial unique index allows only one
+accepted quote per deal:
+
+```sql
+CREATE UNIQUE INDEX "one_accepted_quote_per_deal"
+  ON "Quote" ("dealId") WHERE "acceptedAt" IS NOT NULL;
+```
+
+Keeping the offer out of `Deal.productAmount` is what lets a reader tell an
+offer from an agreement without consulting the status: those columns are null
+until something is agreed, and immutable afterwards.
+
 **`DealEvent`** — append-only history of status changes. `Deal.status` answers
 "where is this now"; `DealEvent` answers "how did it get here and who did it".
 Disputes and the admin view both depend on it. A null `actorId` means the system

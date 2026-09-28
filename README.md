@@ -217,6 +217,9 @@ npm run dev        # tsx watch - restarts on every save
 | `GET /conversations` | The inbox: threads the caller is in, most recently spoken in first, with unread counts. |
 | `GET /conversations/:id/messages` | One thread. Participants and moderators only; paged like a chat window, newest page first, read forwards. |
 | `POST /conversations/:id/read` | Records that the caller has read a thread, on their own side only. |
+| `POST /deals/:id/quote` | The helper says what it will cost. Revising is submitting again — every revision is kept. |
+| `GET /deals/:id/quotes` | Every revision on a deal, newest first, for its two people. |
+| `POST /deals/:id/transition` | Moves a deal to its next status. Today only `QUOTE_AGREED`, which copies the agreed money onto the deal and logs it. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
