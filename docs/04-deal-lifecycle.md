@@ -43,7 +43,7 @@ docs/06-api-contract.md. The first `DealEvent` is written there too, with
 | `DELIVERED` | `COMPLETED` | Requester, or automatically after 14 days | — | Reviews unlock |
 | Any state before `SHIPPED` | `CANCELLED` | Either side | Reason required | Need may reopen |
 | Any state from `PRODUCT_PAID` to `SHIPPED` | `DISPUTED` | Either side | Reason required | Deal frozen |
-| `DISPUTED` | `CANCELLED` or previous state | Moderator | — | Resolution note recorded |
+| `DISPUTED` | `CANCELLED` or previous state | Moderator | Reason required | Resolution note recorded |
 
 Any transition not in this table is invalid, including going backwards.
 
@@ -54,11 +54,39 @@ service enforces it, and a test walks all 81 possible moves to check that the
 fourteen above are allowed and the other sixty-seven are refused. If this
 document and that file ever disagree, one of them is a bug.
 
-Two things in the table are not in the engine yet, because they are more than a
-status change: returning a disputed deal to the state it came from (which needs
-the event log to know what that was), and the automatic completion after 14
-days (which needs something to run without a person asking). Both belong to the
-cancellation and dispute issue.
+Three of the rows carry more than a status change, and all three are now built:
+
+**Cancelling releases the need.** A cancelled deal means nobody is shopping for
+this any more, so the need goes back to `OPEN` and other helpers can offer —
+inside the same transaction as the cancellation, so a failure leaves neither.
+Only from `MATCHED`, though: a need the requester has closed, or a moderator has
+removed, is not quietly republished. The original helper still cannot propose
+again, because the unique constraint on `(needId, helperId)` holds that slot for
+good (docs/05-data-model.md); somebody else can.
+
+**A dispute freezes the deal.** From `DISPUTED` the table offers nothing to
+either of its two people — only the moderator's row — so neither side can move
+it while they disagree.
+
+**"Or previous state" means exactly one state.** Which one is not something the
+table can say, because it depends on the deal's own history: the service reads
+the most recent event whose `toStatus` is `DISPUTED` and allows only its
+`fromStatus`. Any other target is refused even though the table lists all three
+candidates.
+
+## Completing without being asked
+
+A requester who goes quiet must not leave a deal open forever, so a deal that
+has been `DELIVERED` for **14 days** completes itself. The event it writes has a
+**null `actorId`** — the schema's way of saying the system acted rather than a
+person (docs/05-data-model.md) — and a note saying so in words.
+
+It runs as a job rather than a timer inside the API: `npm run job:auto-complete`,
+scheduled by whatever runs scheduled work once the API is deployed. Two API
+instances would both fire a timer; and a web process should answer requests. The
+sweep is safe to run twice and safe to overlap with itself, because each deal is
+moved by an update guarded on it still being `DELIVERED` — the requester
+pressing the button at the same moment simply wins, and the job writes nothing.
 
 ## Quoting, separately from status
 

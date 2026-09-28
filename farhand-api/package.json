@@ -20,7 +20,8 @@
     "format:check": "prettier --check .",
     "seed": "tsx src/seed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "job:auto-complete": "tsx src/jobs/auto-complete.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

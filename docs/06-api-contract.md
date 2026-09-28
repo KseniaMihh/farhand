@@ -909,8 +909,21 @@ change is permitted.
 | `MATCHED`, `QUOTE_AGREED`, `PRODUCT_PAID`, `PURCHASED` | `CANCELLED` | Either side | `note` |
 | `PRODUCT_PAID`, `PURCHASED`, `SHIPPED` | `DISPUTED` | Either side | `note` |
 | `DISPUTED` | `CANCELLED` | Moderator | `note` |
+| `DISPUTED` | `PRODUCT_PAID`, `PURCHASED` or `SHIPPED` | Moderator | `note` |
 
-Nine statuses make 81 possible moves. Fourteen are above; the other sixty-seven
+**Cancelling reopens the need** it came from, in the same transaction — unless
+the requester has closed it or a moderator has removed it, which a cancellation
+must not undo (docs/04-deal-lifecycle.md).
+
+**A dispute can only be resolved back to where it started.** The table lists all
+three states a dispute can return to because it cannot know which applies to a
+given deal; the event log does, and anything else is `409`.
+
+**A deal delivered 14 days ago completes itself**, with a null actor on the
+event. Nothing about that goes through this endpoint — it is a scheduled job,
+described in docs/04-deal-lifecycle.md.
+
+Nine statuses make 81 possible moves. Seventeen are above; the other sixty-four
 — including standing still and going backwards — are refused, whoever asks.
 
 **Three refusals, and they mean different things:**
@@ -929,10 +942,24 @@ would confirm that the deal exists.
 not a moderator. A moderator has exactly one row of their own, ending a dispute,
 and cannot confirm a parcel or cancel somebody else's deal.
 
-**Fields are validated per target.** Shipping without a tracking number is `422`
-rather than a deal that says `SHIPPED` with nothing to track, and a tracking
-number sent along with "delivered" is `422` rather than silently dropped —
-sending it means believing something untrue about what the request does.
+**Fields are validated per transition, not per target.** Shipping without a
+tracking number is `422` rather than a deal that says `SHIPPED` with nothing to
+track, and a tracking number sent along with "delivered" is `422` rather than
+silently dropped — sending it means believing something untrue about what the
+request does.
+
+Per *transition* and not per *target*, because the same target can need
+different things depending on where the deal is coming from:
+
+| | |
+|---|---|
+| `PURCHASED` → `SHIPPED` | the helper posts it: `trackingNumber`, `shippingActual` |
+| `DISPUTED` → `SHIPPED` | a moderator undoes a dispute: `note` only — the parcel details are already on the deal |
+
+So the schema checks only what it can decide without knowing the deal — is `to`
+a status, is the note short enough, is the postage whole cents — and refuses
+fields nobody has heard of. Which fields this particular move requires, and
+which it has no use for, comes from the table.
 
 **Every transition writes a `DealEvent`**: where it came from, where it went,
 who did it, and the `note` if there was one. That is what makes the log

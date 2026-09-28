@@ -50,66 +50,50 @@ const quoteSchema = z.object({
   shippingEstimate: z.number().int().nonnegative(),
 });
 
+/** The nine statuses, for the two schemas that have to name them. */
+const DEAL_STATUSES = [
+  "MATCHED",
+  "QUOTE_AGREED",
+  "PRODUCT_PAID",
+  "PURCHASED",
+  "SHIPPED",
+  "DELIVERED",
+  "COMPLETED",
+  "CANCELLED",
+  "DISPUTED",
+] as const;
+
 /**
- * A transition, validated against what its target needs.
+ * A transition request: the shape of it, and nothing about which fields this
+ * particular move needs.
  *
- * A discriminated union on `to` rather than one loose object: it is the fifth
- * acceptance criterion of #24 — "transition-specific fields validated per
- * target status" — and it is the difference between the API refusing a shipping
- * announcement with no tracking number and the API accepting one, shrugging,
- * and leaving a deal that says SHIPPED with nothing to track.
+ * #24 had a discriminated union here, one member per target, each demanding
+ * exactly the fields that target uses. #25 showed that cannot work, because a
+ * requirement belongs to the ROW and not to the target:
  *
- * `.strict()` on every member, so a field that does not belong to the target is
- * a 422 rather than silently dropped. Sending a tracking number along with
- * "delivered" means the caller believes something that is not true, and saying
- * so is kinder than ignoring it.
+ *   PURCHASED → SHIPPED    the helper posts it: tracking number, real postage
+ *   DISPUTED  → SHIPPED    a moderator undoes a dispute: a note, and nothing
+ *                          else — the parcel details are already on the deal
  *
- * What each target requires comes from docs/04-deal-lifecycle.md, the same
- * table src/services/transitions.ts holds.
+ * Same target, different requirements, and the schema cannot tell them apart
+ * because it does not know what status the deal is in. So this validates only
+ * what a schema can decide on its own — is `to` a status, is the note short
+ * enough, is the postage whole cents — and `requires` in the transition table
+ * decides the rest, in the service, where the deal is known.
+ *
+ * `.strict()` still refuses a field nobody has heard of.
  */
-const transitionSchema = z.discriminatedUnion("to", [
-  z.object({ to: z.literal("QUOTE_AGREED") }).strict(),
-  z.object({ to: z.literal("PRODUCT_PAID") }).strict(),
-  z.object({ to: z.literal("PURCHASED") }).strict(),
-  z
-    .object({
-      to: z.literal("SHIPPED"),
-      trackingNumber: z.string().trim().min(1).max(100),
-      shippingActual: z.number().int().nonnegative(),
-    })
-    .strict(),
-  z.object({ to: z.literal("DELIVERED") }).strict(),
-  z.object({ to: z.literal("COMPLETED") }).strict(),
-  // A reason, because somebody will have to read this later and "cancelled"
-  // on its own explains nothing.
-  z
-    .object({
-      to: z.literal("CANCELLED"),
-      note: z.string().trim().min(1).max(500),
-    })
-    .strict(),
-  z
-    .object({
-      to: z.literal("DISPUTED"),
-      note: z.string().trim().min(1).max(500),
-    })
-    .strict(),
-]);
+const transitionSchema = z
+  .object({
+    to: z.enum(DEAL_STATUSES),
+    note: z.string().trim().min(1).max(500).optional(),
+    trackingNumber: z.string().trim().min(1).max(100).optional(),
+    shippingActual: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 const listQuerySchema = z.object({
-  status: z
-    .enum([
-      "MATCHED",
-      "QUOTE_AGREED",
-      "PRODUCT_PAID",
-      "PURCHASED",
-      "SHIPPED",
-      "DELIVERED",
-      "COMPLETED",
-      "CANCELLED",
-      "DISPUTED",
-    ])
-    .optional(),
+  status: z.enum(DEAL_STATUSES).optional(),
   cursor: z.string().trim().min(1).optional(),
   limit: z.coerce
     .number()

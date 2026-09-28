@@ -15,7 +15,12 @@ import {
   type Page,
   toPage,
 } from "./shared.js";
-import { findTransition, mayTransition } from "./transitions.js";
+import {
+  findTransition,
+  mayTransition,
+  TRANSITION_FIELDS,
+} from "./transitions.js";
+import { logger } from "../logger.js";
 
 /**
  * Deals: what the two of them actually agreed, and what it costs.
@@ -101,9 +106,13 @@ export async function submitQuote(
  * is called (docs/04-deal-lifecycle.md).
  */
 export interface TransitionInput {
-  note?: string;
-  trackingNumber?: string;
-  shippingActual?: number;
+  // "?: string | undefined" and not "?: string": with
+  // exactOptionalPropertyTypes, a key that is present and undefined is not the
+  // same as a key that is absent, and that is exactly what an optional Zod
+  // field produces. The same settlement as the needs fields in #15.
+  note?: string | undefined;
+  trackingNumber?: string | undefined;
+  shippingActual?: number | undefined;
 }
 
 /**
@@ -136,15 +145,25 @@ export async function transitionDeal(
     throw HttpError.forbidden("You may not make this change to the deal");
   }
 
-  // Which fields a transition demands is the table's business, not this
-  // function's: adding a row that needs one must not mean remembering to edit
-  // a switch here as well. The route refuses a malformed request first — that
-  // is the boundary doing types, lengths and unexpected fields — but the rule
-  // itself is read from the row.
   const missing = rule.requires.filter((field) => input[field] === undefined);
   if (missing.length > 0) {
-    throw HttpError.badRequest(
+    throw HttpError.validationFailed(
       `Moving a deal to ${to} needs: ${missing.join(", ")}`,
+    );
+  }
+
+  // A field this move has no use for means the caller believes something
+  // untrue, so say rather than dropping it.
+  //
+  // Checked against the fixed list rather than the keys of `input`: the keys
+  // would need a cast to be usable here, and a cast is a promise about a value
+  // this function did not make. The list is the same promise, kept locally.
+  const unexpected = TRANSITION_FIELDS.filter(
+    (field) => input[field] !== undefined && !rule.requires.includes(field),
+  );
+  if (unexpected.length > 0) {
+    throw HttpError.validationFailed(
+      `Moving a deal to ${to} has no use for: ${unexpected.join(", ")}`,
     );
   }
 
@@ -154,6 +173,20 @@ export async function transitionDeal(
   if (to === "QUOTE_AGREED" && !quote) {
     // Nothing to agree to until the helper has quoted.
     throw HttpError.conflict("There is no quote to accept yet");
+  }
+
+  // Leaving a dispute for anywhere but CANCELLED means going back to where the
+  // deal was when the dispute began, and only the event log knows that.
+  if (deal.status === "DISPUTED" && to !== "CANCELLED") {
+    const disputeStart = await prisma.dealEvent.findFirst({
+      where: { dealId, toStatus: "DISPUTED" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+    if (disputeStart?.fromStatus !== to) {
+      throw HttpError.conflict(
+        `This dispute can only be returned to ${disputeStart?.fromStatus ?? "CANCELLED"}`,
+      );
+    }
   }
 
   const fromStatus = deal.status;
@@ -174,8 +207,6 @@ export async function transitionDeal(
       };
     }
 
-    // Guarded by the status we READ: a count of 0 means somebody moved the
-    // deal between our read and this write.
     const moved = await tx.deal.updateMany({
       where: { id: dealId, status: fromStatus },
       data: { status: to, ...effects },
@@ -184,6 +215,13 @@ export async function transitionDeal(
       throw HttpError.conflict(
         "This deal has just changed. Reload and try again",
       );
+    }
+
+    if (to === "CANCELLED") {
+      await tx.need.updateMany({
+        where: { id: deal.needId, status: "MATCHED" },
+        data: { status: "OPEN" },
+      });
     }
 
     if (to === "QUOTE_AGREED" && quote) {
@@ -286,4 +324,80 @@ export async function listQuotes(
     where: { dealId },
     orderBy: NEWEST_FIRST,
   });
+}
+
+/**
+ * How long a delivered deal waits before it completes itself.
+ *
+ * From docs/04-deal-lifecycle.md: "Requester goes silent after delivery →
+ * auto-complete after 14 days at DELIVERED." The parcel arrived; if nobody
+ * says otherwise, the deal is done and the reviews it unlocks should not wait
+ * on a person remembering to press a button.
+ */
+export const AUTO_COMPLETE_DAYS = 14;
+
+export async function autoCompleteDeals(now: Date): Promise<number> {
+  const rule = findTransition("DELIVERED", "COMPLETED");
+  // If the table ever stops allowing this, the job must stop too.
+  if (!rule) return 0;
+
+  const cutoff = new Date(
+    now.getTime() - AUTO_COMPLETE_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  // "When was it delivered" lives in the event log, and only the NEWEST
+  // DELIVERED event counts: an old one must not make a re-delivered deal due.
+  //
+  // Every delivered deal is read, and the due ones picked out here rather than
+  // in the query, because "the newest event per deal, older than X" is awkward
+  // to ask Prisma for in one go. That is fine while delivered deals number in
+  // the hundreds and wrong when they number in the hundreds of thousands: the
+  // fix then is to page through them, or to move the decision into SQL. A
+  // deliberate limit, not an oversight.
+  const candidates = await prisma.deal.findMany({
+    where: { status: "DELIVERED" },
+    include: {
+      events: {
+        where: { toStatus: "DELIVERED" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 1,
+      },
+    },
+  });
+  const due = candidates.filter((deal) => {
+    const delivered = deal.events[0];
+    return delivered !== undefined && delivered.createdAt < cutoff;
+  });
+
+  let completed = 0;
+  for (const deal of due) {
+    try {
+      const done = await prisma.$transaction(async (tx) => {
+        // Guarded: the requester may be pressing the button right now. Count 0
+        // means they got there first, which is fine.
+        const moved = await tx.deal.updateMany({
+          where: { id: deal.id, status: "DELIVERED" },
+          data: { status: rule.to },
+        });
+        if (moved.count === 0) return false;
+
+        await tx.dealEvent.create({
+          data: {
+            dealId: deal.id,
+            actorId: null, // null actor = the system acted
+            fromStatus: "DELIVERED",
+            toStatus: rule.to,
+            note: `Completed automatically ${String(AUTO_COMPLETE_DAYS)} days after delivery`,
+          },
+        });
+        return true;
+      });
+      if (done) completed += 1;
+    } catch (error) {
+      // One bad row must not stop the other ninety-nine.
+      logger.error({ error, dealId: deal.id }, "auto-complete failed for deal");
+    }
+  }
+
+  return completed;
 }

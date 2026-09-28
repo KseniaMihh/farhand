@@ -333,15 +333,18 @@ describe("POST /deals/:id/transition — the requester agrees", () => {
     expect(response.status).toBe(404);
   });
 
-  it("refuses a transition it does not know", async () => {
+  it("refuses a move the table does not allow from here", async () => {
     const deal = await matchedDeal();
     await quote(yuki, deal.id);
 
     const response = await accept(kadri, deal.id, "SHIPPED");
 
-    // #24 teaches this endpoint the rest of the table. Until then an unknown
-    // target is refused outright rather than quietly ignored.
-    expect(response.status).toBe(422);
+    // This was a 422 while the endpoint knew one transition and every other
+    // target was simply unrecognised. Now that the table is complete, SHIPPED
+    // is a real status the deal cannot reach from MATCHED — which is a 409,
+    // the same answer as any other move the table does not list. The
+    // scaffolding is gone and the honest answer took its place (#24).
+    expect(response.status).toBe(409);
   });
 
   it("writes nothing at all when the last step fails", async () => {
