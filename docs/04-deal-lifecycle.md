@@ -47,6 +47,19 @@ docs/06-api-contract.md. The first `DealEvent` is written there too, with
 
 Any transition not in this table is invalid, including going backwards.
 
+**This table exists once in the code**, as data, in
+`farhand-api/src/services/transitions.ts` — `from`, `to`, who may ask, and
+which extra fields the request must carry. The route validates against it, the
+service enforces it, and a test walks all 81 possible moves to check that the
+fourteen above are allowed and the other sixty-seven are refused. If this
+document and that file ever disagree, one of them is a bug.
+
+Two things in the table are not in the engine yet, because they are more than a
+status change: returning a disputed deal to the state it came from (which needs
+the event log to know what that was), and the automatic completion after 14
+days (which needs something to run without a person asking). Both belong to the
+cancellation and dispute issue.
+
 ## Quoting, separately from status
 
 The helper submits a quote; it is not itself a status. The deal stays `MATCHED`
