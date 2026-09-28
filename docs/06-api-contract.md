@@ -1018,11 +1018,88 @@ every other list here.
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | POST | `/reports` | AUTH | Target type and id, reason, details |
-| GET | `/admin/reports` | MOD | Queue, filter by status |
+| GET | `/admin/reports` | MOD | Queue, oldest first, filter by status, target type and reason |
 | POST | `/admin/reports/:id/resolve` | MOD | Resolution note required |
 | GET | `/admin/users` | MOD | Search |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
 | POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, help or message |
+
+Everything under `/admin` requires `MODERATOR` or above, and the prefix is not
+decoration: keeping those routes together is what makes a missing guard obvious
+at a glance (docs/02-roles-and-permissions.md).
+
+### `POST /reports`
+
+```json
+{
+  "targetType": "NEED",
+  "targetId": "cm1…",
+  "reason": "PROHIBITED_ITEM",
+  "details": "This is a medicine, which the rules do not allow"
+}
+```
+
+| Field | Rule |
+|---|---|
+| `targetType` | `USER`, `NEED`, `HELP` or `MESSAGE` |
+| `targetId` | The id of a thing of that type |
+| `reason` | `PROHIBITED_ITEM`, `SCAM`, `HARASSMENT`, `SEXUAL_CONTENT`, `SPAM` or `OTHER` |
+| `details` | Up to 2000 characters. May be `null` |
+
+Returns `201` with `{ "report": { … } }`, status `OPEN`.
+
+`details` is optional on purpose: the reason carries the meaning, and demanding
+a paragraph before somebody can report harassment is a way of getting fewer
+reports about harassment.
+
+**The target is checked in the service, because nothing else can check it.**
+`targetType` and `targetId` name one of four tables, so there is no foreign key
+— the database would accept a report about a need that does not exist, a message
+id somebody invented, or the string "banana". The rules:
+
+| Target | Reportable when |
+|---|---|
+| `USER` | The user exists |
+| `NEED` | It is `OPEN` or `MATCHED` — the statuses anybody may see (#16) |
+| `HELP` | It is `ACTIVE` (#17) |
+| `MESSAGE` | The reporter is one of the two people in the conversation (#21) |
+
+| Case | Response |
+|---|---|
+| Not signed in | `401` |
+| Your own need, offer, message, or yourself | `403` |
+| No such target, **or one you may not see** | `404` |
+| An unknown target type or reason | `422` |
+| You already have an open report about this target | `409` |
+
+**A target you cannot see answers exactly like a target that is not there.** If
+an invented id said "no such thing" and a real one said "thank you", this
+endpoint would be a way of asking whether any given id exists.
+
+**One open report per person per target**, kept by a partial unique index
+(docs/05-data-model.md) rather than by a check, because two taps on a slow
+connection both read "nothing yet". Somebody else reporting the same thing is
+fine — two people complaining is information, not a duplicate — and once a
+moderator has resolved a report, the same person may report the same target
+again: it happened again, so it is news again.
+
+### `GET /admin/reports`
+
+The moderator queue. **Oldest first** — the only list in the API that runs that
+way. Everything people browse is newest first; this is work waiting to be done,
+and the complaint that has waited longest is the one that matters most
+(docs/07-trust-and-safety.md).
+
+| Query | Meaning |
+|---|---|
+| `status` | `OPEN`, `RESOLVED` or `DISMISSED`. **Defaults to `OPEN`** |
+| `targetType` | One of the four |
+| `reason` | One of the six |
+| `limit` | 1–50, default 20 |
+| `cursor` | From `nextCursor`. Walks **forwards** in time, unlike every other cursor here |
+
+The default matters: a moderator opening the queue wants the unresolved ones,
+not every report ever filed. Looking back is something you ask for.
 
 ## Not in version 1
 

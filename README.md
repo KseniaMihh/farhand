@@ -222,6 +222,8 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /deals/:id/transition` | Moves a deal to its next status — the only way any deal ever changes state. What is allowed comes from one table; every move writes to the event log. |
 | `GET /deals/:id` | One deal with its quotes and its whole history. Its two people, and moderators. |
 | `GET /me/deals` | The caller's deals, either side, filtered by status, paged. |
+| `POST /reports` | Reports a user, need, offer or message. The target is checked in the service — a polymorphic id has no foreign key to keep it honest. |
+| `GET /admin/reports` | The moderator queue: oldest first, because it is work waiting rather than a feed. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
