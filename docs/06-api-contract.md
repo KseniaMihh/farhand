@@ -892,19 +892,65 @@ a deal has a handful of revisions, not a thousand.
 { "to": "QUOTE_AGREED" }
 ```
 
-Returns `200` with the deal and its events. The full transition table lives in
-docs/04-deal-lifecycle.md; the endpoint currently implements one move,
-`MATCHED` → `QUOTE_AGREED`, and any other `to` is `422` rather than silently
-accepted. The rest of the table follows in its own issue — the URL and the body
-are already their final shape (docs/10-decisions/0008).
+Returns `200` with the deal and its events. **Every status change in the
+product goes through this one endpoint** (docs/10-decisions/0008), and what it
+allows is the table in docs/04-deal-lifecycle.md — held once, as data, in
+`src/services/transitions.ts`. Nothing else anywhere decides that a status
+change is permitted.
 
-For this transition:
+| From | To | Who | Extra fields |
+|---|---|---|---|
+| `MATCHED` | `QUOTE_AGREED` | Requester | — |
+| `QUOTE_AGREED` | `PRODUCT_PAID` | Requester | — |
+| `PRODUCT_PAID` | `PURCHASED` | Helper | — |
+| `PURCHASED` | `SHIPPED` | Helper | `trackingNumber`, `shippingActual` |
+| `SHIPPED` | `DELIVERED` | Requester | — |
+| `DELIVERED` | `COMPLETED` | Requester | — |
+| `MATCHED`, `QUOTE_AGREED`, `PRODUCT_PAID`, `PURCHASED` | `CANCELLED` | Either side | `note` |
+| `PRODUCT_PAID`, `PURCHASED`, `SHIPPED` | `DISPUTED` | Either side | `note` |
+| `DISPUTED` | `CANCELLED` | Moderator | `note` |
 
-| Rule | Response if broken |
+Nine statuses make 81 possible moves. Fourteen are above; the other sixty-seven
+— including standing still and going backwards — are refused, whoever asks.
+
+**Three refusals, and they mean different things:**
+
+| Case | Response |
 |---|---|
-| Only the requester may agree | `403` |
-| The deal must still be `MATCHED` | `409` |
-| There must be a quote to agree to | `409` |
+| The table has no such move from where the deal is | `409` |
+| The move exists, but not for this person | `403` |
+| The body is missing a field the target needs, or carries one it does not use | `422` |
+| The deal is not the caller's, and they are not a moderator | `404` |
+
+The last of those matters more than it looks: telling somebody "you may not"
+would confirm that the deal exists.
+
+**"Either side" means either side of the deal** — the requester or the helper,
+not a moderator. A moderator has exactly one row of their own, ending a dispute,
+and cannot confirm a parcel or cancel somebody else's deal.
+
+**Fields are validated per target.** Shipping without a tracking number is `422`
+rather than a deal that says `SHIPPED` with nothing to track, and a tracking
+number sent along with "delivered" is `422` rather than silently dropped —
+sending it means believing something untrue about what the request does.
+
+**Every transition writes a `DealEvent`**: where it came from, where it went,
+who did it, and the `note` if there was one. That is what makes the log
+trustworthy as history rather than as a partial record of the interesting
+moves. A refused transition writes nothing.
+
+Two transitions have side effects, and both happen inside the same transaction
+as the status change:
+
+- `QUOTE_AGREED` copies the money off the quote (below)
+- `SHIPPED` writes `trackingNumber` and `shippingActual` onto the deal
+
+The remaining side effects in docs/04-deal-lifecycle.md — a need reopening
+after a cancellation, reviews unlocking, the 14-day auto-complete, and
+returning a disputed deal to the state it came from — belong to the issues that
+build them, and are not in the engine.
+
+### Agreeing a quote, in detail
 
 Agreeing does four things at once, in one transaction — all of them or none:
 
@@ -921,6 +967,24 @@ need's currency (#20), but nothing is agreed then; the helper may quote in the
 currency they will actually be spending, and accepting is the moment it stops
 being negotiable. That is what docs/04-deal-lifecycle.md means by "one currency
 per deal, chosen at quote time".
+
+### `GET /deals/:id`
+
+One deal, with its quotes (newest first) and its full event log (**oldest
+first** — a history reads forwards). For the deal's two people, and for a
+moderator, who cannot judge a report without reading what it is about. Anybody
+else gets `404`.
+
+### `GET /me/deals`
+
+The caller's own deals, whichever side they are on, newest first, paged like
+every other list here.
+
+| Query | Meaning |
+|---|---|
+| `status` | One `DealStatus`. Anything else is `422` |
+| `limit` | 1–50, default 20 |
+| `cursor` | From `nextCursor` |
 
 ## Reports and moderation
 
