@@ -28,7 +28,13 @@ import type { DealStatus } from "@prisma/client";
 export type TransitionActor = "requester" | "helper" | "either" | "moderator";
 
 /** The extra fields a transition can demand. */
-export type TransitionField = "note" | "trackingNumber" | "shippingActual";
+export const TRANSITION_FIELDS = [
+  "note",
+  "trackingNumber",
+  "shippingActual",
+] as const;
+
+export type TransitionField = (typeof TRANSITION_FIELDS)[number];
 
 export interface TransitionRule {
   from: DealStatus[];
@@ -70,10 +76,30 @@ export const TRANSITIONS: TransitionRule[] = [
     who: "either",
     requires: ["note"],
   },
-  // The document says "CANCELLED or previous state". Only the CANCELLED half
-  // is here: returning a deal to where it was before the dispute needs the
-  // event log, and that is #25's job.
   { from: ["DISPUTED"], to: "CANCELLED", who: "moderator", requires: ["note"] },
+  // The other half of "CANCELLED or previous state" (#25). Only these three
+  // can ever be the previous state, because they are the only states a dispute
+  // can start from — and WHICH of them is allowed for a given deal is not
+  // something a table can say: it depends on that deal's own history. The
+  // service checks it against the event log.
+  {
+    from: ["DISPUTED"],
+    to: "PRODUCT_PAID",
+    who: "moderator",
+    requires: ["note"],
+  },
+  {
+    from: ["DISPUTED"],
+    to: "PURCHASED",
+    who: "moderator",
+    requires: ["note"],
+  },
+  {
+    from: ["DISPUTED"],
+    to: "SHIPPED",
+    who: "moderator",
+    requires: ["note"],
+  },
 ];
 
 /**

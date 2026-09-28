@@ -55,12 +55,31 @@ const ALLOWED: {
   { from: "PRODUCT_PAID", to: "DISPUTED", who: "either" },
   { from: "PURCHASED", to: "DISPUTED", who: "either" },
   { from: "SHIPPED", to: "DISPUTED", who: "either" },
-  // The moderator's half of the last row. Returning a disputed deal to the
-  // state it came from needs the event log, and that is #25.
   { from: "DISPUTED", to: "CANCELLED", who: "moderator" },
+  // "Or previous state" (#25). All three are in the table, because it cannot
+  // know which one applies to a given deal; only the one the dispute started
+  // from is allowed for THAT deal, which the fixture below arranges and
+  // tests/deals/cancellation.test.ts checks from the other side.
+  { from: "DISPUTED", to: "PRODUCT_PAID", who: "moderator" },
+  { from: "DISPUTED", to: "PURCHASED", who: "moderator" },
+  { from: "DISPUTED", to: "SHIPPED", who: "moderator" },
 ];
 
-/** The extra fields each target demands (docs/04, "Precondition"). */
+/**
+ * The extra fields a move demands — keyed by the ROW and not by the target,
+ * which is the lesson of #25: a moderator returning a deal to SHIPPED sends a
+ * note, while the helper posting the parcel sends a tracking number and the
+ * real postage. Same target, different requirements.
+ */
+function fieldsFor(from: DealStatus, to: DealStatus): object {
+  if (from === "DISPUTED" && to !== "CANCELLED") {
+    return { note: "Tracking shows it is still on its way" };
+  }
+
+  return FIELDS[to] ?? {};
+}
+
+/** The extra fields each target demands, for the rows with only one source. */
 const FIELDS: Partial<Record<DealStatus, object>> = {
   SHIPPED: { trackingNumber: "JP123456789", shippingActual: 1150 },
   CANCELLED: { note: "The shop stopped stocking it" },
@@ -110,7 +129,10 @@ async function makeNeed(overrides: Partial<Need> = {}) {
  * place directly. The engine is what this file tests; walking every deal
  * through five real requests to reach DISPUTED would test the walk instead.
  */
-async function dealAt(status: DealStatus): Promise<Deal> {
+async function dealAt(
+  status: DealStatus,
+  disputedFrom: DealStatus = "PURCHASED",
+): Promise<Deal> {
   const need = await makeNeed();
   await request(app)
     .post(`/needs/${need.id}/proposals`)
@@ -138,6 +160,20 @@ async function dealAt(status: DealStatus): Promise<Deal> {
   });
 
   if (status === "MATCHED") return deal;
+
+  // A deal put straight into DISPUTED has no dispute in its history, and the
+  // engine refuses to resolve one of those — for a reason that has nothing to
+  // do with the table this file is testing. So it is disputed for real, from
+  // `disputedFrom`, and that is the state it may be returned to.
+  if (status === "DISPUTED") {
+    await prisma.deal.update({
+      where: { id: deal.id },
+      data: { status: disputedFrom },
+    });
+    await move(kadri, deal.id, "DISPUTED", { note: "Something went wrong" });
+
+    return prisma.deal.findUniqueOrThrow({ where: { id: deal.id } });
+  }
 
   return prisma.deal.update({ where: { id: deal.id }, data: { status } });
 }
@@ -172,8 +208,8 @@ describe("the table decides", () => {
    * The fourth acceptance criterion: every invalid transition is rejected.
    *
    * Nine statuses give 81 pairs. Nine of those are a status to itself, which
-   * the next test covers; of the 72 that remain, the document allows 14 — so
-   * 58 must be refused, whoever asks and however well-formed the request is.
+   * the next test covers; of the 72 that remain, the document allows 17 — so
+   * 55 must be refused, whoever asks and however well-formed the request is.
    *
    * The arithmetic is asserted too. It is easy to add a row to the table above
    * and leave the count alone, and then this test quietly checks less than it
@@ -208,8 +244,8 @@ describe("the table decides", () => {
     }
 
     expect(wrongly).toEqual([]);
-    expect(ALLOWED).toHaveLength(14);
-    expect(refused).toHaveLength(58);
+    expect(ALLOWED).toHaveLength(17);
+    expect(refused).toHaveLength(55);
     expect(ALLOWED.length + refused.length + STATUSES.length).toBe(81);
   }, 120_000);
 
@@ -218,11 +254,21 @@ describe("the table decides", () => {
     const failed: string[] = [];
 
     for (const rule of ALLOWED) {
-      const deal = await dealAt(rule.from);
+      // For the three ways out of a dispute, the deal has to have been
+      // disputed from the state this row returns it to.
+      const deal = await dealAt(
+        rule.from,
+        rule.from === "DISPUTED" && rule.to !== "CANCELLED"
+          ? rule.to
+          : "PURCHASED",
+      );
       const actor =
         rule.who === "helper" ? yuki : rule.who === "moderator" ? mo : kadri; // requester, and "either" is tested from both sides below
 
-      const response = await move(actor, deal.id, rule.to);
+      const response = await request(app)
+        .post(`/deals/${deal.id}/transition`)
+        .set("Cookie", actor.cookie)
+        .send({ to: rule.to, ...fieldsFor(rule.from, rule.to) });
       if (response.status !== 200) {
         failed.push(
           `${rule.from} → ${rule.to} as ${rule.who}: ${String(response.status)}`,

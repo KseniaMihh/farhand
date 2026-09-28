@@ -49,6 +49,17 @@ export class HttpError extends Error {
     return new HttpError(400, "BAD_REQUEST", message, details);
   }
 
+  /**
+   * The request was well-formed but its contents are wrong — the same answer a
+   * failed Zod parse produces, for the cases a schema cannot decide on its own.
+   *
+   * A deal transition is one: which fields it needs depends on where the deal
+   * is coming from, which the schema does not know. See docs/04-deal-lifecycle.
+   */
+  static validationFailed(message: string, details?: unknown): HttpError {
+    return new HttpError(422, "VALIDATION_FAILED", message, details);
+  }
+
   static unauthorized(message = "Authentication required"): HttpError {
     return new HttpError(401, "UNAUTHORIZED", message);
   }
