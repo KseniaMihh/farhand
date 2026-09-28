@@ -131,6 +131,40 @@ export function newestFirstOn(field: string) {
 }
 
 /**
+ * The other direction, for the one list that is a queue.
+ *
+ * Everything people browse is newest first: the latest needs, the latest
+ * offers, the last thing anybody said. The moderator queue is not a list to
+ * browse — it is work waiting to be done, and the report that has waited
+ * longest is the one that matters most (docs/07-trust-and-safety.md, "the
+ * report enters the moderator queue, ordered oldest first").
+ */
+export const OLDEST_FIRST = [
+  { createdAt: "asc" as const },
+  { id: "asc" as const },
+];
+
+/**
+ * "Everything after this position", counting forwards.
+ *
+ * The mirror of afterCursor: `gt` where that one has `lt`, because the list it
+ * pages runs the other way. Pairing the wrong one with an order is the bug this
+ * whole family of functions exists to make obvious — a cursor is only
+ * meaningful against the sort it was built for, so OLDEST_FIRST and this are
+ * used together, as NEWEST_FIRST and afterCursor are.
+ */
+export function afterCursorOldest(position?: CursorPosition) {
+  if (!position) return {};
+
+  return {
+    OR: [
+      { createdAt: { gt: position.createdAt } },
+      { createdAt: position.createdAt, id: { gt: position.id } },
+    ],
+  };
+}
+
+/**
  * Turns the rows of a keyset query into a page.
  *
  * Every list asks for one row more than it needs. If that extra row came back

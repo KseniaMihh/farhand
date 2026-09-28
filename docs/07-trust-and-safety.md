@@ -68,6 +68,17 @@ avoid duty is illegal. The platform never suggests a declared value.
 Moderators can read a conversation only when it is attached to a report or a
 disputed deal. That restriction is enforced in the service layer and logged.
 
+> **Not true yet.** #21 gave moderators blanket read access to every
+> conversation, because there were no reports to attach one to. Reports exist as
+> of #26, so the condition is now checkable — but this rule also says the access
+> must be *logged*, and the log is `AdminAction`, which #27 builds. Both halves
+> land there. Until then, moderator thread access is wider than this paragraph
+> says, and that is known rather than overlooked.
+
+Reporting itself is narrower than reading: a report about a message can only be
+filed by one of the two people in the conversation, and a moderator's read
+access does not extend to reporting on their behalf.
+
 ## Dispute handling
 
 Farhand does not arbitrate. A moderator's role is to look at the deal history and

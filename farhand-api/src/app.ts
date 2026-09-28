@@ -9,6 +9,7 @@ import { healthRouter } from "./routes/health.js";
 import { helpsRouter } from "./routes/helps.js";
 import { needsRouter } from "./routes/needs.js";
 import { proposalsRouter } from "./routes/proposals.js";
+import { reportsRouter } from "./routes/reports.js";
 
 /**
  * Builds the Express app.
@@ -49,6 +50,7 @@ export function createApp(): Express {
   app.use(proposalsRouter);
   app.use(conversationsRouter);
   app.use(dealsRouter);
+  app.use(reportsRouter);
 
   // Both of these must stay at the bottom, in this order.
   app.use(notFoundHandler);

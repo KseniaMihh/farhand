@@ -124,6 +124,25 @@ state, the log is the history.
 `targetId`) so one table covers users, needs, helps and messages. The trade-off
 is that the database cannot verify the target exists, so the service layer must.
 
+That check is about **visibility** and not only existence: a target the reporter
+could not see answers the same way as one that is not there, or the endpoint
+becomes a way of asking whether any given id exists
+(`assertTargetIsReportable` in `src/services/reports.ts`). A `switch` with an
+exhaustive `never` case means a fifth kind of target cannot be added to the enum
+without the compiler stopping at the one function that has to know about it.
+
+Duplicates are held off by a partial unique index, the same shape as the deal
+and quote ones:
+
+```sql
+CREATE UNIQUE INDEX "one_open_report_per_reporter_target"
+  ON "Report" ("reporterId", "targetType", "targetId")
+  WHERE "status" = 'OPEN';
+```
+
+Partial, because the rule is "one *open* report", not "one report ever" — a
+thing that is reported, resolved and then happens again deserves a new report.
+
 ## Trust and files (V2)
 
 **`Review`** — unique on `(dealId, authorId)`, so one review per side per deal,

@@ -463,6 +463,11 @@ model File {
 // CREATE UNIQUE INDEX "one_accepted_quote_per_deal"
 //   ON "Quote" ("dealId") WHERE "acceptedAt" IS NOT NULL;
 //
+// -- One open report per person per target (partial unique index):
+// CREATE UNIQUE INDEX "one_open_report_per_reporter_target"
+//   ON "Report" ("reporterId", "targetType", "targetId")
+//   WHERE "status" = 'OPEN';
+//
 // -- Ratings must be 1–5:
 // ALTER TABLE "Review" ADD CONSTRAINT "rating_range"
 //   CHECK ("rating" BETWEEN 1 AND 5);
