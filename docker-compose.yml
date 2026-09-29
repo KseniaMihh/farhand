@@ -19,5 +19,50 @@ services:
       timeout: 5s
       retries: 10
 
+  # Runs once, applies the migrations, exits. The API waits for it to succeed.
+  #
+  # A service of its own rather than something the API does on startup: several
+  # API containers would otherwise all try to migrate at once, and a failed
+  # migration would become a crash loop instead of a deployment that stopped.
+  # Deployment (#31) does the same thing in its own order — migrate, then roll
+  # out — and this is that shape, locally (docs/09-environment.md).
+  # The CLI is in the image even though `prisma` is a devDependency, because
+  # `@prisma/client` depends on it. That is Prisma's business and could change,
+  # so the binary is called directly rather than through `npx`: if it ever
+  # stops being there, this fails immediately with "not found" instead of
+  # quietly downloading some version of it from the internet at deploy time.
+  migrate:
+    build:
+      context: ./farhand-api
+    container_name: farhand-migrate
+    command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://farhand:farhand@db:5432/farhand
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ./farhand-api
+    container_name: farhand-api
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # `db`, not localhost: inside the compose network, the database answers
+      # to its service name. localhost here would be the API's own container.
+      DATABASE_URL: postgresql://farhand:farhand@db:5432/farhand
+      APP_ORIGIN: http://localhost:5173
+      LOG_LEVEL: info
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   farhand-db-data:
