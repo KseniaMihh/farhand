@@ -111,3 +111,65 @@ jobs:
       # at localhost:5432 — the port the service container above is mapped to.
       - name: Test
         run: npm test
+
+  image:
+    name: Build the image and run the stack
+    runs-on: ubuntu-latest
+
+    # A Dockerfile nobody builds is a Dockerfile that is broken and does not
+    # know it yet. This job builds it on every pull request and then proves the
+    # three things that are easy to get wrong and invisible until deployment:
+    # the stack comes up, the API answers when the database is behind it, and
+    # the process is not running as root.
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Build the image and start the stack
+        # --wait blocks until every service is healthy or one of them fails, so
+        # a broken migration or a container that dies on boot fails here rather
+        # than in the step after it.
+        run: docker compose up --build --wait --wait-timeout 180
+
+      - name: The API answers, with the database behind it
+        run: |
+          set -e
+          status=$(curl -s -o /tmp/ready.json -w "%{http_code}" http://localhost:3000/health/ready)
+          cat /tmp/ready.json
+          test "$status" = "200"
+
+      - name: It is not running as root
+        run: |
+          set -e
+          user=$(docker compose exec -T api whoami)
+          echo "container user: $user"
+          test "$user" != "root"
+
+      - name: The migrations ran as their own step, and finished
+        run: |
+          set -e
+          docker compose ps -a --format '{{.Service}} {{.State}}'
+          test "$(docker compose ps -a --status exited --services)" = "migrate"
+
+      - name: The image stayed small
+        # Measured when this was written: 839 MB multi-stage, against 1.39 GB
+        # for the same thing built in a single stage — the compiler, the type
+        # definitions and the test runner are what that difference is made of.
+        #
+        # The ceiling is deliberately generous. It is a regression guard
+        # against shipping the build tooling again, not a budget to optimise
+        # against: most of what remains is Prisma's generated client and its
+        # engines, which the API genuinely needs.
+        run: |
+          set -e
+          bytes=$(docker image inspect farhand-api --format '{{.Size}}')
+          echo "final image: $((bytes / 1000 / 1000)) MB"
+          test "$bytes" -lt 1100000000
+
+      - name: Logs, if anything went wrong
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

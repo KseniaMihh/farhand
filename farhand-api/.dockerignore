@@ -1,0 +1,18 @@
+# What never belongs in the build context. Everything here either does not
+# exist in the image (node_modules is installed inside it, for the image's own
+# platform), must never be in it (.env), or would only slow the build down.
+
+node_modules
+dist
+.env
+.env.test
+.git
+.github
+coverage
+*.log
+
+# The tests do not run in the image — CI runs them on a machine with a database
+# next to it (see .github/workflows/ci.yml). Leaving them out keeps the context
+# small and the final image smaller.
+tests
+vitest.config.ts

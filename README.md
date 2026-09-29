@@ -353,6 +353,9 @@ change, nothing reaches `master` unverified.
 
 | What | Command | Where |
 | --- | --- | --- |
+| Start the database only (for `npm run dev`) | `docker compose up -d db` | root |
+| Run the whole stack as it will be deployed | `docker compose up --build --wait` | root |
+| Stop the stack | `docker compose down` | root |
 | Start the database | `docker compose start` | root |
 | Stop the database (data kept) | `docker compose stop` | root |
 | Recreate the container (data kept) | `docker compose down` then `up -d` | root |
@@ -380,13 +383,15 @@ supports TypeScript 7, remove the alias.
 
 ```
 farhand/
-├── .github/workflows/ci.yml    lint, format, typecheck and test on every PR
-├── docker-compose.yml          PostgreSQL 18 for local development
+├── .github/workflows/ci.yml    lint, format, typecheck, test; then build the image and run the stack
+├── docker-compose.yml          the stack: PostgreSQL, a one-shot migrate step, the API
 ├── .gitignore
 ├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
 ├── README.md
 ├── scripts/                    repo chores: GitHub issue seeding, test database creation
 ├── farhand-api/                the backend (npm and Prisma run here)
+│   ├── Dockerfile              four stages; only the last one ships
+│   ├── .dockerignore
 │   ├── .env                    local only, gitignored
 │   ├── .env.example
 │   ├── .env.test               test database; committed, holds no secrets

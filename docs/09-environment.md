@@ -72,6 +72,56 @@ dangerous: `-v` deletes the volume, and with it the data.
 A **healthcheck** lets Docker report not just "started" but "ready to accept
 connections".
 
+### The API has an image too
+
+`farhand-api/Dockerfile` builds the API itself, in four stages. Only the last
+one ships:
+
+| Stage | What it is for |
+|---|---|
+| `deps` | every dependency, to build with |
+| `build` | TypeScript compiled, Prisma client generated |
+| `proddeps` | production dependencies only, from the same lockfile |
+| `runtime` | node, `dist/`, `proddeps` — and nothing else |
+
+The compiler, the type definitions and the test runner are needed to *build*
+the API and never to *run* it, and anything left in the final image has to be
+patched, scanned and shipped for the life of the project. Measured when this
+was written: **839 MB** multi-stage against **1.39 GB** for the same thing in
+one stage. CI asserts the image stays under 1.1 GB, as a guard against the
+development dependencies quietly coming back.
+
+It runs as the **`node` user**, not root: a container running as root is one
+where a remote-code bug becomes a root shell. And the command is
+`node dist/server.js` rather than `npm start`, because npm adds a process that
+forwards signals badly, and a container that ignores `SIGTERM` gets killed
+mid-request on every deploy.
+
+Two things about building it are easy to trip over, and both are commented in
+the file. `prisma generate` must run in the build stage, because the client is
+generated code that no `node_modules` copy contains — and it needs a
+`DATABASE_URL` set merely to load `prisma.config.ts`, even though it connects
+to nothing, so the build sets a throwaway one. Production dependencies get
+their own stage because pruning after generating throws the client away and
+installing after pruning brings the compiler back.
+
+### Migrations are a step, not a startup task
+
+`docker compose up` runs three services in order: the database, then a
+**one-shot `migrate` service** that applies `prisma migrate deploy` and exits,
+then the API — which only starts if the migration succeeded.
+
+This is the decision the issue asked to be documented, and it is the same shape
+deployment will have (#31): migrate first, then roll out. The alternative —
+each container migrating as it boots — means every instance racing to change
+the same schema, a failed migration becoming a crash loop rather than a
+deployment that stopped, and an API container holding more power over the
+database than serving requests requires.
+
+Locally that means `docker compose up --build` gives a production-like stack in
+one command. Day-to-day development is still `npm run dev` against the database
+container alone: it is faster, and it reloads on save.
+
 ## WSL2
 
 Windows Subsystem for Linux. Containers are a Linux technology, so Docker
