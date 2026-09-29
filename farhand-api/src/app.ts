@@ -2,6 +2,12 @@ import express, { type Express } from "express";
 import { pinoHttp } from "pino-http";
 import { logger } from "./logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { limiters } from "./middleware/rate-limit.js";
+import {
+  crossOrigin,
+  sameOriginWrites,
+  securityHeaders,
+} from "./middleware/security.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { conversationsRouter } from "./routes/conversations.js";
@@ -40,9 +46,27 @@ export function createApp(): Express {
   // status and duration. Attaches `req.log` for use inside handlers.
   app.use(pinoHttp({ logger }));
 
+  // Headers first: they belong on every answer, including the ones that never
+  // reach a route because a limiter or a guard refused them.
+  app.use(securityHeaders);
+
+  // Then who may call us at all. cors() answers the browser's preflight here,
+  // before anything below can refuse an OPTIONS request it was never meant to
+  // see.
+  app.use(crossOrigin);
+
+  // A ceiling for one address, above the specific limits on login and
+  // messages. Before the body parser, so a flood costs us no parsing.
+  app.use(limiters.globalByIp);
+
   // Parse JSON bodies. The limit is deliberate: without it a single large
   // request can chew through memory. Image uploads will not go through here.
   app.use(express.json({ limit: "100kb" }));
+
+  // And last before the routes: a write has to prove it came from our own
+  // site. After the body parser only because it reads nothing from the body —
+  // it is the headers it cares about (docs/10-decisions/0007).
+  app.use(sameOriginWrites);
 
   app.use(healthRouter);
   app.use(authRouter);

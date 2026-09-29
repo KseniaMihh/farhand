@@ -37,6 +37,27 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
+
+  /**
+   * The one place the frontend is served from.
+   *
+   * Used twice: CORS allows exactly this origin and no other, and a write
+   * whose `Origin` is anything else is refused (docs/09-environment.md). One
+   * value rather than a list, because "the intended frontend origin only" is
+   * the requirement, and a list is how that turns into "whatever we forgot to
+   * take out".
+   */
+  APP_ORIGIN: z.url().default("http://localhost:5173"),
+
+  /**
+   * The origin check on writes, off in the test suite for the same reason rate
+   * limiting is: four hundred tests post without a browser to set an Origin
+   * header. tests/security/csrf.test.ts turns it on for itself.
+   */
+  CSRF_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
 });
 
 const parsed = envSchema.safeParse(process.env);

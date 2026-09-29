@@ -118,6 +118,29 @@ It also sets `RATE_LIMIT_ENABLED=false`. A test file makes dozens of requests
 from one address on purpose, which is exactly what rate limiting exists to stop;
 `tests/auth/rate-limit.test.ts` turns it back on for its own requests.
 
+`CSRF_ENABLED=false` is there for the same reason and with the same escape
+hatch: four hundred tests write to the API without a browser to set an `Origin`
+header, and `tests/security/csrf.test.ts` turns the check on for itself.
+
+### `APP_ORIGIN`
+
+The one place the frontend is served from — `http://localhost:5173` by default,
+the real domain in production. Two things read it:
+
+- **CORS** allows that origin and no other. Requests from anywhere else get no
+  `Access-Control-Allow-Origin` header at all, so the browser refuses to hand
+  them the answer.
+- **The origin check** on writes compares against it.
+
+One value rather than a list. "Configured for the intended frontend origin only"
+is the requirement, and a list is how that quietly becomes "and whatever else we
+forgot to take out". Two environments that need two values are what two `.env`
+files are for.
+
+**This is why `curl` gets a `403` on a write.** A browser always sends `Origin`;
+the command line does not. Add `-H "Origin: http://localhost:5173"`, or set
+`CSRF_ENABLED=false` while you are poking about by hand.
+
 ## Git and GitHub
 
 Git records the project's history locally. GitHub stores a copy remotely and

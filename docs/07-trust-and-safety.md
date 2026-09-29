@@ -26,6 +26,42 @@ buried in terms of service.
 | Harassment in messages | Report on every message, moderator visibility, block; 20 messages a minute per sender, so flooding somebody's inbox takes effort | Filtering |
 | Fake reviews | Reviews only after a `COMPLETED` deal, one per side | Anomaly detection |
 | Scraping personal data | Profiles show display name and country only; no email addresses anywhere in the API | Rate limiting per IP |
+| Another website acting as a signed-in user | `SameSite=lax` on the session cookie, and every write must carry an `Origin` or `Referer` matching `APP_ORIGIN` | — |
+| One machine hammering the API | 300 requests a minute per address, above the specific limits on login and messages | Something distributed, once there is more than one instance |
+| A browser misreading an answer | `helmet`: `nosniff`, no framing, a referrer policy, HSTS in production | — |
+| An error message that explains our infrastructure | In production the body is `{ code: "INTERNAL", message: "Something went wrong" }` and nothing else | — |
+
+## How the browser is kept honest
+
+The session is a cookie, which browsers attach to a request whatever page caused
+it — the cost recorded in docs/10-decisions/0007-sessions-over-jwt.md. Two
+things answer for it:
+
+1. **`SameSite=lax`**, so the cookie is not sent on a cross-site write at all.
+2. **An `Origin` check** on every `POST`, `PATCH` and `DELETE`, because the
+   first depends on cookie attributes staying right forever, and because a
+   request whose provenance we cannot see is not one to trust with somebody's
+   session. Missing *both* headers is refused too: every real browser sends one.
+
+An `Origin` is compared exactly, and a `Referer` is parsed and compared as an
+origin. `https://farhand.ee.evil.example` begins with our origin as text and is
+a different site; a prefix match is precisely how it would get in.
+
+Reads are deliberately left alone. A `GET` changes nothing, CORS already stops
+another page from reading the answer, and refusing them would break every link
+and bookmark.
+
+## A known advisory, and why nothing was done
+
+`npm audit` reports high-severity advisories in `mysql2` and `deepmerge-ts`.
+Both arrive through the **Prisma CLI**, which is a development dependency, and
+`mysql2` is a driver for a database this project does not use. Nothing
+vulnerable is shipped or executed.
+
+The offered fix downgrades Prisma 7 to 6, which is exactly the trap
+docs/11-risks.md records about `npm audit fix --force`. The decision is to leave
+it, and to recheck when Prisma releases a version with the dependency bumped.
+An advisory nobody has explained is worse than one written down.
 
 ## Prohibited items
 
