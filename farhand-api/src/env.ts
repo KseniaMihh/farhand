@@ -50,6 +50,13 @@ const envSchema = z.object({
   APP_ORIGIN: z.url().default("http://localhost:5173"),
 
   /**
+   * Where unexpected errors are reported, when there is anywhere to report
+   * them. Absent in development and in the test suite, which is what keeps
+   * both of them entirely offline (issue #29).
+   */
+  SENTRY_DSN: z.url().optional(),
+
+  /**
    * The origin check on writes, off in the test suite for the same reason rate
    * limiting is: four hundred tests post without a browser to set an Origin
    * header. tests/security/csrf.test.ts turns it on for itself.

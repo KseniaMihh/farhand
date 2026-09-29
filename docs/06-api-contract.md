@@ -28,7 +28,20 @@ A suspended user can still see their own deals
   content was wrong: a missing field, a password too short, a country code that
   is not two letters. Only `422` can name the offending fields, which is why
   they are worth separating.
-- Errors share one shape: `{ "error": { "code": "...", "message": "...", "details": [...] } }`.
+- Errors share one shape:
+  `{ "error": { "code": "...", "message": "...", "requestId": "...", "details": [...] } }`.
+- **Every response carries an `X-Request-Id` header, and every error body
+  repeats it as `requestId`.** It is the same string that appears in the log
+  line and on the error report, so somebody who can only see an error message
+  can quote it and be found in the logs. An incoming `X-Request-Id` is kept if
+  it is plausible — 8 to 128 characters of letters, digits, dashes and
+  underscores — so a proxy or a frontend can start the trace; anything else is
+  replaced, because the value ends up in log lines where a newline could forge
+  a second entry.
+- `requestId` is different on every request **by design**, which matters where
+  two answers are meant to be indistinguishable: an unknown email and a wrong
+  password still match in status, code and message, and the id says nothing
+  about either.
 - Never reveal existence through status codes: a need you may not see returns
   `404`, not `403`.
 - Lists are cursor-paginated: `?cursor=<cursor>&limit=20`, returning

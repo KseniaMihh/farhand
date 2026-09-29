@@ -122,6 +122,25 @@ from one address on purpose, which is exactly what rate limiting exists to stop;
 hatch: four hundred tests write to the API without a browser to set an `Origin`
 header, and `tests/security/csrf.test.ts` turns the check on for itself.
 
+### `SENTRY_DSN`
+
+Where unexpected errors are reported. **Optional, and absent everywhere but
+production** — no DSN means nothing is initialised and nothing leaves the
+machine, which is what keeps development and the test suite entirely offline.
+
+One file knows the name Sentry: `src/observability.ts`. Everything else calls
+`reportError(error, context)`. That seam exists so the error handler can be
+tested without mocking a vendor's SDK, and so changing provider is one file
+rather than fifteen.
+
+`Sentry.init` is given `environment: NODE_ENV`, which is the separation the
+issue asked for: without it, an error from a staging box and one from
+production land in the same pile and somebody chases a ghost.
+
+**Only 5xx is reported.** A 404, a failed validation or a 409 is the client
+being wrong, not an incident — and a monitor that pages somebody for a typo in
+a URL is muted within a week, after which it is not a monitor.
+
 ### `APP_ORIGIN`
 
 The one place the frontend is served from — `http://localhost:5173` by default,

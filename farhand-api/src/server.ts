@@ -1,6 +1,7 @@
 import { createApp } from "./app.js";
 import { prisma, pingDatabase } from "./db.js";
 import { env } from "./env.js";
+import { initErrorReporting } from "./observability.js";
 import { logger } from "./logger.js";
 
 /**
@@ -10,6 +11,11 @@ import { logger } from "./logger.js";
  * database before announcing readiness, and shutting down gracefully.
  */
 async function main(): Promise<void> {
+  // First, so that anything which goes wrong from here on is reported. Does
+  // nothing at all without a DSN, which is the state everywhere but production
+  // (src/observability.ts).
+  initErrorReporting();
+
   // Fail loudly at startup rather than on the first request. If the database
   // is unreachable, a crash-looping container is a much clearer signal than an
   // API that accepts traffic and 500s on everything.

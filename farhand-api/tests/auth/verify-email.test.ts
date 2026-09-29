@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
+import { withoutRequestId } from "../helpers/http.js";
 import { prisma } from "../../src/db.js";
 import { mailer } from "../../src/mailer.js";
 import { hashToken } from "../../src/tokens.js";
@@ -150,9 +151,13 @@ describe("POST /auth/verify-email — rejected tokens", () => {
     const expiredResponse = await verify(used);
 
     expect(unknownResponse.status).toBe(usedResponse.status);
-    expect(unknownResponse.body).toEqual(usedResponse.body);
+    expect(withoutRequestId(unknownResponse.body)).toEqual(
+      withoutRequestId(usedResponse.body),
+    );
     expect(expiredResponse.status).toBe(usedResponse.status);
-    expect(expiredResponse.body).toEqual(usedResponse.body);
+    expect(withoutRequestId(expiredResponse.body)).toEqual(
+      withoutRequestId(usedResponse.body),
+    );
   });
 });
 
