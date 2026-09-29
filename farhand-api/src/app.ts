@@ -3,6 +3,7 @@ import { pinoHttp } from "pino-http";
 import { logger } from "./logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { limiters } from "./middleware/rate-limit.js";
+import { echoRequestId, requestIdFor } from "./middleware/request-id.js";
 import {
   crossOrigin,
   sameOriginWrites,
@@ -44,7 +45,11 @@ export function createApp(): Express {
 
   // One log line per request, with a generated request id, method, path,
   // status and duration. Attaches `req.log` for use inside handlers.
-  app.use(pinoHttp({ logger }));
+  app.use(pinoHttp({ logger, genReqId: requestIdFor }));
+
+  // Straight after the logger, so the id is on every answer — including the
+  // ones a limiter or a guard refuses before any route sees them.
+  app.use(echoRequestId);
 
   // Headers first: they belong on every answer, including the ones that never
   // reach a route because a limiter or a guard refused them.

@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
+import { withoutRequestId } from "../helpers/http.js";
 import { prisma } from "../../src/db.js";
 import { mailer } from "../../src/mailer.js";
 import { hashToken, PASSWORD_RESET_TTL_MS } from "../../src/tokens.js";
@@ -79,7 +80,9 @@ describe("POST /auth/forgot-password", () => {
     // Pinned so two identically broken answers cannot pass the comparison.
     expect(known.status).toBe(200);
     expect(unknown.status).toBe(known.status);
-    expect(unknown.body).toEqual(known.body);
+    expect(withoutRequestId(unknown.body)).toEqual(
+      withoutRequestId(known.body),
+    );
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -94,7 +97,9 @@ describe("POST /auth/forgot-password", () => {
 
       const response = await forgot(EMAIL);
 
-      expect(response.body).toEqual(known.body);
+      expect(withoutRequestId(response.body)).toEqual(
+        withoutRequestId(known.body),
+      );
       expect(send).not.toHaveBeenCalled();
       send.mockRestore();
     }
@@ -259,8 +264,8 @@ describe("POST /auth/reset-password — rejected tokens", () => {
     const expired = await reset(token);
 
     expect(used.status).toBe(422);
-    expect(unknown.body).toEqual(used.body);
-    expect(expired.body).toEqual(used.body);
+    expect(withoutRequestId(unknown.body)).toEqual(withoutRequestId(used.body));
+    expect(withoutRequestId(expired.body)).toEqual(withoutRequestId(used.body));
   });
 
   /**

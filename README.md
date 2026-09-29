@@ -253,6 +253,11 @@ rather than guessing per endpoint:
 { "error": { "code": "NOT_FOUND", "message": "Need not found" } }
 ```
 
+Every response also carries an `X-Request-Id` header, and every error body
+repeats it as `requestId`: the same string appears in the log line and on the
+error report, so "it failed, here is the id" leads straight to the one request
+out of the nine hundred that minute.
+
 `code` is for code to branch on; `message` is for a human. Validation failures
 return `422` with a `details` array naming the fields that failed; `400` is kept
 for a body that could not be parsed at all. Unexpected errors return `INTERNAL`

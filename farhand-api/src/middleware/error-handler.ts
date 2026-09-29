@@ -2,18 +2,23 @@ import type { ErrorRequestHandler, RequestHandler } from "express";
 import { ZodError } from "zod";
 import { HttpError } from "../errors.js";
 import { env } from "../env.js";
+import { reportError } from "../observability.js";
+import { requestIdOf } from "./request-id.js";
 
 /**
  * Runs when no route matched. Express 5 has no built-in 404 JSON response, so
  * without this the client gets Express's HTML error page.
  */
 export const notFoundHandler: RequestHandler = (req, res) => {
-  res.status(404).json({
-    error: {
-      code: "NOT_FOUND",
-      message: `Cannot ${req.method} ${req.path}`,
-    },
-  });
+  res
+    .status(404)
+    .json(
+      errorBody(
+        "NOT_FOUND",
+        `Cannot ${req.method} ${req.path}`,
+        requestIdOf(req),
+      ),
+    );
 };
 
 /**
@@ -61,64 +66,87 @@ function asBodyParserError(err: unknown): BodyParserError | null {
   }
 }
 
+function errorBody(
+  code: string,
+  message: string,
+  requestId: string | undefined,
+  details?: unknown,
+): {
+  error: {
+    code: string;
+    message: string;
+    requestId?: string;
+    details?: unknown;
+  };
+} {
+  return {
+    error: {
+      code,
+      message,
+      ...(requestId === undefined ? {} : { requestId }),
+      ...(details !== undefined ? { details } : {}),
+    },
+  };
+}
+
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
+  const requestId = requestIdOf(req);
+
   const bodyParserError = asBodyParserError(err);
   if (bodyParserError) {
     req.log.debug({ err }, bodyParserError.message);
-    res.status(bodyParserError.status).json({
-      error: { code: bodyParserError.code, message: bodyParserError.message },
-    });
+    res
+      .status(bodyParserError.status)
+      .json(
+        errorBody(bodyParserError.code, bodyParserError.message, requestId),
+      );
     return;
   }
 
-  // Zod threw: the request body/query didn't match the schema. That's the
-  // client's fault, so 422 with the specific field problems.
   if (err instanceof ZodError) {
-    res.status(422).json({
-      error: {
-        code: "VALIDATION_FAILED",
-        message: "Request validation failed",
-        details: err.issues.map((issue) => ({
+    res.status(422).json(
+      errorBody(
+        "VALIDATION_FAILED",
+        "Request validation failed",
+        requestId,
+        err.issues.map((issue) => ({
           field: issue.path.join(".") || "(root)",
           message: issue.message,
         })),
-      },
-    });
+      ),
+    );
     return;
   }
 
-  // An error we raised deliberately, with a status we chose.
   if (err instanceof HttpError) {
-    // 5xx we caused is still a bug worth logging loudly; 4xx is just the client
-    // being wrong, so it stays at debug level and doesn't pollute the logs.
     const log = err.status >= 500 ? req.log.error : req.log.debug;
     log.call(req.log, { err, code: err.code }, err.message);
 
-    res.status(err.status).json({
-      error: {
-        code: err.code,
-        message: err.message,
-        ...(err.details !== undefined ? { details: err.details } : {}),
-      },
-    });
+    if (err.status >= 500) {
+      reportError(err, { requestId, method: req.method, path: req.path });
+    }
+
+    res
+      .status(err.status)
+      .json(errorBody(err.code, err.message, requestId, err.details));
     return;
   }
 
-  // Anything else is unanticipated: a real bug. Log the whole thing for us,
-  // but never leak the message or stack to the client — internal errors have a
-  // habit of containing table names, file paths and connection strings.
   req.log.error({ err }, "Unhandled error");
+  reportError(err, { requestId, method: req.method, path: req.path });
 
-  res.status(500).json({
-    error: {
-      code: "INTERNAL",
-      message: "Something went wrong",
-      // Read at call time rather than at import: a test can set NODE_ENV and
-      // see what production would actually answer, which is the only way to
-      // check that nothing internal leaks (#28).
-      ...(env.NODE_ENV === "production"
-        ? {}
-        : { details: err instanceof Error ? err.message : String(err) }),
-    },
-  });
+  res
+    .status(500)
+    .json(
+      errorBody(
+        "INTERNAL",
+        "Something went wrong",
+        requestId,
+        env.NODE_ENV === "production"
+          ? undefined
+          : err instanceof Error
+            ? err.message
+            : String(err),
+      ),
+    );
 };

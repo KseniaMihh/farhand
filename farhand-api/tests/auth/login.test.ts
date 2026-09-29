@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
+import { withoutRequestId } from "../helpers/http.js";
 import { prisma } from "../../src/db.js";
 import {
   SESSION_COOKIE,
@@ -183,7 +184,9 @@ describe("POST /auth/login — wrong credentials", () => {
     // Pinned so two identically broken answers cannot pass the comparison.
     expect(wrongPassword.status).toBe(401);
     expect(unknownEmail.status).toBe(wrongPassword.status);
-    expect(unknownEmail.body).toEqual(wrongPassword.body);
+    expect(withoutRequestId(unknownEmail.body)).toEqual(
+      withoutRequestId(wrongPassword.body),
+    );
   });
 
   /**
@@ -295,7 +298,9 @@ describe("POST /auth/login — account status", () => {
     const response = await login(EMAIL, PASSWORD);
 
     expect(response.status).toBe(401);
-    expect(response.body).toEqual(unknown.body);
+    expect(withoutRequestId(response.body)).toEqual(
+      withoutRequestId(unknown.body),
+    );
   });
 });
 

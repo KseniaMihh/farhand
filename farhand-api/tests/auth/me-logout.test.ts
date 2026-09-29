@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
+import { withoutRequestId } from "../helpers/http.js";
 import { prisma } from "../../src/db.js";
 import { SESSION_COOKIE } from "../../src/sessions.js";
 import { logIn, signUpAndLogIn } from "../helpers/auth.js";
@@ -165,8 +166,12 @@ describe("GET /auth/me — requireAuth says no", () => {
     const banned = await me(anna.cookie);
 
     expect(noCookie.status).toBe(401);
-    expect(madeUp.body).toEqual(noCookie.body);
-    expect(banned.body).toEqual(noCookie.body);
+    expect(withoutRequestId(madeUp.body)).toEqual(
+      withoutRequestId(noCookie.body),
+    );
+    expect(withoutRequestId(banned.body)).toEqual(
+      withoutRequestId(noCookie.body),
+    );
   });
 });
 
