@@ -48,6 +48,16 @@ export const RATE_LIMITS = {
   /** Token guessing: no account to key on, so by IP only. */
   token: { windowMs: 15 * 60 * 1000, perIp: 30 },
   /**
+   * Everything, by address. Not a security control on its own — the specific
+   * limits above are what stop password guessing and inbox flooding — but a
+   * ceiling under which no single machine can hammer the API at all, however
+   * inventive it is about which endpoint it picks (issue #28).
+   *
+   * Generous on purpose: a person browsing quickly must never see a 429.
+   */
+  global: { windowMs: 60 * 1000, perIp: 300 },
+
+  /**
    * Messages, per signed-in user: sending one needs a session, so there is
    * somebody better to count than an address two colleagues share. Generous
    * enough for a real back-and-forth, mean enough that flooding somebody's
@@ -189,6 +199,11 @@ export const limiters = {
   tokenByIp: createRateLimiter({
     windowMs: RATE_LIMITS.token.windowMs,
     max: RATE_LIMITS.token.perIp,
+    by: "ip",
+  }),
+  globalByIp: createRateLimiter({
+    windowMs: RATE_LIMITS.global.windowMs,
+    max: RATE_LIMITS.global.perIp,
     by: "ip",
   }),
   messageByUser: createRateLimiter({

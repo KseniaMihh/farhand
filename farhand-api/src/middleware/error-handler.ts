@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler, RequestHandler } from "express";
 import { ZodError } from "zod";
 import { HttpError } from "../errors.js";
-import { isProduction } from "../env.js";
+import { env } from "../env.js";
 
 /**
  * Runs when no route matched. Express 5 has no built-in 404 JSON response, so
@@ -113,7 +113,10 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     error: {
       code: "INTERNAL",
       message: "Something went wrong",
-      ...(isProduction
+      // Read at call time rather than at import: a test can set NODE_ENV and
+      // see what production would actually answer, which is the only way to
+      // check that nothing internal leaks (#28).
+      ...(env.NODE_ENV === "production"
         ? {}
         : { details: err instanceof Error ? err.message : String(err) }),
     },

@@ -234,6 +234,18 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/forgot-password` | Emails a reset link that works for one hour. Answers the same whether or not the email has an account. |
 | `POST /auth/reset-password` | Sets a new password with the emailed token, and logs the account out on every device. |
 
+> **Writing to the API by hand?** Every `POST`, `PATCH` and `DELETE` must arrive
+> with an `Origin` (or `Referer`) matching `APP_ORIGIN`, or it is refused with
+> `403` — that is what stops another website posting with your session cookie.
+> A browser always sends one; `curl` and Postman do not:
+>
+> ```powershell
+> curl -X POST http://localhost:3000/needs -H "Origin: http://localhost:5173" ...
+> ```
+>
+> Setting `CSRF_ENABLED=false` in `.env` turns it off for an afternoon of
+> poking about. Never anywhere real.
+
 Every error response uses the same shape, so the frontend can write one handler
 rather than guessing per endpoint:
 
@@ -245,7 +257,12 @@ rather than guessing per endpoint:
 return `422` with a `details` array naming the fields that failed; `400` is kept
 for a body that could not be parsed at all. Unexpected errors return `INTERNAL`
 and the real message is logged, never sent — internal errors have a habit of
-containing table names and connection strings.
+containing table names and connection strings. In development the message is
+attached under `details`, because there it reaches the person who can fix it;
+in production the body is `{ code, message }` and nothing else, which
+`tests/security/hardening.test.ts` checks by running the handler with
+`NODE_ENV=production` and looking for the host, the port and the user in what
+comes back.
 
 ## Tests
 
