@@ -4,8 +4,21 @@
 
 A platform for people who can't order the thing they want, and people who live where they can.
 
-> **Status: work in progress.** The data model and local infrastructure are done; the API is being built now.
-> Nothing is deployed yet. See [Roadmap](#roadmap).
+> **Status: work in progress.** The version 1 API is feature-complete and deployed; the frontend is version 2.
+> See [Roadmap](#roadmap).
+
+**Live:** [`https://farhand-api-ksenia.fly.dev`](https://farhand-api-ksenia.fly.dev/health) —
+[`/health`](https://farhand-api-ksenia.fly.dev/health) ·
+[`/health/ready`](https://farhand-api-ksenia.fly.dev/health/ready) ·
+[`/needs`](https://farhand-api-ksenia.fly.dev/needs)
+
+Frankfurt, on Fly, with a managed PostgreSQL in the same region. The machine is
+allowed to stop when nothing is happening, so the first request after a quiet
+spell takes a second or two.
+
+Merging to `master` deploys, after the tests and the image build both pass.
+How that is set up, and what to do when it breaks, is in
+[docs/14-deployment.md](docs/14-deployment.md).
 
 ## The problem
 
@@ -391,6 +404,7 @@ farhand/
 ├── scripts/                    repo chores: GitHub issue seeding, test database creation
 ├── farhand-api/                the backend (npm and Prisma run here)
 │   ├── Dockerfile              four stages; only the last one ships
+│   ├── fly.toml                how Fly runs it: region, health check, release command
 │   ├── .dockerignore
 │   ├── .env                    local only, gitignored
 │   ├── .env.example
@@ -463,18 +477,23 @@ farhand/
 - [x] Seed script for categories
 - [x] Auth: registration, password hashing, session cookies, logout, `GET /me`, route protection
 - [x] Tests (Vitest + Supertest against a test database) and CI on every push
-- [ ] Needs and helps: CRUD, filtering by country and category, cursor pagination
-- [ ] Proposals: send, accept, decline — with the accept running as one transaction
-- [ ] Conversations, messages, unread counts
-- [ ] Deal lifecycle as an enforced state machine, with events
-- [ ] Admin: role checks, suspend and ban, audit log
-- [ ] API in Docker, deployed to a cloud host with monitoring
+- [x] Needs and helps: CRUD, filtering by country and category, cursor pagination
+- [x] Proposals: send, accept, decline — with the accept running as one transaction
+- [x] Conversations, messages, unread counts
+- [x] Deal lifecycle as an enforced state machine, with events
+- [x] Quotes, cancellation, disputes, and completion after 14 days of silence
+- [x] Reports and the moderator queue
+- [x] Admin: role checks, suspend and ban, audit log
+- [x] Security pass: helmet, CORS, origin checks on writes, a global rate limit
+- [x] Request ids through the logs, and error reporting
+- [x] API in Docker, deployed to a cloud host with monitoring
 
 **v2 — trust and safety**
 
+- [ ] The frontend
 - [ ] File uploads (need photos, receipts) to object storage
 - [ ] Reviews after completed deals
-- [ ] Reports, moderation queue, prohibited-items list
+- [ ] Prohibited items refused at posting time, rather than only reported afterwards
 - [ ] Email notifications through a background job queue
 - [ ] Frontend (`farhand-web`, Next.js) as a separate project
 
