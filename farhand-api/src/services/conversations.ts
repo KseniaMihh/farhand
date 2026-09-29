@@ -11,6 +11,7 @@ import {
   toPageOldestFirst,
   toPageWith,
 } from "./shared.js";
+import { logger } from "../logger.js";
 
 /**
  * Conversations: one per proposal, so the two of them can ask questions before
@@ -138,8 +139,48 @@ export async function listMessages(
     (actor.id === conversation.proposal.need.requesterId ||
       actor.id === conversation.proposal.helperId);
 
-  if (!conversation || (!isParticipant && !isModerator(actor))) {
+  if (!conversation) {
     throw HttpError.notFound("Conversation not found");
+  }
+
+  if (!isParticipant) {
+    if (!isModerator(actor)) {
+      throw HttpError.notFound("Conversation not found");
+    }
+
+    // Every message id in the thread goes into the `in` below, because a
+    // report's target is polymorphic and cannot be joined to Message. Fine
+    // while a thread is a conversation between two people; wrong the day one
+    // runs to thousands of messages, and the fix then is a real relation from
+    // Report to Message rather than a longer list. A deliberate limit.
+    const [messageIds, deal] = await Promise.all([
+      prisma.message.findMany({
+        where: { conversationId },
+        select: { id: true },
+      }),
+      prisma.deal.findFirst({
+        where: { proposalId: conversation.proposalId, status: "DISPUTED" },
+      }),
+    ]);
+
+    const openReport = await prisma.report.findFirst({
+      where: {
+        status: "OPEN",
+        targetType: "MESSAGE",
+        targetId: { in: messageIds.map((m) => m.id) },
+      },
+    });
+
+    if (!openReport && !deal) {
+      throw HttpError.notFound("Conversation not found");
+    }
+
+    logger.info(
+      openReport
+        ? { moderatorId: actor.id, conversationId, reportId: openReport.id }
+        : { moderatorId: actor.id, conversationId, dealId: deal?.id },
+      "moderator opened a conversation",
+    );
   }
 
   const rows = await prisma.message.findMany({

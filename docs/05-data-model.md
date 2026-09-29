@@ -118,7 +118,22 @@ acted, for example the 14-day auto-complete.
 
 **`AdminAction`** — audit log of decisions about an account. Recorded separately
 from `User.status` for the same reason as above: the status is the current
-state, the log is the history.
+state, the log is the history. `User.status` says "suspended"; only the log says
+"after two warnings, by this moderator, for this reason".
+
+`contentType` and `contentId` are set for `REMOVE_CONTENT` and null for
+everything else. Without them the log could say that something of somebody's
+was removed and never which, and "has this listing been removed before?" would
+have no answer. The enum is the reports one; `USER` never appears, because an
+account is banned rather than removed.
+
+The action and the state it causes are written in one transaction. An action
+nobody can account for, and a record of something that did not happen, are both
+worse than neither.
+
+**Reading is not in here.** A moderator opening a conversation they are not part
+of is logged to the application log instead — `AdminAction` is about what was
+done to an account (docs/07-trust-and-safety.md).
 
 **`Report`** — user complaints. Uses a polymorphic target (`targetType` plus
 `targetId`) so one table covers users, needs, helps and messages. The trade-off

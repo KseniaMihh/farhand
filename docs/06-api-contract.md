@@ -1019,8 +1019,9 @@ every other list here.
 |---|---|---|---|
 | POST | `/reports` | AUTH | Target type and id, reason, details |
 | GET | `/admin/reports` | MOD | Queue, oldest first, filter by status, target type and reason |
+| GET | `/admin/reports/:id` | MOD | One report, with the thing it is about |
 | POST | `/admin/reports/:id/resolve` | MOD | Resolution note required |
-| GET | `/admin/users` | MOD | Search |
+| GET | `/admin/users` | MOD | Search. **Not built** — no issue covers it yet |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
 | POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, help or message |
 
@@ -1082,6 +1083,87 @@ connection both read "nothing yet". Somebody else reporting the same thing is
 fine — two people complaining is information, not a duplicate — and once a
 moderator has resolved a report, the same person may report the same target
 again: it happened again, so it is news again.
+
+### `POST /admin/users/:id/actions`
+
+```json
+{ "type": "SUSPEND", "reason": "Abusive messages", "until": "2026-10-13T00:00:00Z" }
+```
+
+| Field | Rule |
+|---|---|
+| `type` | `WARN`, `SUSPEND`, `BAN` or `REACTIVATE` |
+| `reason` | 1–1000 characters. **Always required** |
+| `until` | Only with `SUSPEND`. Absent means "until somebody lifts it" |
+
+Returns `201` with `{ "action": { … } }`. What each one leaves behind:
+
+| Type | The account afterwards |
+|---|---|
+| `WARN` | Unchanged — **the record is the warning** |
+| `SUSPEND` | `SUSPENDED`, with `suspendedUntil` set or null |
+| `BAN` | `BANNED` |
+| `REACTIVATE` | `ACTIVE`, and `suspendedUntil` cleared. Undoes a ban as well as a suspension |
+
+The effects are not new rules, they are the ones the guards already enforce: a
+suspended account can read and cannot act (`requireActive`), and a banned one
+cannot sign in at all — both since #13 and #41.
+
+**The action and the status change are one write.** A ban nobody can account
+for, or a record of a ban that did not happen, are both worse than neither.
+
+| Case | Response |
+|---|---|
+| Not a moderator | `403` |
+| The target is a moderator, an admin, or yourself | `403` |
+| No such user | `404` |
+| The account is already `DELETED` | `409` |
+| No reason, or `until` on anything but a suspension | `422` |
+
+Nobody moderates sideways or upwards: a moderator cannot act on another
+moderator, and an end date on a ban is refused rather than silently ignored,
+because a ban that quietly expires is not a ban.
+
+### `POST /admin/content/:type/:id/remove`
+
+`type` is `NEED`, `HELP` or `MESSAGE`; `USER` is `422`, because an account is
+banned rather than removed. The body is `{ "reason": "…" }`, required.
+
+A need or an offer becomes `REMOVED`; a message keeps its row and gets
+`removedAt`, so the thread still shows that something was there and its words
+are gone (#21). Removing something twice is `409` — it is already gone, and a
+second entry in the log would suggest it had come back.
+
+The `AdminAction` records **both** halves: `targetUserId` is whose account it
+was about — the need's requester, the offer's helper, the message's sender —
+and `contentType`/`contentId` are what was actually taken down. A log that
+cannot answer "what did you remove?" is not an audit log.
+
+### `GET /admin/reports/:id`
+
+One report with the thing it is about: the need, the offer, the message, or the
+user and their profile. #26's queue held a type and an id and nothing else, so
+a moderator could see that something was reported but not what.
+
+A target that has since been deleted comes back as `null` rather than an error,
+or the queue would jam on a row nobody could close.
+
+### `POST /admin/reports/:id/resolve`
+
+```json
+{ "outcome": "RESOLVED", "resolutionNote": "Listing removed" }
+```
+
+`outcome` is `RESOLVED` or `DISMISSED`; the note is required. Sets
+`resolvedById`, `resolvedAt` and `resolutionNote`. A report that is not `OPEN`
+is `409`.
+
+**No `AdminAction` is written.** Closing a report is not something done to an
+account; if the moderator also warned somebody or removed a listing, that call
+wrote its own record.
+
+Resolving frees the reporter to report the same target again, which is what
+"one **open** report per person per target" was for (#26).
 
 ### `GET /admin/reports`
 

@@ -145,7 +145,7 @@ export const requireActive: RequestHandler = (req, _res, next) => {
  * can). Comparing numbers means requireRole("MODERATOR") lets admins through
  * without listing them.
  */
-const ROLE_RANK: Record<Role, number> = {
+export const ROLE_RANK: Record<Role, number> = {
   USER: 0,
   MODERATOR: 1,
   ADMIN: 2,

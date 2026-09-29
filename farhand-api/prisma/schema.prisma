@@ -378,12 +378,20 @@ model AdminAction {
   targetUser   User            @relation("ActionTarget", fields: [targetUserId], references: [id])
   type         AdminActionType
   reason       String          @db.VarChar(1000)
+  /// What was taken down, for REMOVE_CONTENT only. Null for every other type,
+  /// where the target user IS the subject. Without these, the log can say
+  /// "content of Yuki's was removed" and never which — and an audit log that
+  /// cannot answer "has this listing been removed before?" is a diary.
+  /// The enum is the reports one; USER never appears here.
+  contentType  ReportTarget?
+  contentId    String?
   reportId     String? // V2: link to the report that triggered it
   report       Report?         @relation(fields: [reportId], references: [id])
   expiresAt    DateTime? // for temporary suspensions
   createdAt    DateTime        @default(now())
 
   @@index([targetUserId, createdAt])
+  @@index([contentType, contentId])
 }
 
 // ─────────────────────────────────────────────

@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { pinoHttp } from "pino-http";
 import { logger } from "./logger.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { dealsRouter } from "./routes/deals.js";
@@ -51,6 +52,7 @@ export function createApp(): Express {
   app.use(conversationsRouter);
   app.use(dealsRouter);
   app.use(reportsRouter);
+  app.use(adminRouter);
 
   // Both of these must stay at the bottom, in this order.
   app.use(notFoundHandler);

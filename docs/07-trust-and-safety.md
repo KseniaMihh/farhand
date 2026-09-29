@@ -68,12 +68,21 @@ avoid duty is illegal. The platform never suggests a declared value.
 Moderators can read a conversation only when it is attached to a report or a
 disputed deal. That restriction is enforced in the service layer and logged.
 
-> **Not true yet.** #21 gave moderators blanket read access to every
-> conversation, because there were no reports to attach one to. Reports exist as
-> of #26, so the condition is now checkable — but this rule also says the access
-> must be *logged*, and the log is `AdminAction`, which #27 builds. Both halves
-> land there. Until then, moderator thread access is wider than this paragraph
-> says, and that is known rather than overlooked.
+Concretely, a moderator gets in through one of exactly two openings:
+
+- an **open** report whose target is a message in that conversation
+- the deal on that proposal is `DISPUTED`
+
+Neither answers `404`, the same as for anybody else — "you may not read this
+particular thread" would confirm it exists. Resolving the report closes the
+thread again: the permission comes from the reason, so it ends when the reason
+does.
+
+The access itself goes to the **application log**, not to `AdminAction` — one
+line naming the moderator, the conversation and which opening allowed it.
+`AdminAction` is a record of decisions taken about an account, and reading is
+not a decision. The log line is what makes "enforced in the service layer and
+logged" checkable afterwards.
 
 Reporting itself is narrower than reading: a report about a message can only be
 filed by one of the two people in the conversation, and a moderator's read
