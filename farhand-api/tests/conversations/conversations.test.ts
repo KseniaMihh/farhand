@@ -236,15 +236,19 @@ describe("GET /conversations/:id/messages", () => {
     expect(asRequester.status).toBe(200);
   });
 
-  it("lets a moderator read it", async () => {
+  it("hides it from a moderator with no reason to look", async () => {
     const { conversation } = await thread(2);
     const mo = await makeModerator();
 
     const response = await readThread(mo, conversation.id);
 
-    // Judging a report means reading what was said.
-    expect(response.status).toBe(200);
-    expect((response.body as MessagePage).items).toHaveLength(2);
+    // This test used to expect 200: #21 gave moderators every thread, because
+    // there were no reports to attach one to and docs/07-trust-and-safety.md's
+    // rule was not yet checkable. It is now — a moderator needs an open report
+    // on a message in here, or a disputed deal, and the access is logged.
+    // Those cases live in tests/admin/moderation.test.ts (#27); what belongs
+    // here is that being a moderator is not by itself a reason.
+    expect(response.status).toBe(404);
   });
 
   it("hides it from everyone else, as if it did not exist", async () => {

@@ -224,6 +224,10 @@ npm run dev        # tsx watch - restarts on every save
 | `GET /me/deals` | The caller's deals, either side, filtered by status, paged. |
 | `POST /reports` | Reports a user, need, offer or message. The target is checked in the service — a polymorphic id has no foreign key to keep it honest. |
 | `GET /admin/reports` | The moderator queue: oldest first, because it is work waiting rather than a feed. |
+| `GET /admin/reports/:id` | One report with the thing it is about, so a moderator can judge it. |
+| `POST /admin/reports/:id/resolve` | Closes a report with a note. Frees the reporter to report again if it recurs. |
+| `POST /admin/users/:id/actions` | Warn, suspend, ban or reactivate. A reason every time, and the record is written with the change or not at all. |
+| `POST /admin/content/:type/:id/remove` | Takes a need, offer or message down, recording both whose it was and which one. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
