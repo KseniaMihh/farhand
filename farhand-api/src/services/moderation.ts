@@ -345,7 +345,7 @@ export async function searchUsers(
     role: user.role,
     status: user.status,
     suspendedUntil: user.suspendedUntil,
-    emailVerified: true,
+    emailVerified: user.emailVerifiedAt !== null,
     createdAt: user.createdAt,
   }));
 
