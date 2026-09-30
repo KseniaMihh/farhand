@@ -259,6 +259,28 @@ describe("GET /deals/:id/events", () => {
       expect(completed?.note).toBe("Completed automatically after 14 days");
     });
 
+    /**
+     * Registration creates a user and their profile in one transaction (#10),
+     * so an actor without a profile cannot happen. The service decides what to
+     * do anyway, and the decision is "a missing profile is not a reason to lose
+     * who acted" — a history that silently forgets its actor is worse than one
+     * naming somebody we cannot label. Untested, that decision is just a
+     * plausible-looking `??` somebody will tidy into an empty string.
+     */
+    it("keeps the actor even when the name cannot be found", async () => {
+      const deal = await makeDeal();
+      const nameless = await prisma.user.create({
+        data: { email: "nameless@example.com", passwordHash: "x" },
+      });
+      await addEvent(deal.id, "CANCELLED", nameless.id);
+
+      const body = (await read(kadri, deal.id)).body as EventsBody;
+      const cancelled = body.items.find((e) => e.toStatus === "CANCELLED");
+
+      expect(cancelled?.actor?.id).toBe(nameless.id);
+      expect(cancelled?.actor?.displayName).toBeTruthy();
+    });
+
     it("carries each event's own fields", async () => {
       const deal = await makeDeal();
 
