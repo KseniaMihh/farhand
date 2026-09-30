@@ -12,6 +12,7 @@ import {
   getReportWithTarget,
   removeContent,
   resolveReport,
+  searchUsers,
 } from "../services/moderation.js";
 import { listReportQueue } from "../services/reports.js";
 import {
@@ -170,5 +171,61 @@ adminRouter.post(
     const action = await removeContent(getAuth(req).user, type, id, reason);
 
     res.status(201).json({ action });
+  },
+);
+
+/* ────────────────────── finding a person (#67) ────────────────────── */
+
+/** The four values AccountStatus can hold (prisma/schema.prisma). */
+const ACCOUNT_STATUSES = ["ACTIVE", "SUSPENDED", "BANNED", "DELETED"] as const;
+
+/**
+ * What a moderator may narrow the user list by.
+ *
+ * `email` is lowercased and trimmed before it is matched, the way
+ * registration stores it (#10), so an address copied out of a complaint finds
+ * the account whatever case it arrives in.
+ *
+ * `q` has a floor of two characters. A single letter is not a search, it is a
+ * way of walking the table one page at a time — and unlike `email`, this one
+ * matches partially, so that floor is the only thing standing in the way.
+ */
+const userSearchSchema = z.object({
+  email: z.string().trim().toLowerCase().min(1).optional(),
+  q: z.string().trim().min(2).max(50).optional(),
+  status: z.enum(ACCOUNT_STATUSES).optional(),
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PAGE_SIZE)
+    .default(DEFAULT_PAGE_SIZE),
+});
+
+/**
+ * Finding a person. MOD.
+ *
+ * The one place in the API that hands out an email address
+ * (docs/07-trust-and-safety.md says there are none anywhere, and this is the
+ * exception that proves the rule). Which is why it is behind `requireRole`,
+ * why it is paged, and why every call of it is written to the log.
+ */
+adminRouter.get(
+  "/admin/users",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  requireRole("MODERATOR"),
+  async (req, res) => {
+    const { cursor, limit, ...filters } = userSearchSchema.parse(req.query);
+    const page = await searchUsers(
+      getAuth(req).user,
+      filters,
+      cursor === undefined ? undefined : decodeCursor(cursor),
+      limit,
+    );
+
+    res.json(page);
   },
 );

@@ -116,6 +116,10 @@ until something is agreed, and immutable afterwards.
 
 **`DealEvent`** — append-only history of status changes. `Deal.status` answers
 "where is this now"; `DealEvent` answers "how did it get here and who did it".
+`actorId` is nullable because not every change has a person behind it: the sweep
+that completes a delivered deal after fourteen days writes an event with no
+actor, and `GET /deals/:id/events` reports that as `actor: null` rather than
+inventing one.
 Disputes and the admin view both depend on it. A null `actorId` means the system
 acted, for example the 14-day auto-complete.
 

@@ -9,6 +9,12 @@ the rules live.
 2. Only the transitions listed below are allowed. Anything else is rejected.
 3. Every transition is performed by one identified person, and is written to
    `DealEvent`. The event log is append-only.
+
+   It is readable two ways: embedded in `GET /deals/:id`, and on its own
+   through `GET /deals/:id/events`, which is paged, oldest first, and names
+   who did each step rather than only carrying their id
+   (docs/06-api-contract.md). An event written by the 14-day sweep has no
+   actor at all, and says so.
 4. The frontend hides impossible buttons. The server rejects impossible
    requests. Both are required; only the second is a rule.
 

@@ -973,7 +973,7 @@ Enforced in `src/services/conversations.ts`, not in the routes.
 | POST | `/deals/:id/quote` | AUTH | Helper submits amounts and currency |
 | GET | `/deals/:id/quotes` | AUTH | Every revision, newest first. Participants only |
 | POST | `/deals/:id/transition` | AUTH | Body: `{ to, note?, trackingNumber?, shippingActual? }`. Validated against the transition table |
-| GET | `/deals/:id/events` | AUTH | Full history. **Not built** — #67 |
+| GET | `/deals/:id/events` | AUTH | The history alone, oldest first, with who did each step |
 
 One transition endpoint rather than one endpoint per status keeps the rules in a
 single place. The alternative is recorded in the decisions folder.
@@ -1125,6 +1125,52 @@ currency they will actually be spending, and accepting is the moment it stops
 being negotiable. That is what docs/04-deal-lifecycle.md means by "one currency
 per deal, chosen at quote time".
 
+### `GET /deals/:id/events`
+
+The deal's history, **oldest first**, paged. `AUTH`, and the same people as
+the deal itself: its requester, its helper, and moderators. Anybody else gets
+`404`.
+
+```json
+{
+  "items": [
+    {
+      "id": "cm1…",
+      "fromStatus": null,
+      "toStatus": "MATCHED",
+      "note": null,
+      "createdAt": "2026-09-14T10:02:11.000Z",
+      "actor": { "id": "cm1…", "displayName": "Anna" }
+    },
+    {
+      "fromStatus": "DELIVERED",
+      "toStatus": "COMPLETED",
+      "note": "Completed automatically after 14 days",
+      "actor": null,
+      "…": "…"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+**`actor` is `null` when nobody did it**: the sweep that completes a deal
+fourteen days after delivery writes an event with no actor (see
+`04-deal-lifecycle.md`). A client showing a history has to render that case,
+so it is in the example.
+
+**Why this exists when `GET /deals/:id` already embeds the same events.**
+One thing: `actor` is a display name here, not only an id. A history is
+something people read, and rendering "Anna marked it sent" from the embedded
+log means resolving an id for every row. It is also paged, and it is the only
+list in this section that runs oldest first — a history is read forwards, the
+way it happened, like the moderator queue and unlike everything people browse.
+
+A moderator reading somebody else's deal history is written to the application
+log, as a moderator opening a conversation is (`07-trust-and-safety.md`). So
+is a moderator reading the deal itself, which had been an unrecorded read
+since #27. The deal's own two people are not logged; it is their deal.
+
 ### `GET /deals/:id`
 
 One deal, with its quotes (newest first) and its full event log (**oldest
@@ -1151,7 +1197,7 @@ every other list here.
 | GET | `/admin/reports` | MOD | Queue, oldest first, filter by status, target type and reason |
 | GET | `/admin/reports/:id` | MOD | One report, with the thing it is about |
 | POST | `/admin/reports/:id/resolve` | MOD | Resolution note required |
-| GET | `/admin/users` | MOD | Search. **Not built** — #67 |
+| GET | `/admin/users` | MOD | Find an account by email or display name, filter by status, paged |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
 | POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, help or message |
 
@@ -1213,6 +1259,64 @@ connection both read "nothing yet". Somebody else reporting the same thing is
 fine — two people complaining is information, not a duplicate — and once a
 moderator has resolved a report, the same person may report the same target
 again: it happened again, so it is news again.
+
+### `GET /admin/users`
+
+`MOD`. Finding a person, for a moderator who already has some idea who they
+are looking for.
+
+| Query | Meaning |
+|---|---|
+| `email` | **Exact match**, trimmed and lowercased first |
+| `q` | Part of a display name, ignoring case. At least two characters |
+| `status` | `ACTIVE`, `SUSPENDED`, `BANNED` or `DELETED` |
+| `limit` | 1–50, default 20 |
+| `cursor` | From the previous page's `nextCursor`. Newest account first |
+
+An absent filter narrows nothing, and the filters combine: all of them must
+match.
+
+**`email` is exact and `q` is partial, and that asymmetry is the point.** An
+email address is something you look an account up *by* — you have it already,
+out of a report or a complaint. Matching it partially would make this a
+different tool: `?email=@gmail.com` returning every Gmail user in the
+database, twenty at a time, for as long as somebody kept turning pages.
+`07-trust-and-safety.md` lists scraping personal data as a risk, and a
+moderator account is not exempt from being the thing that leaks.
+
+```json
+{
+  "items": [
+    {
+      "id": "cm1…",
+      "email": "anna@example.com",
+      "displayName": "Anna",
+      "countryCode": "EE",
+      "role": "USER",
+      "status": "ACTIVE",
+      "suspendedUntil": null,
+      "emailVerified": true,
+      "createdAt": "2026-03-04T09:12:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+**This is the only endpoint in the API that returns an email address.**
+Everywhere else there are none at all, deliberately — `GET /users/:id` shows a
+display name and a country and nothing that identifies a person off Farhand
+(#65). A moderator holding a complaint about `anna@example.com` has to be able
+to reach that account, so the exception exists, and it is worth knowing that
+it is the only one. The password hash is never returned.
+
+**Deleted and banned accounts are included.** They answer `404` from every
+public endpoint, and they are exactly what a moderator checking whether a ban
+was fair needs to find.
+
+**Every search is logged**: who searched, whether it was by email, the filters
+they used, and `resultCount` — how many rows came back. The count matters: one
+lookup and somebody paging through the whole table look identical without it.
 
 ### `POST /admin/users/:id/actions`
 

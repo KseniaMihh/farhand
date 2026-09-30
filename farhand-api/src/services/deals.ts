@@ -10,8 +10,10 @@ import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import {
   afterCursor,
+  afterCursorOldest,
   type CursorPosition,
   NEWEST_FIRST,
+  OLDEST_FIRST,
   type Page,
   toPage,
 } from "./shared.js";
@@ -266,11 +268,28 @@ export async function getDeal(
     },
   });
 
-  if (!deal || sideOf(actor, deal) === null) {
+  const side = sideOf(actor, deal);
+  if (!deal || side === null) {
     throw HttpError.notFound("Deal not found");
   }
 
+  if (side === "moderator") logModeratorRead(actor, deal.id, "a deal");
+
   return deal;
+}
+
+/**
+ * A moderator read of a deal that is not theirs, in the application log.
+ *
+ * The same shape as a moderator opening a conversation (#27,
+ * src/services/conversations.ts), and for the same reason: reading is not a
+ * decision, so it writes no AdminAction — but a power that leaves no trace at
+ * all is one nobody can ask about afterwards
+ * (docs/07-trust-and-safety.md). The deal's own two people are not logged.
+ * It is their deal.
+ */
+function logModeratorRead(actor: User, dealId: string, what: string): void {
+  logger.info({ moderatorId: actor.id, dealId }, `moderator read ${what}`);
 }
 
 /**
@@ -400,4 +419,88 @@ export async function autoCompleteDeals(now: Date): Promise<number> {
   }
 
   return completed;
+}
+
+/* ─────────────────── the event log on its own (#67) ─────────────────── */
+
+/**
+ * One row of a deal's history, as the API hands it out.
+ *
+ * The difference from the raw `DealEvent` row is `actor`: a display name
+ * rather than an id, because the whole point of a history is being read. A
+ * client rendering "Anna marked it sent" from the embedded log in
+ * `GET /deals/:id` has to resolve an id per row to do it
+ * (docs/06-api-contract.md).
+ *
+ * `actor` is null when nothing did it on purpose: the sweep that completes a
+ * deal fourteen days after delivery writes an event with no actor (#25).
+ */
+export interface VisibleDealEvent {
+  id: string;
+  fromStatus: DealStatus | null;
+  toStatus: DealStatus;
+  note: string | null;
+  createdAt: Date;
+  actor: { id: string; displayName: string } | null;
+}
+
+/**
+ * A deal's history, oldest first, paged.
+ *
+ * Oldest first, unlike almost everything else here — and not an inconsistency
+ * to tidy up. Needs, offers, quotes and messages are newest first because
+ * people browse them; a history is read forwards, the way it happened, like the
+ * moderator queue (./shared.ts, OLDEST_FIRST). The order and
+ * `afterCursorOldest` are a pair: change one and this list pages wrongly with
+ * no error at all, just rows served twice or skipped.
+ *
+ * Who may read it is who may read the deal: its two people, and moderators
+ * (docs/06-api-contract.md — participants and moderators only). A stranger gets
+ * 404 and not 403, in the same branch as a deal that does not exist, because
+ * telling them the deal is there is itself the leak.
+ */
+export async function listDealEvents(
+  actor: User,
+  dealId: string,
+  position: CursorPosition | undefined,
+  limit: number,
+): Promise<Page<VisibleDealEvent>> {
+  const deal = await prisma.deal.findUnique({ where: { id: dealId } });
+
+  const side = sideOf(actor, deal);
+  if (!deal || side === null) {
+    throw HttpError.notFound("Deal not found");
+  }
+
+  if (side === "moderator") logModeratorRead(actor, dealId, "a deal's events");
+
+  const rows = await prisma.dealEvent.findMany({
+    where: {
+      dealId,
+      AND: [afterCursorOldest(position)],
+    },
+    include: {
+      actor: { include: { profile: true } },
+    },
+    orderBy: OLDEST_FIRST,
+    take: limit + 1,
+  });
+
+  const page = toPage(rows, limit);
+
+  const items: VisibleDealEvent[] = page.items.map((event) => ({
+    id: event.id,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    note: event.note,
+    createdAt: event.createdAt,
+    actor: event.actor
+      ? {
+          id: event.actor.id,
+          displayName: event.actor.profile?.displayName ?? "Unknown",
+        }
+      : null,
+  }));
+
+  return { items, nextCursor: page.nextCursor };
 }
