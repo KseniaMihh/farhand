@@ -16,6 +16,7 @@ import { dealsRouter } from "./routes/deals.js";
 import { healthRouter } from "./routes/health.js";
 import { helpsRouter } from "./routes/helps.js";
 import { needsRouter } from "./routes/needs.js";
+import { profilesRouter } from "./routes/profiles.js";
 import { proposalsRouter } from "./routes/proposals.js";
 import { reportsRouter } from "./routes/reports.js";
 
@@ -75,6 +76,7 @@ export function createApp(): Express {
 
   app.use(healthRouter);
   app.use(authRouter);
+  app.use(profilesRouter);
   app.use(needsRouter);
   app.use(helpsRouter);
   app.use(proposalsRouter);

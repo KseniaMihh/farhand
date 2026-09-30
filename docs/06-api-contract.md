@@ -385,9 +385,119 @@ moves to Redis when the API is deployed behind more than one instance
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| GET | `/users/:id` | — | Public profile plus review summary |
+| GET | `/users/:id` | — | Public profile |
 | PATCH | `/me/profile` | AUTH | Own profile only |
-| DELETE | `/me` | AUTH | Anonymise and mark deleted |
+| DELETE | `/me` | AUTH | Anonymise and mark deleted. **Not built** — #66 |
+
+### `GET /users/:id`
+
+Public: no session is read at all. Returns `200`:
+
+```json
+{
+  "user": {
+    "id": "cm1…",
+    "displayName": "Anna",
+    "countryCode": "EE",
+    "bio": "I fly Tallinn–Tokyo twice a year.",
+    "memberSince": "2026-03-04T09:12:00.000Z"
+  }
+}
+```
+
+Four fields and an id, chosen against docs/07-trust-and-safety.md, which lists
+scraping personal data as a risk and answers it by keeping profiles thin.
+What is deliberately not here:
+
+| Absent | Why |
+|---|---|
+| `email` | Never, anywhere, for anybody |
+| `city` | A display name plus a city is often enough to find a real person, and nothing in a deal needs it. Its owner can see and set it; nobody else can read it |
+| `avatarUrl` | Uploads are version 2 (`08-scope.md`). Until then the column could only hold a URL somebody typed |
+| `role`, `status` | Moderators are not announced, and a suspension is between the account and us |
+
+No rating summary: reviews are version 2. The field is absent rather than
+present and always `null` — a `null` nobody can explain is worse than an
+absence, and it will arrive with the reviews that give it a value.
+
+The owner of a profile sees exactly what a stranger sees. `GET /auth/me` is
+where somebody reads their own private fields, and there is no third answer in
+between.
+
+Who is visible:
+
+| The account is | Answer |
+|---|---|
+| `ACTIVE` | `200` |
+| `SUSPENDED` | `200`. A suspension stops someone acting, not existing, and their live deals carry on — the other side has to see who they are dealing with |
+| `BANNED` | `404` |
+| `DELETED` | `404` |
+| No such id | `404` |
+
+**The last three are byte-identical.** If a deleted account answered
+differently from an id that never existed, then "is this person still on
+Farhand?" would be a question anybody could ask about anybody — the same
+enumeration problem `POST /auth/register` answers by always replying the same
+way. A user row with no profile row answers `404` too: registration creates both
+in one transaction, so it cannot happen, and returning half a profile would be
+worse than saying there is nothing here.
+
+### `PATCH /me/profile`
+
+`AUTH`. **No `:id`**, and that is the whole authorisation story: there is no
+path for "edit somebody else's profile" to arrive on, so there is no ownership
+check to forget. Compare `PATCH /needs/:id`, where the id is in the path and the
+service has to say *only the requester* out loud.
+
+```json
+{ "displayName": "Anna B", "bio": "Ask me about Tokyo.", "city": null }
+```
+
+| Field | Rule |
+|---|---|
+| `displayName` | 1–50 characters after trimming |
+| `bio` | 1–500 characters, or `null` |
+| `countryCode` | Two letters, ISO 3166-1 alpha-2, uppercased — `"fi"` becomes `"FI"` |
+| `city` | 1–80 characters, or `null` |
+
+Every field is optional, and the two nullable ones distinguish three requests:
+
+| The request | Means |
+|---|---|
+| The key is absent | Leave this field as it is |
+| `"bio": null` | Empty it |
+| `"bio": ""` | `422`. Emptying is `null`; a column that holds `""` is a field nobody decided about |
+
+An empty body is accepted and changes nothing: a `PATCH` that mentions no
+fields is a request to change no fields, not a mistake.
+
+Unknown fields are dropped, as everywhere else, so a request cannot reach
+through this and set `userId`, `role` or `status`. Two of the drops are worth
+naming:
+
+- **`avatarUrl`**, although the column exists. An avatar arrives as an upload in
+  version 2; accepting a URL here would point the site's image tags at a server
+  we do not control.
+- **`email`**, because changing an address means proving the new one. That is
+  `POST /auth/verify-email`'s flow, not a profile edit.
+
+Returns `200` with the profile as it now stands in the database — not as it was
+sent:
+
+```json
+{
+  "profile": {
+    "displayName": "Anna B",
+    "bio": "Ask me about Tokyo.",
+    "countryCode": "EE",
+    "city": null,
+    "avatarUrl": null
+  }
+}
+```
+
+The same five fields, in the same shape, as the `profile` object inside
+`GET /auth/me`, so a client needs one reader for both.
 
 ## Needs
 
@@ -856,7 +966,7 @@ Enforced in `src/services/conversations.ts`, not in the routes.
 | POST | `/deals/:id/quote` | AUTH | Helper submits amounts and currency |
 | GET | `/deals/:id/quotes` | AUTH | Every revision, newest first. Participants only |
 | POST | `/deals/:id/transition` | AUTH | Body: `{ to, note?, trackingNumber?, shippingActual? }`. Validated against the transition table |
-| GET | `/deals/:id/events` | AUTH | Full history |
+| GET | `/deals/:id/events` | AUTH | Full history. **Not built** — #67 |
 
 One transition endpoint rather than one endpoint per status keeps the rules in a
 single place. The alternative is recorded in the decisions folder.

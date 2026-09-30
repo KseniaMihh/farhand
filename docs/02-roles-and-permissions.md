@@ -41,6 +41,8 @@ the API on every request.
 
 | Action | Rule |
 |---|---|
+| Edit a profile | Only its owner. `PATCH /me/profile` takes no id, so there is no other profile it could name (#65) |
+| Read a profile | Anyone, but only the public fields. A banned or deleted account answers exactly like an id that never existed |
 | Edit or delete a need | Only its requester, and only while status is `DRAFT` or `OPEN`. Deleting closes it (`CLOSED`); the row stays |
 | Edit or delete a help | Only its helper, and not once it is `REMOVED`. Deleting marks it `REMOVED`; the row stays |
 | Send a proposal | Any active user except the need's own requester |

@@ -9,8 +9,13 @@ and this file needs updating.
 **`User`** — private account data: email, password hash, role, status. Never
 returned to other users.
 
-**`Profile`** — public data: display name, country, bio, avatar. Split from
-`User` so that returning a profile can never accidentally leak an email address.
+**`Profile`** — what a person writes about themselves: display name, country,
+bio, city, avatar. Split from `User` so that returning a profile can never
+accidentally leak an email address.
+
+Public is per field, not per table. `GET /users/:id` answers with the display
+name, the country and the bio; the city stays visible to its owner alone, and
+the avatar waits for uploads in version 2 (`06-api-contract.md`).
 
 **`Session`** — one row per signed-in device. Stores a *hash* of the session
 token, not the token itself, so a database leak does not hand over live
