@@ -9,6 +9,7 @@ import {
 import { currencyCode } from "../schemas/common.js";
 import {
   getDeal,
+  listDealEvents,
   listMyDeals,
   listQuotes,
   submitQuote,
@@ -177,5 +178,45 @@ dealsRouter.get(
     const deal = await getDeal(getAuth(req).user, id);
 
     res.json({ deal });
+  },
+);
+
+/* ─────────────────── the event log on its own (#67) ─────────────────── */
+
+/** Paging for the event log. No filters: a history is read, not browsed. */
+const eventsQuerySchema = z.object({
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PAGE_SIZE)
+    .default(DEFAULT_PAGE_SIZE),
+});
+
+/**
+ * A deal's history on its own, oldest first.
+ *
+ * `GET /deals/:id` already carries the same events, embedded. This one adds
+ * the thing that makes a history readable — who did each step, by name — and
+ * pages, so a long-running deal is not one enormous answer
+ * (docs/06-api-contract.md).
+ */
+dealsRouter.get(
+  "/deals/:id/events",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const { cursor, limit } = eventsQuerySchema.parse(req.query);
+    const page = await listDealEvents(
+      getAuth(req).user,
+      id,
+      cursor === undefined ? undefined : decodeCursor(cursor),
+      limit,
+    );
+
+    res.json(page);
   },
 );

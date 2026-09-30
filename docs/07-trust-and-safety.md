@@ -25,7 +25,7 @@ buried in terms of service.
 | Prohibited or illegal items | Prohibited list at posting time, reports, moderation | Automated screening |
 | Harassment in messages | Report on every message, moderator visibility, block; 20 messages a minute per sender, so flooding somebody's inbox takes effort | Filtering |
 | Fake reviews | Reviews only after a `COMPLETED` deal, one per side | Anomaly detection |
-| Scraping personal data | A public profile is a display name, a country, a bio and a joining date — no email addresses anywhere in the API, and no city: that plus a name is often enough to find a real person, so it stays visible only to its owner (#65) | Rate limiting per IP |
+| Scraping personal data | A public profile is a display name, a country, a bio and a joining date — no city: that plus a name is often enough to find a real person, so it stays visible only to its owner (#65). **One endpoint returns an email address**, `GET /admin/users`, which is how a moderator reaches the account a complaint is about; it matches an address exactly rather than partially, so it cannot be turned into a list of everybody at a domain, it is paged, and every call of it is logged (#67) | Rate limiting per IP |
 | Another website acting as a signed-in user | `SameSite=lax` on the session cookie, and every write must carry an `Origin` or `Referer` matching `APP_ORIGIN` | — |
 | One machine hammering the API | 300 requests a minute per address, above the specific limits on login and messages | Something distributed, once there is more than one instance |
 | A browser misreading an answer | `helmet`: `nosniff`, no framing, a referrer policy, HSTS in production | — |

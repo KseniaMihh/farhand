@@ -17,7 +17,7 @@ helper" as a property of a person.
 |---|---|---|
 | Guest | Not signed in | Browse public needs and helps, view public profiles, register |
 | `USER` | Registered, email confirmed | Everything a guest can, plus post needs and helps, send and answer proposals, message, act on their own deals, review, report, edit their own account |
-| `MODERATOR` | Appointed | Everything a user can, plus view reports, hide content, warn, suspend, ban, reactivate |
+| `MODERATOR` | Appointed | Everything a user can, plus view reports, find an account by email or display name, read any deal and any reported conversation, hide content, warn, suspend, ban, reactivate |
 | `ADMIN` | Appointed | Everything a moderator can, plus change roles and view any account's details |
 
 ## Account status
@@ -49,6 +49,8 @@ the API on every request.
 | Accept or decline a proposal | Only the need's requester |
 | Withdraw a proposal | Only the helper who sent it |
 | Read a conversation | Only the two participants, plus moderators |
+| Read a deal, or its event log | Only its requester and helper, plus moderators. A stranger gets `404`, never `403` — saying a deal exists is itself the leak |
+| Find an account | `MODERATOR` or above. Email matched exactly, never partially, so the endpoint cannot become a way to list everybody at a domain (#67) |
 | Advance a deal | Only the person named for that transition in `04-deal-lifecycle.md` |
 | Write a review | Only a participant of a `COMPLETED` deal, once |
 | See a receipt file | Only the two deal participants, plus moderators |

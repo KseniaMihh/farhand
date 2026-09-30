@@ -1,14 +1,24 @@
 import {
+  type AccountStatus,
   type AdminAction,
   type AdminActionType,
   Prisma,
   type Report,
   type ReportTarget,
+  type Role,
   type User,
 } from "@prisma/client";
 import { ROLE_RANK } from "../middleware/auth.js";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { logger } from "../logger.js";
+import {
+  afterCursor,
+  type CursorPosition,
+  NEWEST_FIRST,
+  type Page,
+  toPage,
+} from "./shared.js";
 
 /**
  * Moderation: the few things a moderator may do, and the record of them.
@@ -241,4 +251,113 @@ export async function getReportWithTarget(
   // A target that has since vanished is not an error: null lets the
   // moderator resolve the report anyway.
   return { report, target: target ?? null };
+}
+
+/* ────────────────────── finding a person (#67) ────────────────────── */
+
+/**
+ * What a moderator may narrow the user list by.
+ *
+ * `email` is an exact match and `q` is a partial one, and that asymmetry is the
+ * whole safety argument (docs/06-api-contract.md, `GET /admin/users`). An email
+ * address is something you look somebody up *by* — you have it already, from a
+ * report or a complaint. Partial email matching would be a different tool:
+ * `@gmail.com` returning every Gmail user in the database, one page at a time,
+ * which is the "export the user table" the issue asks us not to build
+ * (docs/07-trust-and-safety.md lists scraping personal data as a risk).
+ */
+export interface UserSearchFilters {
+  /** Exact, already trimmed and lowercased by the route. */
+  email?: string | undefined;
+  /** Part of a display name, matched without case. */
+  q?: string | undefined;
+  status?: AccountStatus | undefined;
+}
+
+/**
+ * One row of the moderator's user list.
+ *
+ * The email IS here, unlike everywhere else in the API
+ * (docs/07-trust-and-safety.md: "no email addresses anywhere"). This is the one
+ * exception and it is the reason the endpoint exists: a moderator holding a
+ * complaint about `anna@example.com` has to be able to reach the account. The
+ * password hash is not here, and never is.
+ */
+export interface UserSummary {
+  id: string;
+  email: string;
+  displayName: string | null;
+  countryCode: string | null;
+  role: Role;
+  status: AccountStatus;
+  suspendedUntil: Date | null;
+  emailVerified: boolean;
+  createdAt: Date;
+}
+
+/**
+ * Finds accounts, for a moderator who already knows roughly who they want.
+ *
+ * Deleted and banned accounts are included, and that is deliberate rather than
+ * an oversight to tighten later. They are invisible everywhere else in the API
+ * — `GET /users/:id` answers 404 for both (#65) — but this is the tool for
+ * looking into what happened, and a moderator who cannot find a banned account
+ * cannot check whether the ban was fair.
+ *
+ * Every call is written to the application log, the way a moderator opening a
+ * conversation is (#27, src/services/conversations.ts). Reading is not a
+ * decision, so it writes no `AdminAction` — see the rule at the top of this
+ * file — but it is not nothing either. The count goes in the line as well as
+ * the query: one lookup and somebody paging through the whole table look
+ * identical otherwise.
+ */
+export async function searchUsers(
+  actor: User,
+  filters: UserSearchFilters,
+  position: CursorPosition | undefined,
+  limit: number,
+): Promise<Page<UserSummary>> {
+  const rows = await prisma.user.findMany({
+    where: {
+      ...(filters.email ? { email: filters.email } : {}),
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.q
+        ? {
+            profile: {
+              displayName: { contains: filters.q, mode: "insensitive" },
+            },
+          }
+        : {}),
+      AND: [afterCursor(position)],
+    },
+    include: { profile: true },
+    orderBy: NEWEST_FIRST,
+    take: limit + 1,
+  });
+
+  const page = toPage(rows, limit);
+
+  const summaries: UserSummary[] = page.items.map((user) => ({
+    id: user.id,
+    email: user.email,
+    displayName: user.profile?.displayName ?? null,
+    countryCode: user.profile?.countryCode ?? null,
+    role: user.role,
+    status: user.status,
+    suspendedUntil: user.suspendedUntil,
+    emailVerified: true,
+    createdAt: user.createdAt,
+  }));
+
+  logger.info(
+    {
+      moderatorId: actor.id,
+      byEmail: filters.email !== undefined,
+      query: filters,
+      resultCount: summaries.length,
+    },
+    "moderator searched users",
+  );
+
+  return { items: summaries, nextCursor: page.nextCursor };
 }
