@@ -33,6 +33,12 @@ Code that implements a documented rule should say so in a comment, for example
 `// transition table: see docs/04-deal-lifecycle.md`. Anyone reading the code
 then finds the reasoning, and anyone changing the rule sees where else to look.
 
+One pairing does not rely on being remembered. Adding, removing or reguarding
+an endpoint without touching
+[06-api-contract.md](06-api-contract.md) fails
+`farhand-api/tests/contract/endpoints.test.ts`, on your machine and in CI, with
+a message naming the endpoint and which of the two sides is missing it (#69).
+
 ## Where planning lives
 
 GitHub Issues, organised by a GitHub Project board.

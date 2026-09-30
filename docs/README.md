@@ -26,5 +26,8 @@ Read in this order when new to the project.
    disagrees with it, the document is wrong.
 2. Decision records are never edited; a new one supersedes an old one.
 3. A change to behaviour and the document describing it belong in the same
-   commit.
+   commit. For one part of one document this is now a test rather than a
+   promise: `farhand-api/tests/contract/endpoints.test.ts` fails if the
+   endpoints in [06-api-contract.md](06-api-contract.md) and the routes the app
+   really answers have drifted apart in either direction (#69).
 4. Version 1 scope does not grow. New ideas go to version 2 by default.

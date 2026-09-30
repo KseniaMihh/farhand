@@ -7,14 +7,21 @@ enforces it:
 
 | Marker | Who | Middleware |
 |---|---|---|
-| — | Anyone | none |
+| — | Anyone | None that can refuse. A few of these read the session with `optionalAuth` to notice who is asking — `GET /needs/:id` shows a requester their own drafts — but nobody is turned away |
 | `SESSION` | Any signed-in user whose account is not banned or deleted — unverified and suspended users included | `requireAuth` |
 | `AUTH` | A signed-in user with a confirmed email who is not suspended | `requireAuth`, `requireVerified`, `requireActive` |
-| `MOD` | A moderator or an admin | `requireAuth`, `requireRole("MODERATOR")` |
+| `MOD` | A moderator or an admin, with a confirmed email and not suspended | `requireAuth`, `requireVerified`, `requireActive`, `requireRole("MODERATOR")` |
 
 A suspended user can still see their own deals
 (`docs/02-roles-and-permissions.md`), so read-only endpoints like that are marked
 `SESSION` as they are built.
+
+**This table is not decoration: a test reads it.**
+`farhand-api/tests/contract/endpoints.test.ts` builds the real app, walks its
+router, and fails if the guards in front of a route are not the ones its marker
+names — or if any endpoint in any table below does not exist, or exists without
+being written down here (#69). A row for something deliberately not built yet
+says **Not built** and names the issue that will build it.
 
 ## Conventions
 
@@ -1144,7 +1151,7 @@ every other list here.
 | GET | `/admin/reports` | MOD | Queue, oldest first, filter by status, target type and reason |
 | GET | `/admin/reports/:id` | MOD | One report, with the thing it is about |
 | POST | `/admin/reports/:id/resolve` | MOD | Resolution note required |
-| GET | `/admin/users` | MOD | Search. **Not built** — no issue covers it yet |
+| GET | `/admin/users` | MOD | Search. **Not built** — #67 |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
 | POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, help or message |
 
