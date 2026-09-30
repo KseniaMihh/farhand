@@ -1,5 +1,5 @@
 import { pino } from "pino";
-import { env, isProduction } from "./env.js";
+import { env, isProduction, isTest } from "./env.js";
 
 /**
  * Structured logging.
@@ -27,7 +27,20 @@ export const logger = pino({
     censor: "[redacted]",
   },
 
-  ...(isProduction
+  // Pretty-printing only in development, and NOT in tests (#70).
+  //
+  // A pino `transport` is not a formatting option: it starts a WORKER THREAD
+  // and pipes the log through it. Under test that bought nothing — LOG_LEVEL
+  // is `silent`, so the worker was started, handed nothing, and torn down —
+  // once per test file, roughly thirty times a run.
+  //
+  // It also matched the symptom in #70: a test FILE failing while every test
+  // in it passes alone, never the same file twice. Vitest attributes an
+  // unhandled error to whichever file is loading when it arrives, and a worker
+  // torn down at the wrong moment is a well-known source of exactly that.
+  // Unproven as the cause — the flake was seen twice in weeks — but the worker
+  // was pure cost either way, so there is nothing to trade off.
+  ...(isProduction || isTest
     ? {}
     : {
         transport: {

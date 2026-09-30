@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.1",
+    "@node-rs/argon2-wasm32-wasi": "^2.2.1",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "@sentry/node": "^11.1.0",
