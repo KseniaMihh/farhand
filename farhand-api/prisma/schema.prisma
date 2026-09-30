@@ -264,7 +264,10 @@ model Proposal {
   conversation Conversation?
   deal         Deal?
 
-  @@unique([needId, helperId]) // one proposal per helper per need
+  // One proposal per helper per need, whatever became of it: withdrawn,
+  // declined, or accepted into a deal that was later cancelled. Deliberate,
+  // and argued out in docs/10-decisions/0009.
+  @@unique([needId, helperId])
   @@index([helperId, status])
 }
 

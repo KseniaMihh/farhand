@@ -70,8 +70,10 @@ catches the violation rather than reading first, because two requests arriving
 together would both read "no proposal yet" and both write.
 
 The constraint takes no notice of `status`, so the row a helper withdraws keeps
-its slot and they cannot propose on that need again. That is deliberate — the
-consequence is spelled out in docs/06-api-contract.md.
+its slot and they cannot propose on that need again — and the same after a deal
+of theirs is cancelled. That is deliberate: the consequence is spelled out in
+docs/06-api-contract.md, and it was challenged and upheld in
+docs/10-decisions/0009.
 
 **`Conversation`** — one per proposal, so questions can be asked before
 agreeing. Unread state is two timestamps, `requesterLastReadAt` and
