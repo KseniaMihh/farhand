@@ -159,7 +159,7 @@ export const ROLE_RANK: Record<Role, number> = {
  *   router.post("/admin/users/:id/actions", requireAuth, requireRole("MODERATOR"), handler)
  */
 export function requireRole(minimum: Role): RequestHandler {
-  return (req, _res, next) => {
+  const guard: RequestHandler = (req, _res, next) => {
     const { user } = getAuth(req);
     if (ROLE_RANK[user.role] < ROLE_RANK[minimum]) {
       next(HttpError.forbidden());
@@ -167,6 +167,16 @@ export function requireRole(minimum: Role): RequestHandler {
     }
     next();
   };
+
+  /**
+   * A function returned by a factory is anonymous, and the name is what
+   * tests/contract/endpoints.test.ts reads to check the auth column of
+   * docs/06-api-contract.md against the guards really in front of a route
+   * (#69). The role is part of the name so MOD and ADMIN can be told apart.
+   */
+  Object.defineProperty(guard, "name", { value: `requireRole:${minimum}` });
+
+  return guard;
 }
 
 /**

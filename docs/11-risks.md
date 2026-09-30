@@ -45,7 +45,7 @@ failure.
 | Scope creep | `08-scope.md`, and the rule that version 1 does not grow |
 | Drifting back to frontend work, where it is comfortable | Frontend starts only after the deal lifecycle is done |
 | Losing momentum after the exciting part | Small, finishable steps; commit daily; the CI badge is visible |
-| Documentation going stale | The schema is authoritative; a doc that contradicts it gets fixed in the same commit |
+| Documentation going stale | The schema is authoritative; a doc that contradicts it gets fixed in the same commit. For the endpoint tables in `06-api-contract.md` this is no longer a promise: `tests/contract/endpoints.test.ts` fails if they and the routes disagree (#69). It happened — version 1 was called finished with five endpoints documented and never built |
 | Over-relying on AI-generated code | Core logic in steps 1–3 is written by hand first, reviewed afterwards |
 
 ## Open questions
