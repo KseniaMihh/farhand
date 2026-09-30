@@ -1,6 +1,8 @@
 import type { Profile, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { randomBytes } from "node:crypto";
+import { hashPassword, verifyPassword } from "../password.js";
 import { onlyProvided } from "./shared.js";
 
 /**
@@ -123,5 +125,119 @@ export async function updateMyProfile(
   return prisma.profile.update({
     where: { userId: user.id },
     data: onlyProvided(input),
+  });
+}
+
+/* ──────────────────── leaving, without a trace (#66) ──────────────────── */
+
+/**
+ * The deal statuses that are over. Everything else is a deal still running,
+ * with somebody on the other side of it.
+ */
+const SETTLED = ["COMPLETED", "CANCELLED"] as const;
+
+/**
+ * The name a deleted account wears afterwards.
+ *
+ * The profile row stays and is blanked rather than deleted, so a deal's
+ * history still says who did each step (#67). The alternative — no profile at
+ * all — makes every event that person ever caused read as an actor we cannot
+ * label, which is true but says the wrong thing: this is not somebody unknown,
+ * it is somebody who left.
+ */
+export const DELETED_DISPLAY_NAME = "Deleted account";
+
+/**
+ * The address a deleted account keeps.
+ *
+ * `.invalid` is reserved by RFC 2606 and can never be a real domain, so this
+ * can never collide with a living account or be mistaken for a way to reach
+ * anybody. The id keeps it unique, because `email` is a unique column and two
+ * deletions must not fight over one value.
+ */
+export function deletedEmailFor(userId: string): string {
+  return `deleted-${userId}@farhand.invalid`;
+}
+
+/**
+ * Closes an account: anonymised, and kept.
+ */
+export async function deleteMyAccount(
+  user: User,
+  password: string,
+): Promise<void> {
+  const passwordOk = await verifyPassword(user.passwordHash, password);
+  if (!passwordOk) {
+    throw HttpError.forbidden("Password is incorrect");
+  }
+
+  const unsettledDeals = await prisma.deal.count({
+    where: {
+      OR: [{ requesterId: user.id }, { helperId: user.id }],
+      status: { notIn: [...SETTLED] },
+    },
+  });
+  if (unsettledDeals > 0) {
+    throw HttpError.conflict(
+      `You have ${String(unsettledDeals)} deal(s) still in progress. Settle or cancel them first.`,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.need.updateMany({
+      where: { requesterId: user.id, status: { in: ["DRAFT", "OPEN"] } },
+      data: { status: "CLOSED" },
+    });
+
+    await tx.help.updateMany({
+      where: { helperId: user.id, status: { in: ["ACTIVE", "PAUSED"] } },
+      data: { status: "REMOVED" },
+    });
+
+    // Their own pending offers to help elsewhere.
+    await tx.proposal.updateMany({
+      where: { helperId: user.id, status: "PENDING" },
+      data: { status: "WITHDRAWN", respondedAt: new Date() },
+    });
+
+    // Pending offers FROM other people, on needs that are about to close.
+    // Otherwise a requester could still accept one from an account that can
+    // no longer log in, creating a deal that can never move.
+    await tx.proposal.updateMany({
+      where: { need: { requesterId: user.id }, status: "PENDING" },
+      data: { status: "DECLINED", respondedAt: new Date() },
+    });
+
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        email: deletedEmailFor(user.id),
+        // A REAL hash of 32 random bytes nobody kept. It has to be a real
+        // one: argon2 reads its parameters and salt out of the stored value,
+        // so a string that is not a hash makes verification THROW rather than
+        // return false — and login would answer 500 where an unknown address
+        // answers 401, which tells anyone who can guess this address that the
+        // account was deleted rather than never existing (src/routes/auth.ts
+        // explains why those two must be indistinguishable).
+        passwordHash: await hashPassword(randomBytes(32).toString("hex")),
+        status: "DELETED",
+        deletedAt: new Date(),
+      },
+    });
+
+    await tx.profile.update({
+      where: { userId: user.id },
+      data: {
+        displayName: DELETED_DISPLAY_NAME,
+        bio: null,
+        city: null,
+        avatarUrl: null,
+        // countryCode stays: on its own it identifies nobody, and it keeps
+        // a deal's history readable.
+      },
+    });
+
+    await tx.session.deleteMany({ where: { userId: user.id } });
+    await tx.verificationToken.deleteMany({ where: { userId: user.id } });
   });
 }

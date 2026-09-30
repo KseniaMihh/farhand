@@ -29,7 +29,7 @@ Independent of role. Stored as `AccountStatus`.
 | `ACTIVE` | Yes | Yes | Normal |
 | `SUSPENDED` | Yes | No | Temporary; `suspendedUntil` set. Existing deals still visible so obligations can be settled |
 | `BANNED` | No | No | Permanent |
-| `DELETED` | No | No | Anonymised on request; deals kept so the other side keeps their history |
+| `DELETED` | No | No | Anonymised on request through `DELETE /me`, which asks for the password again and is refused while a deal is running (#66). Deals, messages and events are kept so the other side keeps their history |
 
 An unconfirmed email is not a status. The user exists and can sign in, but
 cannot post or send proposals until `emailVerifiedAt` is set.
@@ -42,6 +42,7 @@ the API on every request.
 | Action | Rule |
 |---|---|
 | Edit a profile | Only its owner. `PATCH /me/profile` takes no id, so there is no other profile it could name (#65) |
+| Delete an account | Only its owner, and only with the password as well as the session. No moderator route deletes an account — banning is the moderator's tool, and it is reversible (#66) |
 | Read a profile | Anyone, but only the public fields. A banned or deleted account answers exactly like an id that never existed |
 | Edit or delete a need | Only its requester, and only while status is `DRAFT` or `OPEN`. Deleting closes it (`CLOSED`); the row stays |
 | Edit or delete a help | Only its helper, and not once it is `REMOVED`. Deleting marks it `REMOVED`; the row stays |

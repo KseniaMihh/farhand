@@ -7,7 +7,11 @@ import {
   requireVerified,
 } from "../middleware/auth.js";
 import { countryCode } from "../schemas/common.js";
-import { getPublicProfile, updateMyProfile } from "../services/profiles.js";
+import {
+  deleteMyAccount,
+  getPublicProfile,
+  updateMyProfile,
+} from "../services/profiles.js";
 
 export const profilesRouter: Router = Router();
 
@@ -96,3 +100,34 @@ profilesRouter.patch(
     });
   },
 );
+
+/**
+ * The password again, for the one write that cannot be undone.
+ *
+ * Every other write in this API is authorised by the session alone. This one
+ * asks for the password as well, for the same reason a bank asks again before
+ * a transfer: a cookie somebody else is holding should not be enough to
+ * destroy an account (docs/06-api-contract.md).
+ *
+ * The bounds match registration (#10) so that a password that could never
+ * have been set is refused as a 422 rather than spending time being hashed.
+ */
+const deleteAccountSchema = z.object({
+  password: z.string().min(8).max(72),
+});
+
+/**
+ * `SESSION`, not `AUTH`.
+ *
+ * An unverified account is still somebody's personal data — and the person who
+ * signed up and never confirmed their email is exactly the one most likely to
+ * want it gone. A suspended one too: a suspension stops you acting, and
+ * leaving is not acting. The other guards would turn both into a 403 with
+ * nowhere to go (docs/02-roles-and-permissions.md).
+ */
+profilesRouter.delete("/me", requireAuth, async (req, res) => {
+  const { password } = deleteAccountSchema.parse(req.body);
+  await deleteMyAccount(getAuth(req).user, password);
+
+  res.status(204).end();
+});
