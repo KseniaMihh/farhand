@@ -894,6 +894,10 @@ slot: that helper cannot propose on that need again, and a later
 helper per need", and it is deliberate — a proposal is a record that the two of
 them have already been in touch about this, not a message that can be unsent.
 
+The same is true after a **cancelled deal**: the need reopens and other
+helpers may propose, but the helper whose deal was cancelled may not. That
+was challenged and upheld in `docs/10-decisions/0009`.
+
 ### `POST /proposals/:id/accept`
 
 The requester says yes. Returns `201` — it creates something new — with

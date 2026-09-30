@@ -128,7 +128,7 @@ docs/06-api-contract.md.
 | Parcel lost in transit | Requester disputes. Farhand records; it does not compensate. |
 | Requester goes silent after delivery | Auto-complete after 14 days at `DELIVERED`. |
 | Requester never confirms delivery at all | Deal stays `SHIPPED`. Tracking number exists as evidence in a dispute. |
-| Both people want to redo a cancelled deal | Create a new proposal. Cancelled deals are never reopened. |
+| Both people want to redo a cancelled deal | They cannot, on that need. Cancelling reopens it, so **a different helper** may propose at once — but the same helper is refused, because a proposal is one per helper per need whatever became of it (`0009`). The way back is a new need. |
 | Helper account banned mid-deal | Deal freezes as `DISPUTED` for moderator handling. |
 
 ## Database guarantee
