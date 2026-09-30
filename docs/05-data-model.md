@@ -180,7 +180,7 @@ private to the two deal participants and moderators.
 | Decision | Reason |
 |---|---|
 | Money as integer cents plus a currency code | Floating point cannot represent money exactly |
-| Soft deletion everywhere | Deals, reviews and evidence must survive one party leaving |
+| Soft deletion everywhere | Deals, reviews and evidence must survive one party leaving. `DELETE /me` is what that means in practice: the `User` row stays with `status = DELETED`, an unusable address at a domain RFC 2606 reserves, and a `Profile` **blanked rather than deleted** — an event whose actor has no profile reads as somebody we cannot label (#67), which says the wrong thing about a person who left (#66) |
 | Rules duplicated in the database | A CHECK constraint holds even when application code has a bug |
 | `cuid()` identifiers | Not guessable, unlike sequential integers, and generated without a database round trip |
 

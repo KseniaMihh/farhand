@@ -139,8 +139,21 @@ The project is built from Estonia, so GDPR applies even to a portfolio version.
   in V1.
 - Passwords are hashed with argon2id; session and verification tokens are stored
   hashed.
-- Account deletion anonymises personal data while keeping deal records, which is
-  a legitimate interest that must be documented.
+- Account deletion anonymises personal data while keeping deal records, which
+  is a legitimate interest that must be documented. `DELETE /me` implements
+  it (#66): the email address, the password, the display name, the bio, the
+  city and the avatar go; the deals, messages and events stay, attributed to
+  an account plainly marked `Deleted account`. The other side of a deal has a
+  history that is also theirs, and it cannot be rewritten because somebody
+  else left.
+- **Deletion is refused while a deal is still running**, and that is the one
+  place the API will not let somebody leave. A deal has money in it and two
+  people relying on each other; somebody who has taken a payment must not be
+  able to disappear by pressing a button. Erasure is deferred, not denied —
+  settle or cancel, and it goes through.
+- **A banned account cannot delete itself**, because it cannot sign in at all.
+  Version 1 has no way for such a person to ask, which is a real gap and is
+  recorded as one in `11-risks.md`.
 - Data export on request is a V2 feature.
 - Delivery addresses are exchanged in messages in V1. This is a deliberate
   simplification with a privacy cost, recorded as an open question.

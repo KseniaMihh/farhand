@@ -394,7 +394,7 @@ moves to Redis when the API is deployed behind more than one instance
 |---|---|---|---|
 | GET | `/users/:id` | — | Public profile |
 | PATCH | `/me/profile` | AUTH | Own profile only |
-| DELETE | `/me` | AUTH | Anonymise and mark deleted. **Not built** — #66 |
+| DELETE | `/me` | SESSION | Anonymise and mark deleted. Password required |
 
 ### `GET /users/:id`
 
@@ -448,6 +448,84 @@ enumeration problem `POST /auth/register` answers by always replying the same
 way. A user row with no profile row answers `404` too: registration creates both
 in one transaction, so it cannot happen, and returning half a profile would be
 worse than saying there is nothing here.
+
+### `DELETE /me`
+
+`SESSION`. Closes the account: the personal data goes, the record that things
+happened stays.
+
+```json
+{ "password": "a decent long passphrase" }
+```
+
+**The password, again.** Every other write in this API is authorised by the
+session cookie alone. This one asks for the password as well, because it is
+the only write that cannot be undone, and a cookie somebody else is holding
+should not be enough to destroy an account. A wrong password is `403` and
+nothing happens at all; a missing one is `422`.
+
+`SESSION` rather than `AUTH`, unlike every other write. An unverified account
+is still somebody's personal data — and the person who signed up and never
+confirmed their address is exactly the one most likely to want it gone. A
+suspended account too: a suspension stops you acting, and leaving is not
+acting.
+
+Returns `204`, and every session ends with it — this device and every other.
+
+**Refused while a deal is still running:**
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "Finish or cancel your open deals first. You have 1."
+  }
+}
+```
+
+A deal is running unless it is `COMPLETED` or `CANCELLED`. This is the one
+place the API refuses to let somebody leave, and it is on purpose: a deal has
+money in it and two people relying on each other, so somebody who has taken a
+payment must not be able to disappear by pressing a button. The refusal says
+how many are in the way, because a person who cannot see what is blocking them
+cannot clear it.
+
+#### What is erased, and what is kept
+
+| Erased | Kept |
+|---|---|
+| Email address — replaced with `deleted-<id>@farhand.invalid`, a domain RFC 2606 reserves so it can never be real | The account row, marked `DELETED` with `deletedAt` set |
+| Password — replaced with a value no password can match | Deals, and every event in their history |
+| Display name — replaced with `Deleted account` | Proposals and messages, attributed to that name |
+| Bio, city, avatar | Country code, which identifies nobody on its own and keeps a deal's history readable |
+| Every session, on every device | Reports filed about them, so moderation is still possible |
+| Every verification and password-reset token, so a link already sitting in an inbox cannot act on the account afterwards | |
+
+The profile row is **blanked, not deleted**. An event whose actor has no
+profile at all reads as somebody we cannot label (#67), which is true and says
+the wrong thing: this is not an unknown person, it is one who left.
+
+#### What happens to their listings
+
+| | |
+|---|---|
+| Needs that are `DRAFT` or `OPEN` | `CLOSED` |
+| Helps that are `ACTIVE` or `PAUSED` | `REMOVED` |
+| Their own `PENDING` proposals | `WITHDRAWN` |
+| `PENDING` proposals on their needs | `DECLINED` |
+
+The last row is the one that is easy to miss. Leaving those pending would let
+a requester accept a proposal from somebody who can no longer sign in, and
+create a deal that could never move.
+
+#### Afterwards
+
+The account cannot sign in, and cannot be signed in as: `POST /auth/login`
+answers exactly as it does for an address nobody has registered, and any
+session that somehow survived is refused on its next request. `GET /users/:id`
+answers `404`, identically to an id that never existed (#65). A moderator can
+still find the account through `GET /admin/users` (#67) — that is what the
+status filter is for.
 
 ### `PATCH /me/profile`
 

@@ -19,7 +19,16 @@ import { prisma } from "../../src/db.js";
  * transaction, so one call breaks one request.
  */
 export function breakInsideTransaction(
-  model: "deal" | "dealEvent" | "quote" | "proposal" | "need",
+  model:
+    | "deal"
+    | "dealEvent"
+    | "quote"
+    | "proposal"
+    | "need"
+    | "user"
+    | "profile"
+    | "session"
+    | "help",
   method: "create" | "update" | "updateMany" = "create",
 ): { attempts: number } {
   const record = { attempts: 0 };
