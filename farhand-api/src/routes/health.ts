@@ -12,6 +12,8 @@ export const healthRouter: Router = Router();
  * database that is down.
  */
 healthRouter.get("/health", (_req, res) => {
+  // TODO(#96): add `commit` — env.RENDER_GIT_COMMIT, or null where there is
+  // none. Read per request, not captured at import, so a test can set it.
   res.json({ status: "ok", uptime: Math.round(process.uptime()) });
 });
 

@@ -57,6 +57,14 @@ const envSchema = z.object({
   SENTRY_DSN: z.url().optional(),
 
   /**
+   * The commit this process was deployed from. Render sets it on every
+   * deploy; nothing sets it locally or in the test suite. `GET /health`
+   * reports it, which is how the deploy job tells the new version from the
+   * old one (docs/14-deployment.md, decision 0010).
+   */
+  RENDER_GIT_COMMIT: z.string().min(1).optional(),
+
+  /**
    * The origin check on writes, off in the test suite for the same reason rate
    * limiting is: four hundred tests post without a browser to set an Origin
    * header. tests/security/csrf.test.ts turns it on for itself.

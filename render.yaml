@@ -1,0 +1,11 @@
+# How Render runs this API. Replaces fly.toml (#96, decision 0010).
+#
+# TODO(#96): one web service —
+#   runtime docker, plan free, region frankfurt (same region as Neon),
+#   dockerfilePath/dockerContext pointing at farhand-api,
+#   healthCheckPath /health/ready (a version that cannot reach the database
+#   must not take traffic),
+#   autoDeployTrigger off — CI deploys, after it has run the migrations,
+#   numInstances 1 — the rate limits count in memory (docs/14-deployment.md),
+#   envVars: NODE_ENV, PORT 3000 (the Dockerfile's HEALTHCHECK assumes it),
+#   LOG_LEVEL, APP_ORIGIN as values; DATABASE_URL, SENTRY_DSN as sync: false.
