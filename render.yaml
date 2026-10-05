@@ -1,0 +1,39 @@
+# How Render runs this API. Replaces fly.toml (#96, decision 0010).
+services:
+  - type: web
+    name: farhand-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./farhand-api/Dockerfile
+    dockerContext: ./farhand-api
+    healthCheckPath: /health/ready
+    # CI deploys, after it has run the migrations — a push-triggered deploy
+    # would race the migration step and could serve a new image against an
+    # old schema.
+    autoDeployTrigger: off
+    # The rate limiters count in memory (docs/14-deployment.md); two
+    # instances would each keep their own count, so the limits would be
+    # twice as generous as configured. One instance until that moves to a
+    # shared store.
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        # The Dockerfile's HEALTHCHECK assumes this port.
+        value: "3000"
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_ORIGIN
+        # The service's own URL until there is a frontend to name instead.
+        # If Render added a suffix to the name, match it here.
+        value: https://farhand-api.onrender.com
+      # Neon's pooled connection string, entered once in the dashboard and
+      # never written here.
+      - key: DATABASE_URL
+        sync: false
+      # SENTRY_DSN is deliberately not listed. `sync: false` asks for a value
+      # when the service is created, and a blank one fails env.ts's URL check,
+      # so the API would never start. Add it in the dashboard on the day there
+      # is a DSN to put in it.

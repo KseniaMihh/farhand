@@ -175,7 +175,7 @@ jobs:
         run: docker compose down -v
 
   deploy:
-    name: Deploy to Fly
+    name: Deploy to Render
     # Only after both of the above are green, and only for master. A pull
     # request builds and tests; merging is what deploys.
     needs: [verify, image]
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # Never two deploys at once, and never cancel one halfway: a release that
-    # is interrupted between "migrations applied" and "new machines healthy" is
+    # is interrupted between "migrations applied" and "new version live" is
     # the one state nobody wants to debug.
     concurrency:
       group: deploy-production
@@ -194,38 +194,84 @@ jobs:
         working-directory: farhand-api
 
     steps:
-      - name: Check out the code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - name: Install flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: farhand-api/package-lock.json
 
-      # `--remote-only` builds the image on Fly's builder rather than here, so
-      # the deploy uses the same machinery whether it runs in CI or from a
-      # laptop. The migrations run as fly.toml's release_command, before any
-      # new machine takes traffic.
-      - name: Deploy
-        run: flyctl deploy --remote-only
+      # The Prisma CLI for the next step, at exactly the version the lockfile
+      # says, so CI migrates with the same Prisma the tests ran against.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations against Neon
+        # Render's free tier has no pre-deploy command, so this step is what
+        # fly.toml's release_command used to be: if it fails, the job stops
+        # here and Render is never asked to deploy (decision 0010).
+        run: npx prisma migrate deploy
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
-      # A deploy that reports success and leaves a dead API is the failure mode
-      # worth spending thirty seconds on. This asks the public URL, from
-      # outside, the same question the platform asks from inside.
-      - name: It is actually up
+      # Checked before anything is deployed: without it, the wait below would
+      # poll a URL with no host for ten minutes and fail without saying why.
+      - name: The public URL is configured
+        run: |
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "PUBLIC_URL repository variable is not set — cannot tell when the deploy is live"
+            exit 1
+          fi
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+
+      - name: Trigger the Render deploy
         run: |
           set -e
-          url="${{ vars.PUBLIC_URL }}"
-          if [ -z "$url" ]; then
-            echo "PUBLIC_URL repository variable is not set — skipping the check"
-            exit 0
-          fi
-          for attempt in 1 2 3 4 5 6; do
-            status=$(curl -s -o /tmp/ready.json -w "%{http_code}" "$url/health/ready" || true)
-            echo "attempt $attempt: $status"
-            if [ "$status" = "200" ]; then cat /tmp/ready.json; exit 0; fi
+          # The hook URL already carries ?key=…, so ref is a second parameter.
+          status=$(curl -s -o /tmp/deploy.json -w "%{http_code}" \
+            "$RENDER_DEPLOY_HOOK_URL&ref=$GITHUB_SHA")
+          cat /tmp/deploy.json
+          # 202 means a deploy was already queued — ambiguous whether it is
+          # THIS commit, so treated as a failure rather than assumed to be fine.
+          test "$status" = "200"
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+
+      # The old version answers /health/ready happily for the whole length of
+      # Render's build, so readiness alone proves nothing. The commit in
+      # GET /health says which version is answering (docs/06-api-contract.md).
+      - name: Wait for the new commit to go live
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            # `|| true`: while the service wakes or swaps, the answer may not
+            # be JSON at all, and that is a reason to wait, not to fail.
+            commit=$(curl -s "$PUBLIC_URL/health" | jq -r '.commit' 2>/dev/null || true)
+            if [ "$commit" = "$GITHUB_SHA" ]; then
+              echo "Live: $commit"
+              break
+            fi
+            echo "Attempt $i: still $commit, waiting..."
             sleep 10
           done
-          echo "the API did not become ready"
-          cat /tmp/ready.json || true
-          exit 1
+          test "$commit" = "$GITHUB_SHA"
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+
+      - name: Wait for readiness
+        run: |
+          set -e
+          for i in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" "$PUBLIC_URL/health/ready" || true)
+            if [ "$status" = "200" ]; then
+              echo "Ready"
+              break
+            fi
+            echo "Attempt $i: $status, waiting..."
+            sleep 10
+          done
+          test "$status" = "200"
+        env:
+          PUBLIC_URL: ${{ vars.PUBLIC_URL }}

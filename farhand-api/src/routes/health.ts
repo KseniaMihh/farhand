@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { pingDatabase } from "../db.js";
-import { isProduction } from "../env.js";
+import { env, isProduction } from "../env.js";
 
 export const healthRouter: Router = Router();
 
@@ -12,7 +12,13 @@ export const healthRouter: Router = Router();
  * database that is down.
  */
 healthRouter.get("/health", (_req, res) => {
-  res.json({ status: "ok", uptime: Math.round(process.uptime()) });
+  res.json({
+    status: "ok",
+    uptime: Math.round(process.uptime()),
+    // How the deploy job tells the new version from the old one: see
+    // docs/14-deployment.md. Read per request, so a test can change it.
+    commit: env.RENDER_GIT_COMMIT ?? null,
+  });
 });
 
 /**
