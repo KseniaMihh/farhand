@@ -1,5 +1,9 @@
 import type { Profile, User } from "@prisma/client";
 import type { Logger } from "pino";
+import { prisma } from "../db.js";
+import { storage } from "../storage.js";
+import { normaliseAvatar } from "../images.js";
+import { checkUpload, storeFile, deleteStoredBytes } from "./files.js";
 
 /**
  * Avatars (#80): the first upload a person can make.
@@ -11,69 +15,109 @@ import type { Logger } from "pino";
  * same trick as PATCH /me/profile (#65): the rule cannot be forgotten, because
  * there is nothing to remember. Contract: docs/06-api-contract.md, "Profile".
  *
- * A profile points at its avatar File (`Profile.avatarFileId`). Replacing one
- * leaves the old row AND the old bytes deleted — a person changing their
- * picture ten times leaves one file behind, not ten.
- *
- * The TODOs below need: `checkUpload`, `storeFile`, `deleteStoredBytes`
- * (./files.js); `normaliseAvatar` (../images.js); `prisma` (../db.js);
- * `storage` (../storage.js). Parameters are underscored only so the skeleton
- * passes lint.
+ * A profile points at its avatar File (`Profile.avatarFileId`). Replacing or
+ * removing one deletes the old row AND its bytes, so ten changes of picture
+ * leave one file behind, not ten.
  */
 
 /**
- * Sets or replaces the caller's avatar.
- *
- * TODO(#80), in order:
- *
- * 1. `checkUpload(bytes, "AVATAR")` — size and type, BEFORE the image library
- *    sees a byte. An SVG or an HTML page never reaches a decoder.
- *
- * 2. `normaliseAvatar(bytes)` — square, small, WebP, no metadata.
- *
- * 3. `storeFile({ ownerId: user.id, purpose: "AVATAR", bytes: normalised })`.
- *    What is stored is the normalised image, never the upload.
- *
- * 4. In ONE transaction:
- *    a. Lock this person's profile row:
- *         await tx.$queryRaw`SELECT 1 FROM "Profile"
- *                            WHERE "userId" = ${user.id} FOR UPDATE`
- *       Two uploads at once from the same person (a double click, two tabs)
- *       would otherwise both read "the old avatar is X", and one of the two
- *       new files would end up pointed at by nothing. With the lock, the
- *       second waits for the first, then finds the first's file as its old one.
- *    b. Find every AVATAR file of this owner except the new one, and keep
- *       their storage keys. "Every", not "the one the profile points at": it
- *       also sweeps up anything an earlier failure left behind.
- *    c. Point the profile at the new file (`avatarFileId`).
- *    d. Delete those other rows.
- *
- * 5. If the transaction fails, the new file is stored and nothing points at
- *    it. Delete its row and its bytes (best effort, as in #79), then rethrow.
- *
- * 6. After the commit, `deleteStoredBytes(oldKeys, log)` — never inside the
- *    transaction, for #79's reason: a rollback would bring rows back for bytes
- *    already gone.
- *
- * 7. Return the updated profile.
+ * Sets or replaces the caller's avatar. What is stored is the normalised
+ * image (src/images.ts), never the upload.
  */
-export function setAvatar(
-  _user: User,
-  _bytes: Buffer,
-  _log: Logger,
+export async function setAvatar(
+  user: User,
+  bytes: Buffer,
+  log: Logger,
 ): Promise<Profile> {
-  throw new Error("TODO(#80): setAvatar");
+  checkUpload(bytes, "AVATAR");
+  const normalised = await normaliseAvatar(bytes);
+
+  const file = await storeFile({
+    ownerId: user.id,
+    purpose: "AVATAR",
+    bytes: normalised,
+  });
+
+  let oldKeys: string[];
+  let profile: Profile;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Two uploads at once (a double click, two tabs) would both read the
+      // same "old avatar", and one new file would end up pointed at by
+      // nothing. The lock makes the second wait and then find the first's file
+      // as its old one. No test can make two requests reliably collide, so
+      // this is argued here rather than proved (tests/profiles/avatar.test.ts).
+      await tx.$queryRaw`SELECT 1 FROM "Profile"
+                         WHERE "userId" = ${user.id} FOR UPDATE`;
+
+      // Every other avatar file of this owner, not only the one the profile
+      // points at: it also sweeps up anything an earlier failure left behind.
+      const oldFiles = await tx.file.findMany({
+        where: { ownerId: user.id, purpose: "AVATAR", id: { not: file.id } },
+        select: { id: true, storageKey: true },
+      });
+
+      const updatedProfile = await tx.profile.update({
+        where: { userId: user.id },
+        data: { avatarFileId: file.id },
+      });
+
+      await tx.file.deleteMany({
+        where: { id: { in: oldFiles.map((f) => f.id) } },
+      });
+
+      return { updatedProfile, oldKeys: oldFiles.map((f) => f.storageKey) };
+    });
+
+    profile = result.updatedProfile;
+    oldKeys = result.oldKeys;
+  } catch (error) {
+    // The new file is stored and nothing points at it. Remove it, best effort
+    // (#79), and report the failure that actually happened.
+    await prisma.file.delete({ where: { id: file.id } }).catch(() => undefined);
+    await storage.delete(file.storageKey).catch(() => undefined);
+    throw error;
+  }
+
+  // After the commit, never inside it: a rollback would bring back rows for
+  // bytes already gone (#79).
+  await deleteStoredBytes(oldKeys, log);
+
+  return profile;
 }
 
 /**
- * Removes the caller's avatar. Having none already is not an error: the
- * person wanted no avatar, and now they have none.
- *
- * TODO(#80): the same shape as step 4 and 6 above — lock the profile row,
- * collect the keys of every AVATAR file of this owner, set `avatarFileId` to
- * null, delete the rows, and after the commit delete the bytes. Return the
- * updated profile.
+ * Removes the caller's avatar: the same lock and the same order as setAvatar.
+ * Having none already is not an error — the person wanted no avatar, and now
+ * they have none.
  */
-export function removeAvatar(_user: User, _log: Logger): Promise<Profile> {
-  throw new Error("TODO(#80): removeAvatar");
+export async function removeAvatar(user: User, log: Logger): Promise<Profile> {
+  const { profile, oldKeys } = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM "Profile"
+                       WHERE "userId" = ${user.id} FOR UPDATE`;
+
+    const oldFiles = await tx.file.findMany({
+      where: { ownerId: user.id, purpose: "AVATAR" },
+      select: { id: true, storageKey: true },
+    });
+
+    const updatedProfile = await tx.profile.update({
+      where: { userId: user.id },
+      data: { avatarFileId: null },
+    });
+
+    await tx.file.deleteMany({
+      where: { id: { in: oldFiles.map((f) => f.id) } },
+    });
+
+    return {
+      profile: updatedProfile,
+      oldKeys: oldFiles.map((f) => f.storageKey),
+    };
+  });
+
+  await deleteStoredBytes(oldKeys, log);
+
+  return profile;
 }

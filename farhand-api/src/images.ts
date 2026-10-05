@@ -1,3 +1,6 @@
+import sharp from "sharp";
+import { HttpError } from "./errors.js";
+
 /**
  * What happens to an image before it is stored.
  *
@@ -35,40 +38,53 @@ export const MAX_INPUT_PIXELS = 40_000_000;
  * The bytes have already passed `checkUpload` (src/services/files.ts), so they
  * start like a JPEG, PNG or WebP — but starting like one is not being one. A
  * file can have the right first bytes and garbage after them.
- *
- * TODO(#80), with `import sharp from "sharp"` and
- * `import { HttpError } from "./errors.js"`:
- *
- * 1. `sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })`. Then
- *    `await image.metadata()` for `width` and `height`.
- *
- *    Any error SHARP throws — more pixels than the limit (already at
- *    `metadata()`), or garbage after a good header (sometimes only at
- *    `toBuffer()`, when it really decodes) — becomes
- *    `HttpError.validationFailed("The image could not be read")`. A broken
- *    upload is the uploader's problem: 422, never 500. Your own HttpError
- *    from step 2 must pass through unchanged, so catch around the sharp
- *    calls, not around everything.
- *
- * 2. If the shorter side is under MIN_AVATAR_SIDE, refuse with
- *    `validationFailed`, naming the minimum.
- *
- * 3. `.rotate()` with no argument, BEFORE anything else changes the image:
- *    phones store a photo sideways with a note saying "turn me". Step 5 throws
- *    the note away, so the turning has to happen first or the avatar is
- *    stored on its side.
- *
- * 4. Make it square: `.resize(side, side, { fit: "cover" })`, where `side` is
- *    the shorter side, capped at AVATAR_SIDE. "cover" crops the middle rather
- *    than squashing a face. Never larger than it arrived: a 100 × 300 image
- *    becomes 100 × 100, not a blurry 512 × 512.
- *
- * 5. `.webp({ quality: 80 })` and `.toBuffer()`. sharp writes no metadata
- *    unless asked to (`withMetadata`) — so the GPS position, the camera, the
- *    date all stay behind. Do not ask.
- *
- * Return the new bytes.
  */
-export function normaliseAvatar(_bytes: Buffer): Promise<Buffer> {
-  throw new Error("TODO(#80): normaliseAvatar");
+/** A broken upload is the uploader's problem: 422, never 500. */
+function unreadable(): HttpError {
+  return HttpError.validationFailed("The image could not be read");
+}
+
+export async function normaliseAvatar(bytes: Buffer): Promise<Buffer> {
+  const image = sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS });
+
+  let width: number | undefined;
+  let height: number | undefined;
+
+  try {
+    const metadata = await image.metadata();
+    width = metadata.width;
+    height = metadata.height;
+  } catch {
+    // Includes "more pixels than MAX_INPUT_PIXELS", which sharp already
+    // refuses here, at the header.
+    throw unreadable();
+  }
+
+  if (!width || !height) {
+    throw unreadable();
+  }
+
+  const shorterSide = Math.min(width, height);
+  if (shorterSide < MIN_AVATAR_SIDE) {
+    throw HttpError.validationFailed(
+      `The image must be at least ${String(MIN_AVATAR_SIDE)}px on its shorter side`,
+    );
+  }
+
+  const side = Math.min(shorterSide, AVATAR_SIDE);
+
+  try {
+    // rotate() FIRST: a phone stores a photo sideways with a note saying
+    // "turn me", and webp() writes no metadata, so that note is lost. Turn it
+    // before, or the avatar is stored on its side. Then a square crop from the
+    // middle (cover, not squash), never larger than it arrived.
+    return await image
+      .rotate()
+      .resize(side, side, { fit: "cover" })
+      .webp({ quality: 80 })
+      .toBuffer();
+  } catch {
+    // A good header with broken picture data fails only here, at decode.
+    throw unreadable();
+  }
 }
