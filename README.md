@@ -169,8 +169,8 @@ cd farhand
 # 1. Environment file
 cp farhand-api/.env.example farhand-api/.env
 
-# 2. Start PostgreSQL - from the ROOT folder
-docker compose up -d
+# 2. Start PostgreSQL and the local file store - from the ROOT folder
+docker compose up -d db storage
 docker compose ps          # wait until the status shows (healthy)
 
 # 3. Install and set up the database - from farhand-api
@@ -246,6 +246,7 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
 | `POST /auth/forgot-password` | Emails a reset link that works for one hour. Answers the same whether or not the email has an account. |
 | `POST /auth/reset-password` | Sets a new password with the emailed token, and logs the account out on every device. |
+| `GET /files/:id` | A redirect to a signed link that works for five minutes. Avatars follow their owner's profile, need photos their need, receipts only the two people in the deal and moderators — anyone else gets the same `404` as for a file that does not exist. |
 
 > **Writing to the API by hand?** Every `POST`, `PATCH` and `DELETE` must arrive
 > with an `Origin` (or `Referer`) matching `APP_ORIGIN`, or it is refused with
@@ -316,9 +317,12 @@ harness itself: one test writes a row, the next asserts it is gone.
 | File | What it does |
 | --- | --- |
 | `vitest.config.ts` | Loads `.env.test` over the shell environment; pins the suite to one worker |
-| `tests/setup/global-setup.ts` | Creates the test database if missing, then `prisma migrate deploy` |
+| `tests/setup/global-setup.ts` | Creates the test database if missing, then `prisma migrate deploy`, then the test bucket in the local file store |
 | `tests/setup/truncate.ts` | The safety check, and the truncation before each test |
 | `tests/health.test.ts` | `/health` and the commit it reports, `/health/ready`, and the 404 error shape |
+| `tests/files/store.test.ts` | Storing a file: the size and type limits, refusals that store nothing, and a failure halfway leaving no orphan |
+| `tests/files/read.test.ts` | `GET /files/:id`: the expiring redirect, bytes never public, who may see each purpose, and vanished bytes not being a crash |
+| `tests/files/account-deletion.test.ts` | Deleting an account: photos go, receipts stay, and bytes are deleted only after the transaction commits |
 | `tests/auth/register.test.ts` | Registration: validation, hashing, the one-transaction rule, and the identical duplicate response |
 | `tests/auth/verify-email.test.ts` | Verification: single use (including a staged double-click), expiry, wrong token type, identical rejections |
 | `tests/auth/login.test.ts` | Login: the cookie settings, hashed session storage, identical and equally slow failures, banned vs suspended |
@@ -397,7 +401,7 @@ supports TypeScript 7, remove the alias.
 ```
 farhand/
 ├── .github/workflows/ci.yml    lint, format, typecheck, test; then build the image and run the stack
-├── docker-compose.yml          the stack: PostgreSQL, a one-shot migrate step, the API
+├── docker-compose.yml          the stack: PostgreSQL, the local file store, a one-shot migrate step, the API
 ├── render.yaml                 how Render runs the API: region, health check, one instance
 ├── .gitignore
 ├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
@@ -429,6 +433,7 @@ farhand/
 │   │   ├── tokens.ts           single-use tokens: generated, hashed, stored
 │   │   ├── mailer.ts           outgoing email; logs the token in development
 │   │   ├── sessions.ts         login sessions and the cookie settings
+│   │   ├── storage.ts          the file store (S3 protocol); the only file that knows it
 │   │   ├── middleware/
 │   │   │   ├── error-handler.ts
 │   │   │   ├── rate-limit.ts   per-address and per-account limits on the auth endpoints
@@ -438,12 +443,14 @@ farhand/
 │   │   ├── services/
 │   │   │   ├── shared.ts       pieces both listing services use
 │   │   │   ├── needs.ts        who may create, edit and close a need
-│   │   │   └── helps.ts        the same, for offers to carry something
+│   │   │   ├── helps.ts        the same, for offers to carry something
+│   │   │   └── files.ts        file rules: size, type, who may see one, what deletion removes
 │   │   └── routes/
 │   │       ├── health.ts
 │   │       ├── auth.ts         register, verify email, log in and out, me, reset password
 │   │       ├── needs.ts        create, edit, delete and browse needs
-│   │       └── helps.ts        create, edit, delete and browse offers
+│   │       ├── helps.ts        create, edit, delete and browse offers
+│   │       └── files.ts        GET /files/:id, a redirect to a signed link
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
@@ -458,6 +465,7 @@ farhand/
 │       │   ├── password-reset.test.ts
 │       │   ├── resend-verification.test.ts
 │       │   └── rate-limit.test.ts
+│       ├── files/              storing, reading, and what account deletion does to files
 │       ├── helpers/
 │       │   └── auth.ts         signUpAndLogIn() for tests that need a user
 │       ├── health.test.ts

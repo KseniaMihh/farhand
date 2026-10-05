@@ -174,8 +174,17 @@ thing that is reported, resolved and then happens again deserves a new report.
 **`Review`** — unique on `(dealId, authorId)`, so one review per side per deal,
 and only after `COMPLETED`. Ratings are constrained to 1–5 in the database.
 
-**`File`** — metadata only; the bytes live in object storage. Receipts are
-private to the two deal participants and moderators.
+**`File`** — metadata only; the bytes live in object storage (Backblaze B2,
+decision 0011). A row names the owner, the purpose, a random storage key, the
+type read from the file's own first bytes, and the size. Built in #79.
+
+The row and the bytes are written in a fixed order — bytes first, then the row,
+deleting the bytes again if the row fails — so a failure leaves invisible
+garbage, never a row pointing at nothing. Who may read a file depends on its
+purpose: an avatar follows its owner's profile, a need photo its need, and a
+receipt is private to the two deal participants and moderators
+(`06-api-contract.md`, "Files"). Deleting an account deletes its avatar and
+need photos and keeps its receipts.
 
 ## Cross-cutting decisions
 

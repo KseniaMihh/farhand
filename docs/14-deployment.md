@@ -8,6 +8,7 @@ How Farhand runs somewhere other than a laptop, and how a change gets there.
 |---|---|---|
 | The API | Render, one free web service, Frankfurt | Runs the Dockerfile from #30 as it is, and costs nothing for good |
 | The database | Neon, managed PostgreSQL, same region | Genuinely managed — backups, upgrades and connection pooling are somebody else's job — with a free tier that does not expire |
+| Uploaded files | Backblaze B2, a private bucket, EU | 10 GB free with no card, and it speaks S3, so it is five settings rather than code ([decision 0011](10-decisions/0011-backblaze-b2-for-files.md)) |
 | Secrets | Render's environment settings, and GitHub Actions secrets | Never in the repository, never in an image layer |
 | Deploys | GitHub Actions, on merge to `master` | The same checks that guard a pull request guard a release |
 | Monitoring | Render's health check, plus an external uptime monitor | One decides whether a release is healthy; only the other can tell you the platform is down |
@@ -104,7 +105,48 @@ service and nothing else, while an API key can do anything the account can.
 That is what a machine should be able to do. If the hook ever leaks,
 regenerate it in the same place.
 
-### 4. The monitor
+### 4. File storage
+
+Without this the API still runs — everything works except files — so it can
+be done after the first deploy. It is needed before any upload (#80 on).
+
+1. **Sign up at Backblaze for B2 Cloud Storage**, and choose **EU Central** as
+   the region when asked. The region belongs to the account, is chosen once at
+   sign-up, and cannot be changed afterwards; EU keeps the files near the API
+   in Frankfurt. No card is asked for.
+2. **Create a bucket**, *Buckets → Create a Bucket*. The name is global across
+   all of B2, so make it yours (`farhand-files-<you>`). Set *Files in Bucket*
+   to **Private**. This is the setting that makes "bytes are never public"
+   true in production. Leave Object Lock off.
+3. **Note the endpoint** shown on the bucket's card, for example
+   `s3.eu-central-003.backblazeb2.com`. The part after `s3.` and before
+   `.backblazeb2.com` is the region (`eu-central-003`).
+4. **Create a key for the API**, *Application Keys → Add a New Application
+   Key*: name `farhand-api`, access to **this bucket only**, type **Read and
+   Write**. B2 shows the `applicationKey` once. Copy it then.
+5. **Set every cap to $0**, *Caps & Alerts*. Storing and requests cost nothing
+   on the free tier, but data sent out is free only up to three times what is
+   stored. With the caps at zero, the worst case is images not loading until
+   the cap resets, never a bill.
+6. **Give Render the five settings**, *the service → Environment*:
+
+| Variable | Value |
+|---|---|
+| `STORAGE_ENDPOINT` | `https://` plus the endpoint, e.g. `https://s3.eu-central-003.backblazeb2.com` |
+| `STORAGE_REGION` | e.g. `eu-central-003` |
+| `STORAGE_BUCKET` | the bucket's name |
+| `STORAGE_ACCESS_KEY_ID` | the key's `keyID` |
+| `STORAGE_SECRET_ACCESS_KEY` | the key's `applicationKey` |
+
+All five or none. A partial set, or one saved blank, is refused by the check
+in `src/env.ts` and the API will not start. That is also why they are set in
+the dashboard rather than listed in `render.yaml`: a variable Render asks for
+can be saved blank, the same reason `SENTRY_DSN` is not listed there.
+
+Production's bucket is created here, by hand. The API never creates it, and
+never makes anything in it public.
+
+### 5. The monitor
 
 Add a check in Better Stack or UptimeRobot (both free for this):
 
@@ -225,3 +267,6 @@ says what would justify it.
   there is something to put on it.
 - **No autoscaling.** One free instance, allowed to sleep when idle. The moment
   that is not enough is the moment there is something worth measuring.
+- **No CDN in front of files.** Every image is read straight from B2 through a
+  five-minute signed link. Real users looking at real photos is the day to
+  measure egress and put a cache in front (decision 0011).

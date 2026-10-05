@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { File, FilePurpose, Prisma, User } from "@prisma/client";
 import type { Logger } from "pino";
+import { prisma } from "../db.js";
+import { HttpError } from "../errors.js";
+import { ROLE_RANK } from "../middleware/auth.js";
+import { storage } from "../storage.js";
 
 /**
  * Uploaded files: the rules, not the bytes.
- *
- * The TODOs below will need `HttpError` (../errors.js) and `storage`
- * (../storage.js), plus `prisma` (../db.js) and `ROLE_RANK`
- * (../middleware/auth.js). The parameters are underscored only so the
- * skeleton passes lint; drop the underscores as you use them.
  *
  * A `File` row is metadata — who owns it, what it is for, how big, what type,
  * and the key its bytes are stored under. The bytes themselves live in object
@@ -91,114 +90,182 @@ export interface StoreFileInput {
   dealId?: string;
 }
 
+/** How each accepted type is named to a person reading a refusal. */
+const TYPE_NAMES: Record<string, string> = {
+  "image/jpeg": "JPEG",
+  "image/png": "PNG",
+  "image/webp": "WebP",
+  "application/pdf": "PDF",
+};
+
+/** "a JPEG, PNG or WebP" — what this purpose accepts, in words. */
+function acceptedTypesFor(purpose: FilePurpose): string {
+  const names = ALLOWED_TYPES[purpose].map((type) => TYPE_NAMES[type] ?? type);
+  const last = names.pop();
+  return names.length > 0
+    ? `${names.join(", ")} or ${last ?? ""}`
+    : (last ?? "");
+}
+
 /**
  * Validates, stores the bytes, and writes the row — in that order.
  *
- * TODO(#79), in order:
- *
- * 1. Refuse anything over MAX_FILE_BYTES with `HttpError.validationFailed`.
- *    Size first: it is free to check, and there is no point sniffing five
- *    megabytes we are going to refuse. (An EMPTY file needs no rule of its
- *    own: it has no leading bytes, so step 2 refuses it.)
- *
- * 2. Sniff the type with `sniffMimeType`. Refuse with `validationFailed` if
- *    it is unrecognised or not in ALLOWED_TYPES[purpose]. The sniffed type is
- *    what gets stored — nothing the caller claimed is ever written down.
- *
- * 3. Make a key with `newStorageKey()` and `await storage.put(...)`. If this
- *    throws, let it: nothing has been written to the database yet, so a
- *    failed upload leaves no row by construction.
- *
- * 4. Create the `File` row (`prisma.file.create`). If THAT throws, the bytes
- *    are already stored and nothing points at them. Delete them
- *    (`storage.delete`) and rethrow the original error. If the delete itself
- *    fails, the orphan is private and harmless — rethrow the ORIGINAL error
- *    anyway, not the cleanup's, because that is the one that explains what
- *    went wrong.
- *
- *    Why bytes first and row second, rather than the other way round: a row
- *    without bytes is a broken file somebody can see; bytes without a row are
- *    invisible garbage. Fail towards the invisible one.
- *
- * 5. Return the row.
+ * Bytes first, row second: a row without bytes is a broken file somebody can
+ * see, bytes without a row are invisible garbage. Every failure below lands on
+ * the invisible side (docs/10-decisions/0011-backblaze-b2-for-files.md).
  */
-export function storeFile(_input: StoreFileInput): Promise<File> {
-  throw new Error("TODO(#79): storeFile");
+export async function storeFile(input: StoreFileInput): Promise<File> {
+  // Size first: it is free to check, and there is no point sniffing five
+  // megabytes we are going to refuse.
+  if (input.bytes.length > MAX_FILE_BYTES) {
+    throw HttpError.validationFailed(
+      `File is too large. The limit is ${String(MAX_FILE_BYTES / 1024 / 1024)} MB`,
+    );
+  }
+
+  // An empty file has no leading bytes, so it is refused here too.
+  const mimeType = sniffMimeType(input.bytes);
+  if (!mimeType || !ALLOWED_TYPES[input.purpose].includes(mimeType)) {
+    throw HttpError.validationFailed(
+      `File must be a ${acceptedTypesFor(input.purpose)}`,
+    );
+  }
+
+  // If the store fails, nothing has been written to the database yet.
+  const storageKey = newStorageKey();
+  await storage.put(storageKey, input.bytes, mimeType);
+
+  try {
+    return await prisma.file.create({
+      data: {
+        ownerId: input.ownerId,
+        purpose: input.purpose,
+        storageKey,
+        mimeType,
+        sizeBytes: input.bytes.length,
+        needId: input.needId ?? null,
+        dealId: input.dealId ?? null,
+      },
+    });
+  } catch (error) {
+    // Bytes are already stored and nothing points at them: delete them, then
+    // rethrow the ORIGINAL error — it is the one that explains what went
+    // wrong. If the cleanup itself fails, the orphan is private and harmless.
+    await storage.delete(storageKey).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**
  * A signed URL for one file, if this viewer may see it.
  *
- * Who may see what (docs/02-roles-and-permissions.md, "See a receipt file"):
+ * Who may see what: docs/06-api-contract.md, "Files", from the rule in
+ * docs/02-roles-and-permissions.md. A missing file and a hidden one get the
+ * same 404, so a receipt's id cannot be checked by a stranger (#26).
  *
- *   AVATAR            anyone, while the owner's profile is visible — the same
- *                     rule as GET /users/:id: ACTIVE and SUSPENDED yes, BANNED
- *                     no. (DELETED never gets here: the rows are gone.)
- *   NEED_PHOTO        whoever may see the need — the rule in getVisibleNeed:
- *                     OPEN and MATCHED for anyone, any status for its owner
- *   PRODUCT_RECEIPT   the two people in the deal, and moderators
- *   SHIPPING_RECEIPT  the same
- *
- * TODO(#79):
- *
- * 1. Load the row with what the rules need: the owner's status, the need, the
- *    deal. One query with `include`.
- *
- * 2. Apply the rule for its purpose. Moderators: `ROLE_RANK[viewer.role] >=
- *    ROLE_RANK.MODERATOR` (src/middleware/auth.ts), so the ranking is not
- *    copied a second time.
- *
- * 3. A file that does not exist and a file this viewer may not see answer
- *    the SAME `HttpError.notFound("File not found")`. Different answers would
- *    tell a stranger which receipt ids are real — the reasoning of #26.
- *
- * 4. Return `storage.signedReadUrl(file.storageKey)`. Do not check that the
- *    bytes still exist first: that is a request to the store on every image
- *    view, and the signed URL already answers 404 when they do not.
+ * The bytes are not checked before signing: that would be a request to the
+ * store on every image shown, and a signed URL for vanished bytes is answered
+ * 404 by the store — never 500 by us.
  */
-export function fileReadUrl(
-  _fileId: string,
-  _viewer: User | undefined,
+export async function fileReadUrl(
+  fileId: string,
+  viewer: User | undefined,
 ): Promise<string> {
-  throw new Error("TODO(#79): fileReadUrl");
+  const file = await prisma.file.findUnique({
+    where: { id: fileId },
+    include: {
+      owner: { select: { status: true } },
+      need: { select: { status: true, requesterId: true } },
+      deal: { select: { requesterId: true, helperId: true } },
+    },
+  });
+
+  if (!file) {
+    throw HttpError.notFound("File not found");
+  }
+
+  const isModerator =
+    viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
+
+  const visible = (() => {
+    switch (file.purpose) {
+      // The rule of GET /users/:id. Named, not "anything but BANNED", so a
+      // status added one day is hidden until somebody decides otherwise.
+      case "AVATAR":
+        return (
+          file.owner.status === "ACTIVE" || file.owner.status === "SUSPENDED"
+        );
+
+      case "NEED_PHOTO": {
+        if (!file.need) return false;
+        const isOwner = viewer?.id === file.need.requesterId;
+        return (
+          isOwner ||
+          file.need.status === "OPEN" ||
+          file.need.status === "MATCHED"
+        );
+      }
+
+      case "PRODUCT_RECEIPT":
+      case "SHIPPING_RECEIPT": {
+        if (!file.deal) return false;
+        const isParticipant =
+          viewer?.id === file.deal.requesterId ||
+          viewer?.id === file.deal.helperId;
+        return isParticipant || isModerator;
+      }
+    }
+  })();
+
+  if (!visible) {
+    throw HttpError.notFound("File not found");
+  }
+
+  return storage.signedReadUrl(file.storageKey);
 }
 
 /**
  * The rows half of deleting an account (#66): runs INSIDE its transaction.
  *
- * Decided in #79: photos go, receipts stay. An avatar and a need photo are
- * personal and nobody else depends on them. A receipt is evidence in a deal
- * the other person is also part of — kept for the same reason #66 keeps the
- * deal's messages and history.
+ * Photos go, receipts stay. An avatar and a need photo are personal and
+ * nobody else depends on them; a receipt is evidence in a deal the other
+ * person is part of, kept for the reason #66 keeps the deal's messages.
  *
- * TODO(#79):
- *
- * 1. Find this owner's AVATAR and NEED_PHOTO rows, and remember their keys.
- * 2. Delete those rows with `tx.file.deleteMany`.
- * 3. Return the keys. The bytes are deleted AFTER the transaction commits
- *    (`deleteStoredBytes`): storage is not part of a database transaction, so
- *    deleting bytes inside it would leave rows pointing at nothing if the
- *    transaction then rolled back.
+ * Returns the keys, so the bytes can be deleted AFTER the commit: a store is
+ * not part of the transaction, and bytes deleted inside it would be gone for
+ * rows a rollback brings back.
  */
-export function removeAccountFiles(
-  _tx: Prisma.TransactionClient,
-  _ownerId: string,
+export async function removeAccountFiles(
+  tx: Prisma.TransactionClient,
+  ownerId: string,
 ): Promise<string[]> {
-  throw new Error("TODO(#79): removeAccountFiles");
+  const where = {
+    ownerId,
+    purpose: { in: ["AVATAR", "NEED_PHOTO"] satisfies FilePurpose[] },
+  };
+
+  const rows = await tx.file.findMany({ where, select: { storageKey: true } });
+  await tx.file.deleteMany({ where });
+
+  return rows.map((row) => row.storageKey);
 }
 
 /**
  * Deletes bytes whose rows are already gone. Best effort, one key at a time.
  *
- * TODO(#79): call `storage.delete` for each key. A failure must not stop the
- * others, and must not fail the caller — the account IS deleted by now, and a
- * person who asked to leave should not be told "error" because a photo lingered
- * in a private bucket. Log each failure with `log.error({ err, key }, ...)` so
- * it can be cleaned up by hand.
+ * Never fails its caller: the account is deleted by now, and a person who
+ * asked to leave is not told "error" because a photo lingered in a private
+ * bucket. Each failure is logged with its key, to be removed by hand.
  */
-export function deleteStoredBytes(
-  _keys: string[],
-  _log: Logger,
+export async function deleteStoredBytes(
+  keys: string[],
+  log: Logger,
 ): Promise<void> {
-  throw new Error("TODO(#79): deleteStoredBytes");
+  for (const key of keys) {
+    try {
+      await storage.delete(key);
+    } catch (err) {
+      log.error({ err, key }, "Failed to delete stored file bytes");
+    }
+  }
 }
