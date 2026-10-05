@@ -78,6 +78,10 @@ is most of what the auth tests do. That is the whole cost, it only applies when
 the native binding is unavailable, and 277 KB is a cheap way for the API not to
 crash at boot if a binding ever fails to load in production.
 
+The image library added in #80, `sharp`, is the second native module and has
+the same escape: `@img/sharp-wasm32` comes installed with it, on every
+platform, and is what it loads when its native binding cannot be.
+
 Smart App Control itself was left alone. Turning it off is a one-way door —
 it cannot be re-enabled without reinstalling Windows — and the fallback makes
 that a decision somebody can take calmly rather than one forced by a broken

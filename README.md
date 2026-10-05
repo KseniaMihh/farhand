@@ -246,6 +246,8 @@ npm run dev        # tsx watch - restarts on every save
 | `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
 | `POST /auth/forgot-password` | Emails a reset link that works for one hour. Answers the same whether or not the email has an account. |
 | `POST /auth/reset-password` | Sets a new password with the emailed token, and logs the account out on every device. |
+| `PUT /me/avatar` | Sets your avatar: the image is the request body. Stored as a square WebP of at most 512 px with every scrap of metadata — GPS included — removed. Replacing one deletes the old file. |
+| `DELETE /me/avatar` | Back to no avatar, row and bytes. |
 | `GET /files/:id` | A redirect to a signed link that works for five minutes. Avatars follow their owner's profile, need photos their need, receipts only the two people in the deal and moderators — anyone else gets the same `404` as for a file that does not exist. |
 
 > **Writing to the API by hand?** Every `POST`, `PATCH` and `DELETE` must arrive
@@ -323,6 +325,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `tests/files/store.test.ts` | Storing a file: the size and type limits, refusals that store nothing, and a failure halfway leaving no orphan |
 | `tests/files/read.test.ts` | `GET /files/:id`: the expiring redirect, bytes never public, who may see each purpose, and vanished bytes not being a crash |
 | `tests/files/account-deletion.test.ts` | Deleting an account: photos go, receipts stay, and bytes are deleted only after the transaction commits |
+| `tests/profiles/avatar.test.ts` | Avatars: what is stored (square, small, WebP, no metadata, upright), every refusal changing nothing, replacing leaving one file, and the rate limit |
 | `tests/auth/register.test.ts` | Registration: validation, hashing, the one-transaction rule, and the identical duplicate response |
 | `tests/auth/verify-email.test.ts` | Verification: single use (including a staged double-click), expiry, wrong token type, identical rejections |
 | `tests/auth/login.test.ts` | Login: the cookie settings, hashed session storage, identical and equally slow failures, banned vs suspended |
@@ -434,6 +437,7 @@ farhand/
 │   │   ├── mailer.ts           outgoing email; logs the token in development
 │   │   ├── sessions.ts         login sessions and the cookie settings
 │   │   ├── storage.ts          the file store (S3 protocol); the only file that knows it
+│   │   ├── images.ts           avatars re-encoded with sharp; the only file that knows it
 │   │   ├── middleware/
 │   │   │   ├── error-handler.ts
 │   │   │   ├── rate-limit.ts   per-address and per-account limits on the auth endpoints
@@ -444,6 +448,7 @@ farhand/
 │   │   │   ├── shared.ts       pieces both listing services use
 │   │   │   ├── needs.ts        who may create, edit and close a need
 │   │   │   ├── helps.ts        the same, for offers to carry something
+│   │   │   ├── avatars.ts      set, replace and remove your own avatar
 │   │   │   └── files.ts        file rules: size, type, who may see one, what deletion removes
 │   │   └── routes/
 │   │       ├── health.ts

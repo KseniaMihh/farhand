@@ -56,6 +56,7 @@ the API on every request.
 | Write a review | Only a participant of a `COMPLETED` deal, once |
 | See a receipt file | Only the two deal participants, plus moderators |
 | See an avatar or a need photo | Whoever may see the profile or the need it belongs to (#79). Anyone else gets the same `404` as for a file that does not exist |
+| Set or remove an avatar | Only your own. `PUT /me/avatar` has no id in it, so there is no somebody else to name (#80) |
 | Any moderation action | `MODERATOR` or `ADMIN` only, and always recorded |
 
 ## Rule about self-dealing

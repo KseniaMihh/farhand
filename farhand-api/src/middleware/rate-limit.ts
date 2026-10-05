@@ -64,6 +64,13 @@ export const RATE_LIMITS = {
    * inbox takes effort (docs/07-trust-and-safety.md).
    */
   message: { windowMs: 60 * 1000, perUser: 20 },
+
+  /**
+   * Avatar uploads, per signed-in user (#80). Every one is decoded, resized
+   * and re-encoded, which is real work on the API's one small machine. Twenty
+   * an hour is more than anybody choosing a picture needs.
+   */
+  avatar: { windowMs: 60 * 60 * 1000, perUser: 20 },
 } as const;
 
 /** What a limiter counts by. */
@@ -209,6 +216,11 @@ export const limiters = {
   messageByUser: createRateLimiter({
     windowMs: RATE_LIMITS.message.windowMs,
     max: RATE_LIMITS.message.perUser,
+    by: "user",
+  }),
+  avatarByUser: createRateLimiter({
+    windowMs: RATE_LIMITS.avatar.windowMs,
+    max: RATE_LIMITS.avatar.perUser,
     by: "user",
   }),
 };

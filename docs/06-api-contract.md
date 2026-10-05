@@ -401,6 +401,8 @@ moves to Redis when the API is deployed behind more than one instance
 |---|---|---|---|
 | GET | `/users/:id` | — | Public profile |
 | PATCH | `/me/profile` | AUTH | Own profile only |
+| PUT | `/me/avatar` | AUTH | The image is the whole body. Re-encoded to a square WebP, at most 512 px, metadata stripped |
+| DELETE | `/me/avatar` | AUTH | Back to no avatar. Fine when there is none |
 | DELETE | `/me` | SESSION | Anonymise and mark deleted. Password required |
 
 ### `GET /users/:id`
@@ -414,20 +416,21 @@ Public: no session is read at all. Returns `200`:
     "displayName": "Anna",
     "countryCode": "EE",
     "bio": "I fly Tallinn–Tokyo twice a year.",
-    "memberSince": "2026-03-04T09:12:00.000Z"
+    "memberSince": "2026-03-04T09:12:00.000Z",
+    "avatarUrl": "/files/cm1f…"
   }
 }
 ```
 
-Four fields and an id, chosen against docs/07-trust-and-safety.md, which lists
+Five fields and an id, chosen against docs/07-trust-and-safety.md, which lists
 scraping personal data as a risk and answers it by keeping profiles thin.
+`avatarUrl` is a path on this API, or `null` (#80) — see `PUT /me/avatar`.
 What is deliberately not here:
 
 | Absent | Why |
 |---|---|
 | `email` | Never, anywhere, for anybody |
 | `city` | A display name plus a city is often enough to find a real person, and nothing in a deal needs it. Its owner can see and set it; nobody else can read it |
-| `avatarUrl` | Uploads are version 2 (`08-scope.md`). Until then the column could only hold a URL somebody typed |
 | `role`, `status` | Moderators are not announced, and a suspension is between the account and us |
 
 No rating summary: reviews are version 2. The field is absent rather than
@@ -567,9 +570,8 @@ Unknown fields are dropped, as everywhere else, so a request cannot reach
 through this and set `userId`, `role` or `status`. Two of the drops are worth
 naming:
 
-- **`avatarUrl`**, although the column exists. An avatar arrives as an upload in
-  version 2; accepting a URL here would point the site's image tags at a server
-  we do not control.
+- **`avatarUrl`**. An avatar is an upload, `PUT /me/avatar`; accepting a URL here
+  would point the site's image tags at a server we do not control.
 - **`email`**, because changing an address means proving the new one. That is
   `POST /auth/verify-email`'s flow, not a profile edit.
 
@@ -590,6 +592,54 @@ sent:
 
 The same five fields, in the same shape, as the `profile` object inside
 `GET /auth/me`, so a client needs one reader for both.
+
+### `PUT /me/avatar`
+
+`AUTH`, and like `PATCH /me/profile` there is no `:id`: you can only ever set
+your own. The request body **is** the image — no JSON, no form:
+
+```js
+await fetch(`${API}/me/avatar`, { method: "PUT", body: file, credentials: "include" });
+```
+
+| Rule | |
+|---|---|
+| Type | JPEG, PNG or WebP, read from the file's first bytes (`Files`, below). Anything else is `422` before an image decoder sees it |
+| Size | At most 5 MB: `422`. A body over 10 MB is not read at all: `413` |
+| Dimensions | At least 64 × 64: `422`. A file that starts like an image and is not one: `422` |
+| Limit | 20 uploads an hour per user: `429` |
+
+What is stored is **not** what was sent. The image is turned the right way up,
+cropped to a square from its middle, scaled down to at most 512 × 512 (never
+up), and saved as WebP with **no metadata**: a phone photo's GPS position, its
+camera and its date are dropped. Every avatar is therefore a small square WebP,
+whatever was uploaded.
+
+Replacing an avatar deletes the previous one — its row and its bytes. Returns
+`200` with the caller's profile, the same shape as `PATCH /me/profile`:
+
+```json
+{
+  "profile": {
+    "displayName": "Anna",
+    "bio": null,
+    "countryCode": "EE",
+    "city": null,
+    "avatarUrl": "/files/cm1f…"
+  }
+}
+```
+
+`avatarUrl` is a **path on this API**, not a link to the store. Put the API's
+address in front of it, as for any other request; `GET /files/:id` then
+redirects to a signed link that works for five minutes. Storing the path is
+safe; storing the link it redirects to is not.
+
+### `DELETE /me/avatar`
+
+`AUTH`. No body. Removes the avatar — row and bytes — and returns `200` with
+the profile, `avatarUrl` now `null`. Having no avatar already is not an error:
+the answer is the same.
 
 ## Needs
 

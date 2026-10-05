@@ -108,6 +108,44 @@ function acceptedTypesFor(purpose: FilePurpose): string {
 }
 
 /**
+ * The size and type rules every upload obeys, without storing anything.
+ * Returns the type the bytes really are.
+ *
+ * Its own function since #80: an avatar is checked here BEFORE it is handed to
+ * the image library, so a file that is not a JPEG, PNG or WebP — an SVG, which
+ * is a document that can carry script — never reaches a decoder at all.
+ */
+export function checkUpload(bytes: Buffer, purpose: FilePurpose): string {
+  // Size first: it is free to check, and there is no point sniffing five
+  // megabytes we are going to refuse.
+  if (bytes.length > MAX_FILE_BYTES) {
+    throw HttpError.validationFailed(
+      `File is too large. The limit is ${String(MAX_FILE_BYTES / 1024 / 1024)} MB`,
+    );
+  }
+
+  // An empty file has no leading bytes, so it is refused here too.
+  const mimeType = sniffMimeType(bytes);
+  if (!mimeType || !ALLOWED_TYPES[purpose].includes(mimeType)) {
+    throw HttpError.validationFailed(
+      `File must be a ${acceptedTypesFor(purpose)}`,
+    );
+  }
+
+  return mimeType;
+}
+
+/**
+ * Where a client reads a file: the API's own path, which redirects to a signed
+ * link (GET /files/:id). Never the signed link itself — that dies in five
+ * minutes, and anything that stored one would break with it. Relative to the
+ * API's address, which a client already prefixes to every request it makes.
+ */
+export function filePath(fileId: string | null): string | null {
+  return fileId === null ? null : `/files/${fileId}`;
+}
+
+/**
  * Validates, stores the bytes, and writes the row — in that order.
  *
  * Bytes first, row second: a row without bytes is a broken file somebody can
@@ -115,21 +153,7 @@ function acceptedTypesFor(purpose: FilePurpose): string {
  * the invisible side (docs/10-decisions/0011-backblaze-b2-for-files.md).
  */
 export async function storeFile(input: StoreFileInput): Promise<File> {
-  // Size first: it is free to check, and there is no point sniffing five
-  // megabytes we are going to refuse.
-  if (input.bytes.length > MAX_FILE_BYTES) {
-    throw HttpError.validationFailed(
-      `File is too large. The limit is ${String(MAX_FILE_BYTES / 1024 / 1024)} MB`,
-    );
-  }
-
-  // An empty file has no leading bytes, so it is refused here too.
-  const mimeType = sniffMimeType(input.bytes);
-  if (!mimeType || !ALLOWED_TYPES[input.purpose].includes(mimeType)) {
-    throw HttpError.validationFailed(
-      `File must be a ${acceptedTypesFor(input.purpose)}`,
-    );
-  }
+  const mimeType = checkUpload(input.bytes, input.purpose);
 
   // If the store fails, nothing has been written to the database yet.
   const storageKey = newStorageKey();

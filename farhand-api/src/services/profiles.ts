@@ -4,7 +4,7 @@ import { HttpError } from "../errors.js";
 import { randomBytes } from "node:crypto";
 import { logger } from "../logger.js";
 import { hashPassword, verifyPassword } from "../password.js";
-import { deleteStoredBytes, removeAccountFiles } from "./files.js";
+import { deleteStoredBytes, filePath, removeAccountFiles } from "./files.js";
 import { onlyProvided } from "./shared.js";
 
 /**
@@ -27,21 +27,21 @@ import { onlyProvided } from "./shared.js";
 /**
  * What a stranger sees.
  *
- * Four fields, chosen against docs/07-trust-and-safety.md, which lists
+ * Five fields, chosen against docs/07-trust-and-safety.md, which lists
  * "scraping personal data" as a risk and answers it by keeping a profile thin:
  *
  *   displayName   the name they chose to be known by
  *   countryCode   a country, not a city — enough to judge a delivery route
  *   bio           the one field written on purpose to be read by strangers
  *   memberSince   how long they have been here; the only trust signal v1 has
+ *   avatarUrl     the API's path to their avatar (#80), or null. A path, not a
+ *                 signed link: GET /files/:id decides afresh who may see it
  *
  * Deliberately absent:
  *
  *   email         never, anywhere, for anybody
  *   city          a display name plus a city is often enough to find a real
  *                 person, and nothing in a deal needs it
- *   avatarUrl     uploads are v2 (docs/08-scope.md), and until then the column
- *                 can only hold a URL somebody typed
  *   role, status  moderators are not announced, and a suspension is between
  *                 the account and us
  *
@@ -55,6 +55,7 @@ export interface PublicProfile {
   countryCode: string;
   bio: string | null;
   memberSince: Date;
+  avatarUrl: string | null;
 }
 
 /** The fields their owner may change. Absent means "leave this alone". */
@@ -79,7 +80,14 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile> {
       id: true,
       status: true,
       createdAt: true,
-      profile: { select: { displayName: true, countryCode: true, bio: true } },
+      profile: {
+        select: {
+          displayName: true,
+          countryCode: true,
+          bio: true,
+          avatarFileId: true,
+        },
+      },
     },
   });
 
@@ -109,6 +117,30 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile> {
     countryCode: user.profile.countryCode,
     bio: user.profile.bio,
     memberSince: user.createdAt,
+    avatarUrl: filePath(user.profile.avatarFileId),
+  };
+}
+
+/** What a person sees of their OWN profile — GET /auth/me, PATCH /me/profile
+ * and PUT/DELETE /me/avatar all answer with exactly this, so a client needs
+ * one reader for it. Field by field: `userId` stays out (the caller knows who
+ * they are), and so does the raw `avatarFileId`.
+ */
+export interface OwnProfileView {
+  displayName: string;
+  bio: string | null;
+  countryCode: string;
+  city: string | null;
+  avatarUrl: string | null;
+}
+
+export function ownProfileView(profile: Profile): OwnProfileView {
+  return {
+    displayName: profile.displayName,
+    bio: profile.bio,
+    countryCode: profile.countryCode,
+    city: profile.city,
+    avatarUrl: filePath(profile.avatarFileId),
   };
 }
 
@@ -234,6 +266,7 @@ export async function deleteMyAccount(
         bio: null,
         city: null,
         avatarUrl: null,
+        avatarFileId: null,
         // countryCode stays: on its own it identifies nobody, and it keeps
         // a deal's history readable.
       },
