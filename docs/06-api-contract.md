@@ -75,10 +75,17 @@ traffic elsewhere for now".
 `GET /health` always returns `200`:
 
 ```json
-{ "status": "ok", "uptime": 1234 }
+{ "status": "ok", "uptime": 1234, "commit": "4f2a9c1e0b7d3a5f6e8c9b0a1d2e3f4a5b6c7d8e" }
 ```
 
 `uptime` is whole seconds since the process started.
+
+`commit` is the full SHA of the commit this process was deployed from, as the
+host reports it, and `null` where nothing does — locally, in the test suite,
+under docker compose. It is always present, never omitted. It exists so the
+deploy job can tell the new version from the old one, which both answer
+`/health/ready` happily during a deploy (docs/14-deployment.md). It is on
+liveness only: readiness answers one question, about the database.
 
 `GET /health/ready` returns `200` when the database answers:
 

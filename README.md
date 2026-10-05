@@ -7,14 +7,14 @@ A platform for people who can't order the thing they want, and people who live w
 > **Status: work in progress.** The version 1 API is feature-complete and deployed; the frontend is version 2.
 > See [Roadmap](#roadmap).
 
-**Live:** [`https://farhand-api-ksenia.fly.dev`](https://farhand-api-ksenia.fly.dev/health) —
-[`/health`](https://farhand-api-ksenia.fly.dev/health) ·
-[`/health/ready`](https://farhand-api-ksenia.fly.dev/health/ready) ·
-[`/needs`](https://farhand-api-ksenia.fly.dev/needs)
+**Live:** [`https://farhand-api.onrender.com`](https://farhand-api.onrender.com/health) —
+[`/health`](https://farhand-api.onrender.com/health) ·
+[`/health/ready`](https://farhand-api.onrender.com/health/ready) ·
+[`/needs`](https://farhand-api.onrender.com/needs)
 
-Frankfurt, on Fly, with a managed PostgreSQL in the same region. The machine is
-allowed to stop when nothing is happening, so the first request after a quiet
-spell takes a second or two.
+Frankfurt, on Render's free tier, with a managed PostgreSQL in the same region.
+The service sleeps when nothing is happening, so the first request after a
+quiet spell can take up to a minute. Nothing about the hosting is paid.
 
 Merging to `master` deploys, after the tests and the image build both pass.
 How that is set up, and what to do when it breaks, is in
@@ -204,7 +204,7 @@ npm run dev        # tsx watch - restarts on every save
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /health` | Liveness. Is the process responding? Checks nothing else, because restarting the API won't fix a database that is down. |
+| `GET /health` | Liveness. Is the process responding? Checks nothing else, because restarting the API won't fix a database that is down. Also reports the commit it runs, so a deploy can tell the new version from the old. |
 | `GET /health/ready` | Readiness. Round-trips the database and returns 503 if it's unreachable, so a load balancer can route around a broken instance. |
 | `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
 | `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
@@ -318,7 +318,7 @@ harness itself: one test writes a row, the next asserts it is gone.
 | `vitest.config.ts` | Loads `.env.test` over the shell environment; pins the suite to one worker |
 | `tests/setup/global-setup.ts` | Creates the test database if missing, then `prisma migrate deploy` |
 | `tests/setup/truncate.ts` | The safety check, and the truncation before each test |
-| `tests/health.test.ts` | `/health`, `/health/ready`, and the 404 error shape |
+| `tests/health.test.ts` | `/health` and the commit it reports, `/health/ready`, and the 404 error shape |
 | `tests/auth/register.test.ts` | Registration: validation, hashing, the one-transaction rule, and the identical duplicate response |
 | `tests/auth/verify-email.test.ts` | Verification: single use (including a staged double-click), expiry, wrong token type, identical rejections |
 | `tests/auth/login.test.ts` | Login: the cookie settings, hashed session storage, identical and equally slow failures, banned vs suspended |
@@ -398,13 +398,13 @@ supports TypeScript 7, remove the alias.
 farhand/
 ├── .github/workflows/ci.yml    lint, format, typecheck, test; then build the image and run the stack
 ├── docker-compose.yml          the stack: PostgreSQL, a one-shot migrate step, the API
+├── render.yaml                 how Render runs the API: region, health check, one instance
 ├── .gitignore
 ├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
 ├── README.md
 ├── scripts/                    repo chores: GitHub issue seeding, test database creation
 ├── farhand-api/                the backend (npm and Prisma run here)
 │   ├── Dockerfile              four stages; only the last one ships
-│   ├── fly.toml                how Fly runs it: region, health check, release command
 │   ├── .dockerignore
 │   ├── .env                    local only, gitignored
 │   ├── .env.example
