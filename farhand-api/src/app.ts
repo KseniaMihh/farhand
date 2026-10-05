@@ -13,6 +13,7 @@ import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { dealsRouter } from "./routes/deals.js";
+import { filesRouter } from "./routes/files.js";
 import { healthRouter } from "./routes/health.js";
 import { helpsRouter } from "./routes/helps.js";
 import { needsRouter } from "./routes/needs.js";
@@ -83,6 +84,7 @@ export function createApp(): Express {
   app.use(conversationsRouter);
   app.use(dealsRouter);
   app.use(reportsRouter);
+  app.use(filesRouter);
   app.use(adminRouter);
 
   // Both of these must stay at the bottom, in this order.

@@ -1,8 +1,9 @@
 import { createApp } from "./app.js";
 import { prisma, pingDatabase } from "./db.js";
-import { env } from "./env.js";
+import { env, isProduction } from "./env.js";
 import { initErrorReporting } from "./observability.js";
 import { logger } from "./logger.js";
+import { storage } from "./storage.js";
 
 /**
  * Starts the API.
@@ -21,6 +22,21 @@ async function main(): Promise<void> {
   // API that accepts traffic and 500s on everything.
   await pingDatabase();
   logger.info("Database connection established");
+
+  // Locally, the file store starts empty and its bucket has to be made. A
+  // warning, not a crash: everything but files works without it. Production's
+  // bucket is created once, by hand, private (docs/14-deployment.md).
+  if (!isProduction && env.STORAGE_BUCKET) {
+    try {
+      await storage.ensureBucket();
+      logger.info({ bucket: env.STORAGE_BUCKET }, "File storage ready");
+    } catch (err) {
+      logger.warn(
+        { err },
+        "File storage is not answering — is `docker compose up -d storage` running? Files will fail until it is",
+      );
+    }
+  }
 
   const app = createApp();
 

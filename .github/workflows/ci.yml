@@ -57,6 +57,21 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # The same local file store as docker-compose.yml, with the same
+      # throwaway credentials, which .env.test already names. No health check:
+      # the image has no tool to run one with, so tests/setup/global-setup.ts
+      # waits for it instead.
+      storage:
+        image: andrewgaul/s3proxy:latest
+        env:
+          S3PROXY_AUTHORIZATION: aws-v2-or-v4
+          S3PROXY_IDENTITY: farhand-local
+          S3PROXY_CREDENTIAL: farhand-local-secret
+          JCLOUDS_PROVIDER: filesystem
+          JCLOUDS_FILESYSTEM_BASEDIR: /tmp
+        ports:
+          - 9000:80
+
     steps:
       - uses: actions/checkout@v7
 

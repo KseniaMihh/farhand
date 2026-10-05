@@ -73,9 +73,45 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
+
+  /**
+   * Where uploaded files' bytes live: any S3-compatible store. Backblaze B2 in
+   * production, S3Proxy in docker-compose and CI (decision 0011).
+   *
+   * Optional, like SENTRY_DSN: without them the API starts and serves
+   * everything except files, so a fresh clone needs no storage to run. All
+   * five or none — half a configuration is refused below rather than failing
+   * on the first upload an hour later.
+   */
+  STORAGE_ENDPOINT: z.url().optional(),
+  STORAGE_REGION: z.string().min(1).optional(),
+  STORAGE_BUCKET: z.string().min(1).optional(),
+  STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+  STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const STORAGE_KEYS = [
+  "STORAGE_ENDPOINT",
+  "STORAGE_REGION",
+  "STORAGE_BUCKET",
+  "STORAGE_ACCESS_KEY_ID",
+  "STORAGE_SECRET_ACCESS_KEY",
+] as const;
+
+const parsed = envSchema
+  .superRefine((values, ctx) => {
+    const set = STORAGE_KEYS.filter((key) => values[key] !== undefined);
+    if (set.length > 0 && set.length < STORAGE_KEYS.length) {
+      for (const key of STORAGE_KEYS.filter((k) => !set.includes(k))) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${key} is required when any STORAGE_ variable is set`,
+        });
+      }
+    }
+  })
+  .safeParse(process.env);
 
 if (!parsed.success) {
   // Can't use the logger here — the logger itself depends on env.

@@ -72,6 +72,22 @@ dangerous: `-v` deletes the volume, and with it the data.
 A **healthcheck** lets Docker report not just "started" but "ready to accept
 connections".
 
+### The file store
+
+Since #79 the compose file has a second service the tests need: `storage`, an
+S3Proxy container standing in for Backblaze B2 the way `db` stands in for Neon.
+It answers on `http://localhost:9000` with throwaway credentials that
+`.env.example` and `.env.test` already name. Its files live inside the
+container and are gone when it is removed, which suits development.
+
+It replaced nothing — MinIO is the usual choice and stopped publishing images
+in 2025. S3Proxy was picked because it checks signatures: an unsigned read, an
+expired link and a tampered one are all refused, so the tests that say "bytes
+are never public" run against a store that can refuse.
+
+If `npm test` stops at setup with "the local file store is not answering", the
+container is not running: `docker compose up -d storage` from the root.
+
 ### The API has an image too
 
 `farhand-api/Dockerfile` builds the API itself, in four stages. Only the last
@@ -190,6 +206,19 @@ production land in the same pile and somebody chases a ghost.
 **Only 5xx is reported.** A 404, a failed validation or a 409 is the client
 being wrong, not an incident — and a monitor that pages somebody for a typo in
 a URL is muted within a week, after which it is not a monitor.
+
+### `STORAGE_*`
+
+Five settings for the file store: endpoint, region, bucket, and a key pair.
+**All five or none.** None means the API runs with everything but files — a
+fresh clone needs no store to start — and a half-filled set is refused at
+startup by name, rather than failing on the first upload an hour later.
+
+`.env.example` points them at the local `storage` container, bucket
+`farhand-dev`; `.env.test` at the same container, bucket `farhand-test`, so the
+suite never touches development files. Production points them at Backblaze B2
+(`14-deployment.md`). One file, `src/storage.ts`, reads them — the same seam
+`src/observability.ts` is for Sentry.
 
 ### `APP_ORIGIN`
 
