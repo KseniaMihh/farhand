@@ -1506,7 +1506,64 @@ and the complaint that has waited longest is the one that matters most
 The default matters: a moderator opening the queue wants the unresolved ones,
 not every report ever filed. Looking back is something you ask for.
 
+## Files
+
+Version 2 (#79). A file's bytes live in private object storage
+(`docs/10-decisions/0011-backblaze-b2-for-files.md`); the API holds a `File`
+row describing them, and is the only way to reach them.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/files/:id` | — | A `302` to a signed URL that expires in five minutes. Who may follow it depends on the file's purpose |
+
+Uploads are not a generic endpoint. Each purpose arrives with its own, because
+only it knows which need or deal the file belongs to: avatars (#80), need
+photos (#81), receipts (#82). All of them share these rules:
+
+| Rule | |
+|---|---|
+| Size | At most 5 MB. Empty is refused too |
+| Type | Read from the file's first bytes, never from its name or `Content-Type`. Photos: JPEG, PNG, WebP. Receipts: those, or PDF |
+| Refused | `422 VALIDATION_FAILED`, and nothing is stored — no row, no bytes |
+| Storage key | Random. It names neither the file nor its owner |
+
+### `GET /files/:id`
+
+No body. The answer is a redirect:
+
+```
+302 Found
+Location: https://…/files/3f1c…?X-Amz-Expires=300&X-Amz-Signature=…
+Cache-Control: private, no-store
+```
+
+`<img src="/files/:id">` follows it without the page knowing. The signed URL
+works for five minutes; the redirect is marked `no-store` because a cached one
+would outlive the signature inside it. The bytes themselves are never public:
+the same address without its signature is refused by the store.
+
+Who may see a file:
+
+| Purpose | Visible to |
+|---|---|
+| `AVATAR` | Anyone, while the owner's profile is visible — the rule of `GET /users/:id`, so not once they are banned |
+| `NEED_PHOTO` | Whoever may see the need: anyone while it is `OPEN` or `MATCHED`, its owner always |
+| `PRODUCT_RECEIPT`, `SHIPPING_RECEIPT` | The two people in the deal, and moderators |
+
+A file that does not exist and a file you may not see get the same
+`404 NOT_FOUND`, `"File not found"`, so a receipt's id cannot be checked by
+somebody it does not belong to.
+
+The API does not ask the store whether the bytes still exist before
+redirecting — that would be a request to the store on every image shown. If
+they have vanished, the signed URL answers `404` from the store; the API never
+answers `500` for it.
+
+When an account is deleted (`DELETE /me`), its avatar and need photos are
+deleted, rows and bytes. Its receipts stay: they are evidence in a deal the
+other person is part of, kept for the same reason the deal's messages are.
+
 ## Not in version 1
 
-Uploads, reviews, notifications, saved searches, real-time messaging. See
-`08-scope.md`.
+Reviews, notifications, saved searches, real-time messaging. See
+`08-scope.md`. Uploads arrived in version 2, above.

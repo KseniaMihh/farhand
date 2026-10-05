@@ -2,7 +2,9 @@ import type { Profile, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import { randomBytes } from "node:crypto";
+import { logger } from "../logger.js";
 import { hashPassword, verifyPassword } from "../password.js";
+import { deleteStoredBytes, removeAccountFiles } from "./files.js";
 import { onlyProvided } from "./shared.js";
 
 /**
@@ -183,7 +185,7 @@ export async function deleteMyAccount(
     );
   }
 
-  await prisma.$transaction(async (tx) => {
+  const orphanedKeys = await prisma.$transaction(async (tx) => {
     await tx.need.updateMany({
       where: { requesterId: user.id, status: { in: ["DRAFT", "OPEN"] } },
       data: { status: "CLOSED" },
@@ -239,5 +241,14 @@ export async function deleteMyAccount(
 
     await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.verificationToken.deleteMany({ where: { userId: user.id } });
+
+    // Photos go, receipts stay (#79). The rows here, inside the transaction;
+    // the bytes below, once it has committed.
+    return removeAccountFiles(tx, user.id);
   });
+
+  // After the commit, never inside it: a store is not part of a database
+  // transaction, and bytes deleted before a rollback would be gone for rows
+  // that came back. Best effort — the account is deleted whatever happens here.
+  await deleteStoredBytes(orphanedKeys, logger);
 }

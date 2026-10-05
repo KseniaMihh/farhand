@@ -88,9 +88,40 @@ function applyMigrations(url: string): void {
   });
 }
 
+/**
+ * Creates the test bucket in the local S3 store (S3Proxy, docker-compose.yml).
+ *
+ * Retried, because S3Proxy is a Java process that takes several seconds to
+ * start listening after its container is "up" — in CI especially, where the
+ * suite begins the moment the runner is ready. Imported here rather than at
+ * the top: src/storage.ts reads src/env.ts, which must not load before
+ * vitest.config.ts has put .env.test in place.
+ */
+async function ensureBucketExists(): Promise<void> {
+  const { storage } = await import("../../src/storage.js");
+  const deadline = Date.now() + 60_000;
+
+  for (;;) {
+    try {
+      await storage.ensureBucket();
+      return;
+    } catch (error) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          "The local file store is not answering. Is the `storage` service " +
+            "from docker-compose.yml running? (docker compose up -d storage)",
+          { cause: error },
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
 export async function setup(): Promise<void> {
   const url = testDatabaseUrl();
 
   await ensureDatabaseExists(url);
   applyMigrations(url);
+  await ensureBucketExists();
 }

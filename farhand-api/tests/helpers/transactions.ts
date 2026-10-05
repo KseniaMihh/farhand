@@ -28,8 +28,9 @@ export function breakInsideTransaction(
     | "user"
     | "profile"
     | "session"
-    | "help",
-  method: "create" | "update" | "updateMany" = "create",
+    | "help"
+    | "file",
+  method: "create" | "update" | "updateMany" | "deleteMany" = "create",
 ): { attempts: number } {
   const record = { attempts: 0 };
   const real = prisma.$transaction.bind(prisma) as (

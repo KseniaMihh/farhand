@@ -19,6 +19,27 @@ services:
       timeout: 5s
       retries: 10
 
+  # Where uploaded files live locally: an S3-compatible store, standing in for
+  # Backblaze B2 the way the `db` service stands in for Neon (decision 0011).
+  #
+  # S3Proxy rather than MinIO, which stopped publishing images in 2025. Chosen
+  # because it CHECKS signatures — an unsigned read, an expired link and a
+  # tampered one are all refused with 403 — so the tests that say "bytes are
+  # never publicly readable" are run against something able to say no.
+  # The credentials are throwaway, like the database's; the objects live in the
+  # container and vanish with it, which suits development and tests.
+  storage:
+    image: andrewgaul/s3proxy:latest
+    container_name: farhand-storage
+    environment:
+      S3PROXY_AUTHORIZATION: aws-v2-or-v4
+      S3PROXY_IDENTITY: farhand-local
+      S3PROXY_CREDENTIAL: farhand-local-secret
+      JCLOUDS_PROVIDER: filesystem
+      JCLOUDS_FILESYSTEM_BASEDIR: /tmp
+    ports:
+      - "9000:80"
+
   # Runs once, applies the migrations, exits. The API waits for it to succeed.
   #
   # A service of its own rather than something the API does on startup: several
