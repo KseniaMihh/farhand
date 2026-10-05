@@ -14,8 +14,16 @@ bio, city, avatar. Split from `User` so that returning a profile can never
 accidentally leak an email address.
 
 Public is per field, not per table. `GET /users/:id` answers with the display
-name, the country and the bio; the city stays visible to its owner alone, and
-the avatar waits for uploads in version 2 (`06-api-contract.md`).
+name, the country, the bio and the avatar; the city stays visible to its owner
+alone (`06-api-contract.md`).
+
+The avatar is `avatarFileId`, a link to a `File` row (#80) — not a URL. A URL
+would be either a signed link that dies in five minutes or a string the
+database cannot check; a foreign key is neither. It is unique, because one
+file is at most one person's avatar, and `ON DELETE SET NULL`, because
+deleting a file must never delete a profile. The old `avatarUrl` text column
+is still in the table, unused, until a later migration drops it: the version
+still running during a deploy reads it (`14-deployment.md`).
 
 **`Session`** — one row per signed-in device. Stores a *hash* of the session
 token, not the token itself, so a database leak does not hand over live

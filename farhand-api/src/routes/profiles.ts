@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { z } from "zod";
 import {
   getAuth,
@@ -6,10 +6,14 @@ import {
   requireAuth,
   requireVerified,
 } from "../middleware/auth.js";
+import { limiters } from "../middleware/rate-limit.js";
 import { countryCode } from "../schemas/common.js";
+import { removeAvatar, setAvatar } from "../services/avatars.js";
+import { MAX_FILE_BYTES } from "../services/files.js";
 import {
   deleteMyAccount,
   getPublicProfile,
+  ownProfileView,
   updateMyProfile,
 } from "../services/profiles.js";
 
@@ -20,6 +24,8 @@ export const profilesRouter: Router = Router();
  *
  *   GET   /users/:id     public, no session needed
  *   PATCH /me/profile    AUTH, and only ever the caller's own
+ *   PUT   /me/avatar     AUTH, the image as the body (#80)
+ *   DELETE /me/avatar    AUTH, back to none (#80)
  *
  * Contract: docs/06-api-contract.md, "Profile". `DELETE /me` belongs in this
  * file too and arrives with #66; it is a different problem — what survives an
@@ -39,10 +45,9 @@ const userParams = z.object({ id: z.string().min(1) });
  * The lengths match prisma/schema.prisma, so an over-long bio is a clean 422
  * rather than an error from Postgres.
  *
- * `avatarUrl` is NOT here, although the column exists. An avatar will arrive
- * as an upload in v2 (docs/08-scope.md); until then the only thing this could
- * accept is a URL somebody typed, which is an open invitation to point the
- * whole site's image tags at somebody else's server. `email` is not here
+ * The avatar is NOT here. It is an upload, PUT /me/avatar (#80): accepting a
+ * URL in this body would be an open invitation to point the whole site's
+ * image tags at somebody else's server. `email` is not here
  * either: changing an address means proving the new one, which is #10's flow
  * and not a profile edit.
  *
@@ -89,15 +94,55 @@ profilesRouter.patch(
      * should not need a second reader for the other. `userId` is dropped: the
      * caller knows who they are.
      */
-    res.json({
-      profile: {
-        displayName: updated.displayName,
-        bio: updated.bio,
-        countryCode: updated.countryCode,
-        city: updated.city,
-        avatarUrl: updated.avatarUrl,
-      },
-    });
+    res.json({ profile: ownProfileView(updated) });
+  },
+);
+
+/**
+ * The body of PUT /me/avatar is the image itself — `fetch(url, { method:
+ * "PUT", body: file })` — so it is read raw, here only; the JSON parser in
+ * app.ts stays at 100 kb for everything else.
+ *
+ * The parser's ceiling is TWICE the file limit, on purpose. Up to that, the
+ * body is read and storeFile's rule answers the documented 422 "too large".
+ * Beyond it the parser stops reading and answers 413 — a body ten times the
+ * limit is not worth receiving just to refuse politely.
+ */
+const avatarBody = express.raw({
+  type: () => true,
+  limit: MAX_FILE_BYTES * 2,
+});
+
+/**
+ * AUTH — an avatar is public the moment it is set, like a display name.
+ * Limited per user: every upload is decoded and re-encoded (#80).
+ */
+profilesRouter.put(
+  "/me/avatar",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  limiters.avatarByUser,
+  avatarBody,
+  async (req, res) => {
+    // With no body at all the raw parser leaves `{}` behind, not a Buffer.
+    const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const profile = await setAvatar(getAuth(req).user, bytes, req.log);
+
+    res.json({ profile: ownProfileView(profile) });
+  },
+);
+
+/** AUTH. Having no avatar already is fine: the answer is the same. */
+profilesRouter.delete(
+  "/me/avatar",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  async (req, res) => {
+    const profile = await removeAvatar(getAuth(req).user, req.log);
+
+    res.json({ profile: ownProfileView(profile) });
   },
 );
 

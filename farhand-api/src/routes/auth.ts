@@ -23,6 +23,7 @@ import { requireAuth, getAuth } from "../middleware/auth.js";
 // Which endpoint gets which limit, and why: docs/06-api-contract.md and the
 // comment at the top of ../middleware/rate-limit.js.
 import { limiters } from "../middleware/rate-limit.js";
+import { ownProfileView } from "../services/profiles.js";
 
 export const authRouter: Router = Router();
 
@@ -312,13 +313,7 @@ authRouter.get("/auth/me", requireAuth, (req, res) => {
       status: user.status,
       suspendedUntil: user.suspendedUntil,
       emailVerified: user.emailVerifiedAt !== null,
-      profile: {
-        displayName: user.profile?.displayName,
-        bio: user.profile?.bio,
-        countryCode: user.profile?.countryCode,
-        city: user.profile?.city,
-        avatarUrl: user.profile?.avatarUrl,
-      },
+      profile: user.profile ? ownProfileView(user.profile) : null,
     },
   });
 });

@@ -152,7 +152,18 @@ model Profile {
   bio         String? @db.VarChar(500)
   countryCode String  @db.Char(2) // ISO 3166-1 alpha-2, where the user lives
   city        String? @db.VarChar(80)
-  avatarUrl   String?
+
+  // UNUSED since #80, kept only so the version still running during a deploy
+  // can read the table. Migrations run before the new code is live, so
+  // dropping a column the old code selects breaks the site for the length of
+  // a build (docs/14-deployment.md). A later migration drops it.
+  avatarUrl String?
+
+  // The avatar is a File (#80), not a URL: a link to a row the database
+  // guarantees exists. Unique, because one file is one person's avatar at
+  // most. SetNull, so deleting the file can never delete the profile.
+  avatarFileId String? @unique
+  avatarFile   File?   @relation("ProfileAvatar", fields: [avatarFileId], references: [id], onDelete: SetNull)
 }
 
 model Session {
@@ -456,6 +467,8 @@ model File {
   dealId     String?
   deal       Deal?       @relation(fields: [dealId], references: [id])
   createdAt  DateTime    @default(now())
+
+  avatarOf Profile? @relation("ProfileAvatar")
 
   @@index([dealId])
   @@index([needId])

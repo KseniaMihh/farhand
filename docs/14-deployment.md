@@ -233,6 +233,18 @@ harmless there; a destructive one breaks the running version before its
 replacement exists. The first destructive migration is the one to think hardest
 about.
 
+It arrived with #80, and this is how it was done. Replacing `Profile.avatarUrl`
+with `avatarFileId` in one migration would have dropped a column the running
+version selects on every `/auth/me`: a few minutes of errors on every deploy
+of it. So it is two steps, in two releases:
+
+1. **Expand.** Add the new column; the new code reads and writes only that.
+   The old column stays, unused. Both versions can run against this schema.
+2. **Contract.** Once nothing running reads the old column, a later migration
+   drops it. By then the old version is gone, so nothing can break.
+
+Renaming works the same way: add, copy, switch, and only then drop.
+
 ## One instance, deliberately
 
 `render.yaml` sets `numInstances: 1`. Not to save money — the reason is the

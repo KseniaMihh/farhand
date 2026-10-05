@@ -27,6 +27,7 @@ interface ProfileBody {
     countryCode: string;
     bio: string | null;
     memberSince: string;
+    avatarUrl: string | null;
   };
 }
 
@@ -62,15 +63,21 @@ describe("GET /users/:id", () => {
       countryCode: "EE",
       bio: null,
       memberSince: user.createdAt.toISOString(),
+      avatarUrl: null,
     });
   });
 
   /**
-   * Not "does it contain an email" — "is it exactly these five keys". A
+   * Not "does it contain an email" — "is it exactly these six keys". A
    * whitelist is the only version of this test that still works the day
    * somebody adds a column to Profile.
+   *
+   * The old `avatarUrl` COLUMN is set to a stranger's address here on purpose:
+   * it still exists until a later migration drops it (#80), and nothing may
+   * read it. The `avatarUrl` in the answer comes from the avatar file, and
+   * with no file it is null.
    */
-  it("returns those five fields and nothing else", async () => {
+  it("returns those six fields and nothing else, never the old column", async () => {
     await prisma.profile.update({
       where: { userId: anna.id },
       data: { city: "Tallinn", avatarUrl: "https://example.com/a.png" },
@@ -79,12 +86,16 @@ describe("GET /users/:id", () => {
     const response = await request(app).get(`/users/${anna.id}`);
 
     expect(Object.keys((response.body as ProfileBody).user).sort()).toEqual([
+      "avatarUrl",
       "bio",
       "countryCode",
       "displayName",
       "id",
       "memberSince",
     ]);
+    expect((response.body as ProfileBody).user).toMatchObject({
+      avatarUrl: null,
+    });
   });
 
   it("never leaks the email address, anywhere in the body", async () => {
