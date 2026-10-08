@@ -1,0 +1,82 @@
+# The 14-day sweep, scheduled.
+#
+# #25 built `autoCompleteDeals` and tested it, including a test called "is safe
+# to run twice". Nothing ever ran it: Render's free plan has no scheduler, and
+# the job's own comment left the question to "whenever the API is deployed",
+# which #31 did not answer. So a delivered deal nobody confirmed stayed
+# DELIVERED for ever, while docs/04-deal-lifecycle.md described a rule the
+# running system did not apply (#101).
+#
+# GitHub Actions rather than a platform scheduler: Render's cron jobs are paid,
+# and nothing here is paid. The pattern is already in ci.yml, which reaches the
+# same database with the same secret to run migrations.
+
+name: Auto-complete delivered deals
+
+on:
+  schedule:
+    # 03:17 UTC daily. Not on the hour: GitHub runs everybody's hourly crons at
+    # once, and jobs queued at :00 are the ones that get delayed or dropped.
+    #
+    # Daily is enough. The job only moves deals that passed a FOURTEEN-day
+    # deadline, so running up to a day late changes nothing anybody would feel,
+    # and the deadline is measured from the delivery event rather than from
+    # when the sweep happens to run.
+    - cron: "17 3 * * *"
+
+  # So it can be run by hand — after an outage, or to check it still works
+  # without waiting until tomorrow.
+  workflow_dispatch:
+
+# Two sweeps at once would be harmless (the guarded update in
+# services/deals.ts completes each deal exactly once, and
+# tests/deals/cancellation.test.ts proves it). This is still here so a slow run
+# and the next day's start cannot pile up unnoticed.
+concurrency:
+  group: auto-complete
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Complete deals delivered 14 days ago
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: farhand-api
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: farhand-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The job needs a generated Prisma client, which `npm ci` does not build.
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      - name: Sweep
+        # The DIRECT string, like the migration step in ci.yml. This is a
+        # short-lived batch process, not a web server: it opens one connection,
+        # does its work and exits, so Neon's pooler would add a hop and the
+        # pooler's own limits for nothing.
+        #
+        # The script exits 1 if it throws, which fails this step, which emails
+        # whoever owns the repository. A run that finds nothing to do logs
+        # `completed: 0` and succeeds — silence here means "nothing was due",
+        # not "nothing happened".
+        run: npm run job:auto-complete
+        env:
+          # The only variable src/env.ts requires without a default.
+          # Everything else it validates is optional or defaulted, including
+          # the storage credentials — a sweep touches no files.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Not needed, but it turns off pino's pretty-printing, which starts
+          # a worker thread to format logs nobody is reading here (#70).
+          NODE_ENV: production
