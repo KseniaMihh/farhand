@@ -31,6 +31,27 @@ import { env } from "./env.js";
 /** How long a signed read URL works. Long enough to load an image, no more. */
 export const READ_URL_SECONDS = 300;
 
+/**
+ * How long a browser may reuse the `302` that carries one of those URLs.
+ *
+ * It used to be `no-store`, on the reasoning that a cached redirect would
+ * outlive the signature inside it. That reasoning is right and it does not
+ * forbid caching — it sets the limit. A redirect handed out at `t` carries a
+ * signature that dies at `t + READ_URL_SECONDS`, and the cached copy carries
+ * that same signature, so reusing it for a while cannot reach past the expiry
+ * it already has. The exposure window is the signature's life either way.
+ *
+ * What it buys: one person's avatar shown on twenty cards of a browse page is
+ * one request instead of twenty, and a visitor going back to a page they just
+ * left pays nothing at all.
+ *
+ * Kept next to the number it must stay under, because the invariant is
+ * between the two: a test pins
+ * `REDIRECT_CACHE_SECONDS * 2 <= READ_URL_SECONDS`, which leaves the
+ * signature at least as long again to actually fetch the bytes.
+ */
+export const REDIRECT_CACHE_SECONDS = 60;
+
 let client: S3Client | undefined;
 
 function configured() {

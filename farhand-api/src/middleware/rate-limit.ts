@@ -54,8 +54,32 @@ export const RATE_LIMITS = {
    * inventive it is about which endpoint it picks (issue #28).
    *
    * Generous on purpose: a person browsing quickly must never see a 429.
+   *
+   * Reading a file is the one thing it does NOT cover, because a budget
+   * measured in requests is the wrong shape for an endpoint called once per
+   * image — see `file` below (#102).
    */
   global: { windowMs: 60 * 1000, perIp: 300 },
+
+  /**
+   * Reading files, by address (#102).
+   *
+   * The shape of the problem, measured rather than guessed: one page view of a
+   * need with 30 photos is 30 requests to `GET /files/:id`, so it spends 10%
+   * of the global 300-a-minute budget, and the TENTH view of that page gets a
+   * 429 on somebody's own photos. A limit written for "a person browsing
+   * quickly" cannot also be the limit for "a page made of images".
+   *
+   * Still a ceiling, not an exemption: the endpoint is cheap but not free —
+   * two database round trips and a signature per call — and nothing on this
+   * project is allowed to be unlimited.
+   *
+   *   30   images on one page, the realistic worst case (#81)
+   *   ×20  page views in a minute, far more than a person manages
+   *   ---
+   *   600  per address per minute
+   */
+  file: { windowMs: 60 * 1000, perIp: 600 },
 
   /**
    * Messages, per signed-in user: sending one needs a session, so there is
@@ -80,6 +104,16 @@ export interface RateLimiterOptions {
   windowMs: number;
   max: number;
   by: LimitBy;
+  /**
+   * Requests this limiter does not count, on top of `RATE_LIMIT_ENABLED`.
+   *
+   * Only the global ceiling uses it, and only to step aside for the endpoint
+   * that has a ceiling of its own (#102). It is an argument rather than a
+   * special case inside `app.ts`, so the exemption is visible in the same file
+   * as the limit it exempts — and a limiter without one counts everything,
+   * which is the safe default.
+   */
+  except?: (req: Request) => boolean;
 }
 
 /**
@@ -91,7 +125,7 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
     limit: options.max,
     standardHeaders: "draft-8",
     legacyHeaders: false,
-    skip: () => !env.RATE_LIMIT_ENABLED,
+    skip: (req) => !env.RATE_LIMIT_ENABLED || (options.except?.(req) ?? false),
     keyGenerator: (req) => {
       if (options.by === "ip") return ipKeyGenerator(req.ip ?? "");
       if (options.by === "user") return signedInKey(req);
@@ -167,6 +201,28 @@ export function signedInKey(req: Request): string {
 }
 
 /**
+ * Reading a file: the one thing the global ceiling steps aside for (#102).
+ *
+ * Matched on the path rather than by mounting the files router before the
+ * global limiter: the order of middleware in `app.ts` is load-bearing and
+ * documented there, and "this one endpoint is counted elsewhere" is a smaller
+ * thing to understand than a router that sits outside the usual chain.
+ *
+ * `GET /files/:id` is the only route under this prefix. A second one would
+ * have to decide for itself whether it belongs in the file budget — which is
+ * why the test for this names the path it is matching.
+ *
+ * Lowercased because Express routing is case-insensitive by default, so
+ * `/FILES/abc` reaches the same handler. A predicate that did not agree with
+ * the router would leave one spelling of the path counted against the
+ * browsing budget — which is the thing #102 is fixing, reachable by holding
+ * shift.
+ */
+function isFileRead(req: Request): boolean {
+  return req.path.toLowerCase().startsWith("/files/");
+}
+
+/**
  * The limiters the routes use. Built once, here, so every endpoint of a kind
  * shares one set of counters — forgot-password and resend-verification both
  * send an email to whatever address was typed in, so they share a budget
@@ -211,6 +267,12 @@ export const limiters = {
   globalByIp: createRateLimiter({
     windowMs: RATE_LIMITS.global.windowMs,
     max: RATE_LIMITS.global.perIp,
+    by: "ip",
+    except: isFileRead,
+  }),
+  fileByIp: createRateLimiter({
+    windowMs: RATE_LIMITS.file.windowMs,
+    max: RATE_LIMITS.file.perIp,
     by: "ip",
   }),
   messageByUser: createRateLimiter({

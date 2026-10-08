@@ -181,11 +181,106 @@ export async function storeFile(input: StoreFileInput): Promise<File> {
 }
 
 /**
- * A signed URL for one file, if this viewer may see it.
+ * The columns of a `File` row the visibility rule needs. No relations: which
+ * one of them matters is decided by `purpose`, and loading all three is what
+ * #102 was about.
+ */
+const FILE_FACTS = {
+  purpose: true,
+  storageKey: true,
+  ownerId: true,
+  needId: true,
+  dealId: true,
+} as const;
+
+type FileFacts = Pick<File, keyof typeof FILE_FACTS>;
+
+/**
+ * May this viewer see this file?
  *
  * Who may see what: docs/06-api-contract.md, "Files", from the rule in
- * docs/02-roles-and-permissions.md. A missing file and a hidden one get the
- * same 404, so a receipt's id cannot be checked by a stranger (#26).
+ * docs/02-roles-and-permissions.md.
+ *
+ * ONE QUERY, FOR THE ONE RELATION THAT MATTERS. A file is an avatar, or a
+ * need's photo, or a deal's receipt — never two at once. This used to be a
+ * single `include` of all three relations, which Prisma turns into three
+ * separate sequential SELECTs: four round trips per image shown, three of them
+ * for rows the rule was never going to read (#102, measured in
+ * tests/files/cost.test.ts).
+ *
+ * Each branch below is therefore `await`ed, and each asks for the columns it
+ * names and nothing else.
+ */
+async function isVisibleTo(
+  file: FileFacts,
+  viewer: User | undefined,
+): Promise<boolean> {
+  switch (file.purpose) {
+    // The rule of GET /users/:id. Named, not "anything but BANNED", so a
+    // status added one day is hidden until somebody decides otherwise.
+    case "AVATAR": {
+      const owner = await prisma.user.findUnique({
+        where: { id: file.ownerId },
+        select: { status: true },
+      });
+
+      return owner?.status === "ACTIVE" || owner?.status === "SUSPENDED";
+    }
+
+    case "NEED_PHOTO": {
+      // A photo belonging to no need is nobody's, and saying so costs no
+      // query at all — the column is nullable, so the rule has to answer for
+      // it whether or not an endpoint can produce one.
+      if (!file.needId) return false;
+
+      const need = await prisma.need.findUnique({
+        where: { id: file.needId },
+        select: { status: true, requesterId: true },
+      });
+      // Required by the types, unreachable in the database: the foreign key
+      // is ON DELETE SET NULL, so deleting a need turns its photos' `needId`
+      // into null and the guard above catches them instead. Kept because
+      // `findUnique` returns `Need | null`, and explained rather than tested —
+      // a broken variant that deletes this line changes nothing a test could
+      // see, which is worth saying out loud (#102).
+      if (!need) return false;
+
+      return (
+        viewer?.id === need.requesterId ||
+        need.status === "OPEN" ||
+        need.status === "MATCHED"
+      );
+    }
+
+    case "PRODUCT_RECEIPT":
+    case "SHIPPING_RECEIPT": {
+      // Same free refusal, and here it matters more: a receipt with no deal
+      // has nobody who may see it, so skipping the query must never be read
+      // as skipping the permission.
+      if (!file.dealId) return false;
+
+      const deal = await prisma.deal.findUnique({
+        where: { id: file.dealId },
+        select: { requesterId: true, helperId: true },
+      });
+      // Unreachable for the same reason, and kept for the same reason.
+      if (!deal) return false;
+
+      const isParticipant =
+        viewer?.id === deal.requesterId || viewer?.id === deal.helperId;
+      const isModerator =
+        viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
+
+      return isParticipant || isModerator;
+    }
+  }
+}
+
+/**
+ * A signed URL for one file, if this viewer may see it.
+ *
+ * A missing file and a hidden one get the same 404, so a receipt's id cannot
+ * be checked by a stranger (#26).
  *
  * The bytes are not checked before signing: that would be a request to the
  * store on every image shown, and a signed URL for vanished bytes is answered
@@ -197,51 +292,14 @@ export async function fileReadUrl(
 ): Promise<string> {
   const file = await prisma.file.findUnique({
     where: { id: fileId },
-    include: {
-      owner: { select: { status: true } },
-      need: { select: { status: true, requesterId: true } },
-      deal: { select: { requesterId: true, helperId: true } },
-    },
+    select: FILE_FACTS,
   });
 
   if (!file) {
     throw HttpError.notFound("File not found");
   }
 
-  const isModerator =
-    viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
-
-  const visible = (() => {
-    switch (file.purpose) {
-      // The rule of GET /users/:id. Named, not "anything but BANNED", so a
-      // status added one day is hidden until somebody decides otherwise.
-      case "AVATAR":
-        return (
-          file.owner.status === "ACTIVE" || file.owner.status === "SUSPENDED"
-        );
-
-      case "NEED_PHOTO": {
-        if (!file.need) return false;
-        const isOwner = viewer?.id === file.need.requesterId;
-        return (
-          isOwner ||
-          file.need.status === "OPEN" ||
-          file.need.status === "MATCHED"
-        );
-      }
-
-      case "PRODUCT_RECEIPT":
-      case "SHIPPING_RECEIPT": {
-        if (!file.deal) return false;
-        const isParticipant =
-          viewer?.id === file.deal.requesterId ||
-          viewer?.id === file.deal.helperId;
-        return isParticipant || isModerator;
-      }
-    }
-  })();
-
-  if (!visible) {
+  if (!(await isVisibleTo(file, viewer))) {
     throw HttpError.notFound("File not found");
   }
 

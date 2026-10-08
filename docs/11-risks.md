@@ -128,43 +128,62 @@ Get-CimInstance Win32_Process -Filter "Name like '%node%'"
 *each other* and says nothing about a second run. Scripts that rewrite source
 files while they run now use a separate worktree with its own database.
 
-## Serving files gets expensive the first time a page shows many
+## A page made of images still costs one request per image
 
-Found while mapping the file box for #100. Nothing is wrong today, and the
-trigger is known, which is the only reason this is a note rather than a
-fix.
+Raised while mapping the file box for #100, and **mostly settled by #102**.
+What is left is written here with what it would take to finish it, because
+the part that remains cannot be built until there is a list response to put
+it in.
 
-Every image costs **two round trips and one database query, every time it is
-seen**: the browser asks the API, the API checks who may see it and answers
-a `302`, the browser fetches the bytes from B2. Nothing is cached at either
-hop — `GET /files/:id` sends `no-store` so a stale redirect cannot outlive
-its five-minute signature, and the signed URL differs on every request.
+### What #102 measured, and what it changed
 
-Today no endpoint returns more than one avatar at a time, so the bill is one
-image per page. Two issues change that: **#81** puts photos on a need and
-**#93** builds the page that lists them. A screen with thirty images would
-then cost thirty requests to the API and thirty to B2, per view, per
-visitor.
+The note this section replaces got two things wrong, both found by running
+the thing rather than reading it (`tests/files/cost.test.ts`):
 
-Two limits meet it there, and the first one is ours:
+| Claimed | Measured |
+|---|---|
+| One database query per image | **Four.** `include` of three relations is three extra sequential SELECTs, and a file is an avatar *or* a need photo *or* a receipt — never two, so three of the four were for rows the rule would not read |
+| The signed URL differs on every request | Only across a **second**. SigV4 presigns at one-second granularity, so two requests in the same second get a byte-identical URL |
 
-- **The global rate limit.** `limiters.globalByIp` is mounted app-wide, so
-  `/files/:id` counts: 300 requests a minute means **one thirty-image page
-  is a tenth of a visitor's budget**, and ten page views in a minute spends
-  it. The first symptom would be somebody getting `429` on their own
-  avatars.
-- **B2's free tier.** Downloads are free only up to three times what is
-  stored, and the account's spending cap is `$0` (decision 0011). Images
-  stop being served rather than start costing money.
+And one thing it got right, which measurement turned from a projection into
+an observation: with `/files/:id` inside the global 300-a-minute ceiling,
+**the tenth view of a thirty-photo page answered `429`** — on the visitor's
+own photos.
 
-**Before #81 ships**, one of these has to be decided — they are listed in
-the issue, not chosen here. Taking `/files/:id` out of the global limiter is
-the cheapest. Letting the browser cache the redirect for *less* time than the
-signature lasts keeps the original reasoning intact. Signing URLs inside list
-responses removes the API hop entirely. Making avatars public behind a CDN is
-the fastest and the one with a catch: a banned account's avatar must answer
-`404`, and public bytes cannot enforce that unless they are deleted on ban —
-which is a different privacy model, not a faster version of this one.
+#102 fixed the two halves that did not need a caller to exist yet:
+
+| | Before | After |
+|---|---|---|
+| Statements per image | 4 | 2 — the row, then the one relation that decides it |
+| Statements, 30-image page | 120 | 60 |
+| Budget it spends | the global one, 10% per page view | its own, `RATE_LIMITS.file`, 600 a minute |
+| Page views before a `429` | 10 | not reachable by looking at images |
+| Repeat view of the same image | a request | none, for `REDIRECT_CACHE_SECONDS` |
+
+### What is left, and why it waits
+
+**A page of N images is still N requests to the API and N to B2.** The
+second N is the bytes and is not going anywhere. The first N is removable,
+and only one thing removes it: **signing the URLs inside the list response**
+so a browse page arrives with its links already in it. Signing is local
+arithmetic, so thirty of them cost nothing.
+
+That is not built, because **no list response carries an image today** —
+`avatarUrl` is returned by the three profile endpoints and nowhere else, so
+it would be built for a caller that does not exist. The issue that creates
+the caller is the issue that should build it: **#81** puts photos on a need,
+**#93** builds the page that lists them, and either one is where this
+belongs. What they have to decide is in
+`docs/10-decisions/0012-one-request-per-image.md`.
+
+Two limits are still the ones to watch when it happens:
+
+- **`RATE_LIMITS.file`**, 600 a minute per address. Twenty thirty-image page
+  views a minute, which no person reaches — but it is a ceiling, and a list
+  endpoint that embeds its URLs makes it irrelevant rather than tighter.
+- **B2's free egress**, three times what is stored, with the spending cap at
+  `$0` (decision 0011). Images stop being served rather than start costing
+  money. Nothing in #102 changes this: the bytes are fetched either way.
 
 ## Product and legal risks
 
