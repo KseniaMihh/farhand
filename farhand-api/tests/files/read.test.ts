@@ -3,7 +3,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
-import { READ_URL_SECONDS } from "../../src/storage.js";
+import { READ_URL_SECONDS, REDIRECT_CACHE_SECONDS } from "../../src/storage.js";
 import { signUpVerifiedAndLogIn, type TestUser } from "../helpers/auth.js";
 import {
   deleteObjectBehindTheApi,
@@ -118,13 +118,21 @@ describe("reading a file", () => {
     expect(READ_URL_SECONDS).toBe(300);
   });
 
-  it("tells the browser not to keep the redirect", async () => {
-    // A cached 302 outlives the signature inside it.
+  it("lets the browser keep the redirect, but not past its signature", async () => {
+    // This used to insist on `no-store`, on the reasoning that a cached 302
+    // outlives the signature inside it. The reasoning was right and the
+    // conclusion too strong: the cached copy carries that same signature, so
+    // keeping it for less time than the signature lasts cannot reach past the
+    // expiry it already has. Why that is worth doing, and the invariant
+    // between the two numbers, are in tests/files/cost.test.ts (#102).
     const file = await fileFixture({ ownerId: kadri.id, purpose: "AVATAR" });
 
     const response = await get(file.id);
 
-    expect(response.headers["cache-control"]).toContain("no-store");
+    expect(response.headers["cache-control"]).toBe(
+      `private, max-age=${String(REDIRECT_CACHE_SECONDS)}`,
+    );
+    expect(REDIRECT_CACHE_SECONDS).toBeLessThan(READ_URL_SECONDS);
   });
 
   it("never makes the bytes readable without a signature", async () => {

@@ -99,8 +99,9 @@ per round trip and a transaction takes several.
 0.5 GB — and off a 512 MB machine. The bucket is private: the API decides who
 may see a file, then redirects to a signed link good for five minutes. Signing
 is local arithmetic, so it costs no request to B2. The price is two round trips
-per image, nothing cached at either hop, and image views counting against the
-global rate limit (#102).
+per image on a cold page — reduced but not removed by #102, which gave the
+endpoint its own rate limit, let the browser keep the redirect for a minute,
+and cut the permission check from four database statements to two.
 
 ## Following a request
 
@@ -201,11 +202,19 @@ The API's part ends at the `302`. The bytes go from B2 to the browser without
 passing through the API's 512 MB machine — the cost is one extra round trip
 per image, paid on purpose (decision 0011).
 
-It is paid **again on every view**. The redirect is sent `no-store`, because
-a cached redirect would outlive the five-minute signature inside it, and the
-signed URL is different every time, so the bytes are a fresh URL to the
-browser too. Neither hop caches anything. One avatar seen ten times is
-twenty round trips and ten database queries.
+It is paid **again on every view the browser actually makes** — and #102
+reduced how many that is. The redirect may be cached for a minute, which is
+less than the five-minute signature it carries, so a cached copy can never
+point at a dead one: one avatar on twenty cards is one request rather than
+twenty. Past that minute the browser asks again, and the answer costs two
+database statements rather than the four it used to (#102 measured four; a
+file is an avatar *or* a need photo *or* a receipt, so two of the three
+relations it loaded were never going to be read).
+
+What remains is one API request per image on a cold page. Removing that
+needs the list response to carry its own signed links, which waits for a
+list response that carries images at all — #81 or #93
+(`docs/11-risks.md`).
 
 ## What is not there yet
 
@@ -215,7 +224,7 @@ twenty round trips and ten database queries.
 | Anything that notices the sweep stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED` | #101 named it, #85 may do more |
 | Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |
 | A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
-| A cache in front of the files | Every image view costs two round trips and a query, cached nowhere | #102 |
+| Signed links inside list responses | A page of N images is N requests to the API. #102 made each one cheaper and took it out of the browsing budget; removing the requests needs a list response that carries images, which nothing does yet | #81, #93 |
 | A frontend | `APP_ORIGIN` is the API's own URL — a placeholder until something else deserves it | #93 |
 | Proof the hop count is right | `trust proxy 1` assumes exactly one proxy, inherited from the Fly setup and never checked. Log in on production and compare `Session.ipAddress` with your real address; a CDN in front would make it two | — |
 | A measured latency figure | The cross-Atlantic numbers in this document are estimates. `GET /health/ready` returns the real `latencyMs` from the deployed service | — |

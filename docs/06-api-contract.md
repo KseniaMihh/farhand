@@ -371,6 +371,7 @@ can try a thousand accounts once each — so both run together.
 | `/auth/register` | 10 | 5 | 1 hour |
 | `/auth/forgot-password`, `/auth/resend-verification` | 10 | 5 | 1 hour |
 | `/auth/verify-email`, `/auth/reset-password` | 30 | — | 15 minutes |
+| `/files/:id` | 600 | — | 1 minute |
 
 The two email-sending endpoints share one budget: both send mail to whatever
 address was typed in, so five in total, not five each. The token endpoints have
@@ -379,6 +380,17 @@ pointless.
 
 The account key is the email from the request body, normalised the way the
 schemas normalise it, so `" Anna@X.com "` and `anna@x.com` share a budget.
+
+Above all of them is a ceiling of **300 requests a minute per address**
+(`RATE_LIMITS.global`). Not a security control on its own — the limits in the
+table are what stop password guessing — but no single machine can hammer the
+API whatever endpoint it picks.
+
+`GET /files/:id` is the one endpoint outside that ceiling, with the larger
+one of its own in the table instead. It is called **once per image**, so a
+page of thirty photos would spend a tenth of a visitor's whole browsing
+budget in one view, and the tenth view would be refused — which is a limit
+written for one shape of traffic being applied to another (#102).
 
 Over the limit returns `429` in the usual error shape, with `Retry-After` in
 seconds:
@@ -1584,13 +1596,19 @@ No body. The answer is a redirect:
 ```
 302 Found
 Location: https://…/files/3f1c…?X-Amz-Expires=300&X-Amz-Signature=…
-Cache-Control: private, no-store
+Cache-Control: private, max-age=60
 ```
 
 `<img src="/files/:id">` follows it without the page knowing. The signed URL
-works for five minutes; the redirect is marked `no-store` because a cached one
-would outlive the signature inside it. The bytes themselves are never public:
-the same address without its signature is refused by the store.
+works for five minutes, and the browser may keep the redirect for one — less
+than the signature it carries, so a cached copy can never point at a dead
+one. `private`, because the answer depends on who asked. The bytes themselves
+are never public: the same address without its signature is refused by the
+store.
+
+**This endpoint has its own rate limit**, not the global one: it is called
+once per image, so a page of thirty photos is thirty requests. 600 a minute
+per address (#102).
 
 Who may see a file:
 
