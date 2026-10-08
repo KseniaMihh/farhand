@@ -36,10 +36,25 @@ import { reportsRouter } from "./routes/reports.js";
 export function createApp(): Express {
   const app = express();
 
-  // We will sit behind a reverse proxy in production (Cloud Run, nginx).
-  // Without this, req.ip is the proxy's address and "secure" cookies are not
-  // recognised as secure — which quietly breaks auth. Set to 1 hop, not `true`:
-  // trusting every hop lets a client spoof its own IP via X-Forwarded-For.
+  // In production Render terminates HTTPS at its edge and forwards a plain
+  // HTTP request here, so every connection Express sees comes from the proxy.
+  // This tells Express to believe the X-Forwarded-* headers from exactly one
+  // hop (docs/15-architecture.md).
+  //
+  // What depends on it is `req.ip`, and that is the rate limiters: without it
+  // every caller in the world shares one bucket, so 20 login attempts per
+  // address per 15 minutes becomes 20 for the whole of Farhand, and one person
+  // with a script locks everybody out. The address recorded on each session
+  // (routes/auth.ts, "logged in from…") would be the proxy's too.
+  //
+  // NOT the session cookie, despite what this comment used to claim: that is
+  // written with plain res.cookie, which sets `Secure` without consulting
+  // req.secure — unlike express-session, which refuses. The browser's own
+  // connection really is HTTPS, so it stores the cookie either way (#100).
+  //
+  // 1 hop, not `true`: X-Forwarded-For is a header, and a header is written by
+  // whoever sends the request. Trusting the whole chain lets a caller name any
+  // address it likes and take a fresh bucket for every request.
   app.set("trust proxy", 1);
 
   // Don't advertise the framework. Free, and one less hint for a scanner.

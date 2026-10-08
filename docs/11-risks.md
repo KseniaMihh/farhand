@@ -128,6 +128,44 @@ Get-CimInstance Win32_Process -Filter "Name like '%node%'"
 *each other* and says nothing about a second run. Scripts that rewrite source
 files while they run now use a separate worktree with its own database.
 
+## Serving files gets expensive the first time a page shows many
+
+Found while mapping the file box for #100. Nothing is wrong today, and the
+trigger is known, which is the only reason this is a note rather than a
+fix.
+
+Every image costs **two round trips and one database query, every time it is
+seen**: the browser asks the API, the API checks who may see it and answers
+a `302`, the browser fetches the bytes from B2. Nothing is cached at either
+hop — `GET /files/:id` sends `no-store` so a stale redirect cannot outlive
+its five-minute signature, and the signed URL differs on every request.
+
+Today no endpoint returns more than one avatar at a time, so the bill is one
+image per page. Two issues change that: **#81** puts photos on a need and
+**#93** builds the page that lists them. A screen with thirty images would
+then cost thirty requests to the API and thirty to B2, per view, per
+visitor.
+
+Two limits meet it there, and the first one is ours:
+
+- **The global rate limit.** `limiters.globalByIp` is mounted app-wide, so
+  `/files/:id` counts: 300 requests a minute means **one thirty-image page
+  is a tenth of a visitor's budget**, and ten page views in a minute spends
+  it. The first symptom would be somebody getting `429` on their own
+  avatars.
+- **B2's free tier.** Downloads are free only up to three times what is
+  stored, and the account's spending cap is `$0` (decision 0011). Images
+  stop being served rather than start costing money.
+
+**Before #81 ships**, one of these has to be decided — they are listed in
+the issue, not chosen here. Taking `/files/:id` out of the global limiter is
+the cheapest. Letting the browser cache the redirect for *less* time than the
+signature lasts keeps the original reasoning intact. Signing URLs inside list
+responses removes the API hop entirely. Making avatars public behind a CDN is
+the fastest and the one with a catch: a banned account's avatar must answer
+`404`, and public bytes cannot enforce that unless they are deleted on ban —
+which is a different privacy model, not a faster version of this one.
+
 ## Product and legal risks
 
 | Risk | Severity | Position taken |

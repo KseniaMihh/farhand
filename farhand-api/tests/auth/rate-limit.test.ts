@@ -238,6 +238,39 @@ describe("the real endpoints are limited", () => {
     expect(last).toBe(429);
   });
 
+  /**
+   * The other half of the test above, and the one that pins
+   * `app.set("trust proxy", 1)` in src/app.ts.
+   *
+   * Every request in the suite arrives from the same machine, so the
+   * addresses here are the ones in `X-Forwarded-For` — which Express only
+   * believes because of that setting. Delete it and every caller in the world
+   * shares one budget: 20 login attempts per 15 minutes for the whole of
+   * Farhand (docs/15-architecture.md).
+   *
+   * Before this test, nothing said so. Removing the setting left the suite
+   * green except for one unrelated test whose login fixture got a 429 — a
+   * real fault reported in the wrong place.
+   */
+  it("does not let one address spend another's budget", async () => {
+    const spent = nextIp();
+    const fresh = nextIp();
+
+    // 21 for the same reason as the test above: one more than the per-address
+    // limit, with a different email each time so only that limit can bite.
+    let last = 0;
+    for (let i = 0; i < 21; i++)
+      last = (await login(spent, nextEmail())).status;
+    expect(last).toBe(429);
+
+    // The second address has spent nothing. 401 is the answer of an endpoint
+    // that was REACHED and refused the password; 429 would mean the limiter
+    // turned it away on somebody else's account.
+    const other = await login(fresh, nextEmail());
+
+    expect(other.status).toBe(401);
+  });
+
   it("stops many addresses guessing the password of one account", async () => {
     const email = nextEmail();
 

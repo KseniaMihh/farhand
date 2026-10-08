@@ -291,17 +291,30 @@ of it. So it is two steps, in two releases:
 
 Renaming works the same way: add, copy, switch, and only then drop.
 
-## One instance, deliberately
+## One instance, for two reasons
 
-`render.yaml` sets `numInstances: 1`. Not to save money — the reason is the
-code's: the rate limiters count in memory, one tally per process
+`render.yaml` sets `numInstances: 1`, and there are **two independent**
+reasons for it. Fixing either one alone would not let a second instance run.
+
+**The plan.** Render's free plan does not scale past a single instance, so
+`1` is the only value it would accept.
+
+**The code.** The rate limiters count in memory, one tally per process
 (`src/middleware/rate-limit.ts`, which has said so since #14). Two instances
 mean two tallies and therefore twice the limit: 20 login attempts per address
-becomes 40, and the number in the documentation stops being true.
+becomes 40, 10 per account becomes 20, and 300 requests a minute becomes 600.
+Worse than the doubling: the `RateLimit` headers would disagree with each
+other request by request, and somebody refused with a `429` could simply try
+again and be served by the other instance's fresh count. The numbers in
+`06-api-contract.md` would stop being true in a way nobody could predict.
 
-The moment one instance is not enough, the fix is not a second instance — it
-is moving those counters to a shared store (#91). Until then, one instance
-keeps the written rules and the running system saying the same thing.
+So paying for a larger plan would not be enough on its own — the counters
+have to move to a shared store first (#91). Until then, one instance keeps
+the written rules and the running system saying the same thing.
+
+This section used to say the single instance was *"not to save money — the
+reason is the code's"*. True, and it left the impression that the plan would
+allow two. It would not (#100).
 
 ## Cold starts
 
@@ -313,6 +326,18 @@ Fine for an API with no frontend and no users. Not fine the day someone is
 meant to depend on it, and Render's own documentation says free services are
 not for production. That day is the one to pay for a host, and decision 0010
 says what would justify it.
+
+## What the free plan rules out
+
+These are Render's documented limits for the free plan rather than anything
+measured here, and each one has already decided something:
+
+| Limit | What it decides |
+|---|---|
+| A single instance | See above: half the reason `numInstances` is `1` |
+| Sleeps after 15 idle minutes | The cold start above — and it wipes the rate-limit counters, which is a reminder that they are not durable state |
+| 0.1 CPU, 512 MB | Why argon2id hashing and avatar re-encoding are the two expensive things the API does, and why both are limited per user |
+| **Outbound SMTP is blocked** (ports 25, 465, 587) | Email cannot be sent by connecting to a mail server. Whatever sends it in #86 has to be a provider with an **HTTP API**. Worth knowing before that issue picks a library |
 
 ## What is not here
 
