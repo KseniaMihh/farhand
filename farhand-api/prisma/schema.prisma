@@ -153,24 +153,6 @@ model Profile {
   countryCode String  @db.Char(2) // ISO 3166-1 alpha-2, where the user lives
   city        String? @db.VarChar(80)
 
-  // DEAD. Written by nothing, ever: it was here from the first migration and
-  // no endpoint could set it, because setting an avatar arrived in #80 and
-  // sets avatarFileId. #80 replaced it and kept the column, because a
-  // migration runs before the new code is live and the running version still
-  // named it (docs/14-deployment.md).
-  //
-  // @ignore is step one of removing it (#103). It keeps the column in the
-  // database and in this file — so the migration engine sees no drift — while
-  // taking it out of the generated client, which is what actually matters:
-  // Prisma names EVERY column of a model in its SELECT and RETURNING lists, so
-  // until the client forgets this one, registering, reading a profile, editing
-  // a profile and uploading an avatar all mention it. Dropping it underneath
-  // code that still names it would break all four for the length of a build.
-  //
-  // The migration that drops it is the NEXT release, once a deployed version
-  // exists that does not name it. Not this one.
-  avatarUrl String? @ignore
-
   // The avatar is a File (#80), not a URL: a link to a row the database
   // guarantees exists. Unique, because one file is one person's avatar at
   // most. SetNull, so deleting the file can never delete the profile.

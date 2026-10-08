@@ -1,0 +1,29 @@
+-- Drops Profile.avatarUrl: the contract half of the expand/contract #80 began
+-- (#103). Release two of two.
+--
+-- Prisma's generated warning here said "all the data in the column will be
+-- lost". There is none, and that is checkable rather than hoped: the column
+-- was created by the first migration and NO code has ever written a non-null
+-- value to it. No endpoint could — setting an avatar arrived in #80 and writes
+-- avatarFileId. The only writes in the whole history were a `avatarUrl: null`
+-- in account deletion, removed in the release before this one, and two reads
+-- of a response field that merely shares the name.
+--
+--   SELECT count(*) FROM "Profile" WHERE "avatarUrl" IS NOT NULL;  -- 0
+--
+-- Why this is a release of its own. Migrations run before the new code is
+-- live, so for the length of a build the PREVIOUS version serves against this
+-- schema. Prisma names every column of a model in its SELECT and RETURNING
+-- lists, so a version that still had this field in its generated client would
+-- fail on registering, on every profile read, on every profile edit and on
+-- both avatar endpoints — not only on the one line that wrote it. The release
+-- before this one took the field out of the client with @ignore and left the
+-- column alone, so the version now running never names it and this is safe to
+-- apply underneath it (docs/14-deployment.md, "Contracting is itself two
+-- releases").
+--
+-- Not reversible by deploying the old code. Rolling back code does not roll
+-- back the database.
+
+-- AlterTable
+ALTER TABLE "Profile" DROP COLUMN "avatarUrl";

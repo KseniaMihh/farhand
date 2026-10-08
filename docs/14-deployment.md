@@ -323,14 +323,33 @@ date") and the running code stops naming the column. So:
 | **release 1** — `@ignore`, delete writes, **no migration** | no | yes | ✓ both versions |
 | **release 2** — remove the field, migrate the drop | no | no | ✓ |
 
+Both releases happened: #107 and #108. The second is
+`prisma/migrations/20261008125600_drop_profile_avatar_url`, whose comment
+is written for whoever meets this next.
+
 Two useful things fall out of doing it in that order. Adding `@ignore` makes
 **the type checker find every remaining use** — it found two in tests that no
 search for the obvious write would have turned up, one of which had been
 comparing a response field against the dead column and passing only because
-both were null. And release 1 can be *proved* before release 2 is written:
-`tests/profiles/avatar-url-column.test.ts` exercises every endpoint that
-touches the table and fails if any statement mentions the column. That is
-what makes the drop safe to apply rather than hoped-for.
+both were null. And release 1 can be *proved* before release 2 is written —
+which is the part worth copying. A test exercised every endpoint that
+touches the table and failed if any statement mentioned the column, so the
+drop was applied on evidence rather than on reasoning. That test went with
+release 2: once the column does not exist, it cannot fail, and a test that
+cannot fail is worse than none (`13-workflow.md`). Write the equivalent for
+the next column, and delete it the same way.
+
+One more thing to do before merging release 2, because the migration cannot
+be undone by rolling back code: count what you are about to destroy.
+
+```sql
+-- against production, before the merge
+SELECT count(*) FROM "Profile" WHERE "avatarUrl" IS NOT NULL;
+```
+
+Zero here was predicted from the git history — no code had ever written the
+column — and checking it costs one query. A destructive migration is the
+one place where *predicted* and *verified* are worth keeping apart.
 
 ## One instance, for two reasons
 

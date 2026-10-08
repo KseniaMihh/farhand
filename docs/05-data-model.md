@@ -22,8 +22,9 @@ would be either a signed link that dies in five minutes or a string the
 database cannot check; a foreign key is neither. It is unique, because one
 file is at most one person's avatar, and `ON DELETE SET NULL`, because
 deleting a file must never delete a profile. The old `avatarUrl` text column
-is still in the table, unused, until a later migration drops it: the version
-still running during a deploy reads it (`14-deployment.md`).
+is **gone** (#103): it was in the table from the first migration, no code
+ever wrote a value to it, and removing it took two releases for the reason
+in `14-deployment.md`.
 
 **`Session`** — one row per signed-in device. Stores a *hash* of the session
 token, not the token itself, so a database leak does not hand over live
