@@ -24,6 +24,7 @@ flowchart LR
     neon[("Neon PostgreSQL<br/>rows")]
     b2[("Backblaze B2<br/>private file bytes")]
     sentry["Sentry<br/>5xx errors"]
+    cron["GitHub Actions<br/>daily sweep, 03:17 UTC"]
 
     browser -->|"HTTPS + session cookie"| edge
     edge -->|"proxies"| api
@@ -31,6 +32,7 @@ flowchart LR
     api -->|"stores bytes, signs links"| b2
     api -.->|"reports, does not wait"| sentry
     browser -->|"signed link, 5 minutes"| b2
+    cron -->|"completes delivered deals"| neon
 ```
 
 How to read it. **Solid arrows** are synchronous: whoever sends waits for the
@@ -43,24 +45,62 @@ The arrow worth looking at twice is the last one: **the browser fetches file
 bytes from B2 directly**, never through the API. The API only decides who may
 see a file and hands out a link that works for five minutes (`#79`).
 
+The second odd one is the sweep: **GitHub Actions reaches the database without
+going through the API at all** (#101). It is the only writer that is not a
+request, which is why it is drawn outside Render — it runs on somebody else's
+machine, on a clock, and uses Neon's direct connection string rather than the
+pooled one the API uses.
+
 ## Why each box exists
 
-<!--
-TODO(#100) — yours. One short paragraph per box: what it is FOR, what would go
-wrong without it, and a link to where the decision is recorded. Your FigJam
-stickies are most of this already. The questions, if a blank page helps:
+**Browser or API client.** Whoever starts a request. The API trusts it through
+three things and no more: the session cookie (`httpOnly`, `sameSite: lax`), a
+CORS rule that allows exactly one origin — `APP_ORIGIN`, never `*`, because a
+wildcard and credentials together are forbidden and would let any page on the
+internet act as whoever is signed in — and `sameOriginWrites`, which refuses a
+write whose `Origin` or `Referer` is anything else.
 
-- Browser or API client: who is on this side today, and who will be after #93?
-- HTTPS proxy: what does it do that the API does not? (Hint: `trust proxy` in
-  src/app.ts, and why that setting is 1 and not true.)
-- farhand-api: why one app and not several services, and why exactly ONE
-  instance? (docs/14-deployment.md, "One instance, for two reasons"; #91)
-- Neon: why the data is not on the same platform as the API — and what that
-  bought us in #96. (docs/14-deployment.md; decisions 0002, 0010)
-- Backblaze B2: why bytes are not in the database. (decision 0011)
-- Sentry: why the API does not wait for it, and what is reported and what is
-  not. (docs/09-environment.md, "SENTRY_DSN")
--->
+"API client" is only half true, and worth knowing: `curl` and the tests read
+freely, but a write with no `Origin` header is refused with `403` while
+`CSRF_ENABLED` is on, which it is by default. These defences are aimed at
+browsers. A script can set any header it likes, so what really protects a write
+is the session check — the origin check protects a *user* from another website,
+not the API from a script.
+
+**HTTPS proxy (Render).** Terminates TLS, so the API itself never needs a
+certificate and never speaks it. It passes the real client address in
+`X-Forwarded-For`, and `trust proxy` set to `1` makes Express believe exactly
+that one hop. Without it every request appears to come from the proxy: one
+rate-limit bucket shared by the whole world — 20 login attempts per 15 minutes
+for all of Farhand — and a "logged in from…" record that says nothing. With
+`true` instead of `1`, a caller could forge an address per request and take an
+unlimited budget, or forge somebody else's and lock them out.
+
+**farhand-api.** One app, because a transaction is free and a saga is not:
+`acceptProposal`'s five writes are all-or-nothing only because they share one
+database. Splitting it would mean building compensating actions, idempotency
+and an outbox by hand — and losing the constraints too, since no index can
+span two databases. One *instance*, for two independent reasons: the free plan
+allows no more, and the rate-limit counters live in this process's memory, so
+a second would double every published limit (#91). Otherwise it is stateless —
+nothing else in `src/` remembers anything between requests.
+
+**Neon.** Data outlives the host. Because the database belongs to a different
+vendor, #96 — moving the API from Fly to Render under a trial deadline — was a
+configuration change rather than a data migration with a clock on it. Two
+connection strings: the app uses the **pooled** one, which survives many
+short-lived connections; migrations use the **direct** one, because the pooler
+lends a connection per transaction and Prisma's migration lock is session-level.
+A pooler is not a transparent pipe — anything that depends on staying on one
+connection breaks behind it. Same region as the API, because latency is paid
+per round trip and a transaction takes several.
+
+**Backblaze B2.** Keeps file bytes out of the database — Neon's free tier is
+0.5 GB — and off a 512 MB machine. The bucket is private: the API decides who
+may see a file, then redirects to a signed link good for five minutes. Signing
+is local arithmetic, so it costs no request to B2. The price is two round trips
+per image, nothing cached at either hop, and image views counting against the
+global rate limit (#102).
 
 ## Following a request
 
@@ -169,24 +209,44 @@ twenty round trips and ten database queries.
 
 ## What is not there yet
 
-<!--
-TODO(#100) — yours. Each gap in a line or two: what is missing, what happens
-today because of it, and the issue that will fill it (or "no issue yet" — then
-it needs one). The ones the map has found so far:
+| Missing | What happens today | Issue |
+|---|---|---|
+| An email provider | Verification and reset tokens are written to the log and delivered nowhere. Render's free plan blocks outbound SMTP, so whatever sends them must be called over HTTP | #85, #86 |
+| Anything that notices the sweep stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED` | #101 named it, #85 may do more |
+| Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |
+| A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
+| A cache in front of the files | Every image view costs two round trips and a query, cached nowhere | #102 |
+| A frontend | `APP_ORIGIN` is the API's own URL — a placeholder until something else deserves it | #93 |
+| Proof the hop count is right | `trust proxy 1` assumes exactly one proxy, inherited from the Fly setup and never checked. Log in on production and compare `Session.ipAddress` with your real address; a CDN in front would make it two | — |
+| A measured latency figure | The cross-Atlantic numbers in this document are estimates. `GET /health/ready` returns the real `latencyMs` from the deployed service | — |
 
-- Email: verification and reset links are not sent anywhere in production.
-  (#85, #86)
-- A scheduler: `npm run job:auto-complete` (#25) exists and is tested, and
-  nothing runs it — a delivered deal nobody confirms stays DELIVERED for ever.
-  (no issue yet)
-- Anything asynchronous: every arrow except Sentry's is somebody waiting.
-  (#85)
-- A second instance: the rate-limit counters live in one process's memory.
-  (#91)
-- A cache or CDN in front of the files. (docs/14-deployment.md, "What is not
-  here")
-- The frontend. (#93)
--->
+### One of these has a trap in it: where the frontend lives
+
+The session cookie is `sameSite: "lax"`, which means a browser will not attach
+it to a `fetch` from a **different site**. That is not about the API's CORS
+rule, which can be configured; it is the browser's own decision, and it is made
+before CORS is consulted.
+
+`onrender.com` and `vercel.app` are public suffixes, so every subdomain counts
+as its own site. A frontend at `farhand-web.vercel.app` calling
+`farhand-api.onrender.com` would therefore log in to a `200` and then appear
+signed out on the very next request, with nothing in either log to explain it.
+The exact mechanism varies — the browser may refuse to store the cookie or
+refuse to send it, depending on the browser and its third-party cookie
+settings — but the outcome is the same either way.
+
+Three ways out, and #93 should pick one before it builds anything:
+
+1. **One registrable domain for both** — `app.example.ee` and `api.example.ee`.
+   Needs a domain, which is the only thing on this page that costs money.
+2. **The frontend proxies the API under its own address** (Next.js rewrites),
+   so the browser only ever sees one site. Costs an extra hop per request.
+3. **`sameSite: "none"`**, which works and gives up what Lax was doing: a
+   browser-level defence against another site making a request as you. The
+   `Origin` check (#28) would be carrying it alone, and browsers are steadily
+   restricting third-party cookies anyway.
+
+Found while writing this map, which is what the map is for.
 
 ## Keeping this true
 
