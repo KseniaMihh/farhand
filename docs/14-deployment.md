@@ -199,6 +199,52 @@ does — the decision recorded in docs/09-environment.md. On Fly that step was
 `release_command`; Render's free tier has no pre-deploy command, so CI runs it
 instead. Same order, different place.
 
+## The daily sweep
+
+One thing runs on a schedule rather than on a request: the sweep that
+completes a deal fourteen days after delivery (#25). Without it a delivered
+deal nobody confirms stays `DELIVERED` for ever, and `04-deal-lifecycle.md`
+describes a rule the running system does not apply — which is exactly what
+happened between #25 and #101, because nothing scheduled it.
+
+| | |
+|---|---|
+| What | `.github/workflows/auto-complete.yml` |
+| When | Daily, 03:17 UTC. Not on the hour: jobs queued at `:00` compete with everybody else's |
+| How | `npm run job:auto-complete`, with Neon's **direct** string |
+| By hand | The workflow has `workflow_dispatch`, so it can be run from the Actions tab |
+
+**GitHub Actions rather than the platform.** Render's cron jobs are a paid
+service type and the free plan has no scheduler at all. Actions costs nothing
+here — a private repository gets 2000 free minutes a month and this spends
+about thirty — and the pattern already existed: the deploy job reaches the
+same database with the same secret to run migrations.
+
+**Daily is enough.** The deadline is fourteen days and is measured from the
+delivery event, not from when the sweep runs, so running up to a day late
+changes nothing anybody would feel. Two sweeps at once would also be harmless
+— the update is guarded by status, and `tests/deals/cancellation.test.ts`
+("is safe to run twice") proves each deal completes exactly once.
+
+### How you would find out it stopped
+
+Worth being honest about, because this is the part that was not built.
+
+- **A run that fails** sets exit code 1, fails the step, and GitHub emails the
+  repository owner. That one is covered.
+- **A run that finds nothing** logs `completed: 0` and succeeds. Silence here
+  means "nothing was due", not "nothing happened".
+- **A schedule that stops running tells nobody.** GitHub's documented
+  behaviour is to disable scheduled workflows in a repository with no
+  activity for 60 days, and a workflow that never starts sends no email. The
+  symptom would be deals sitting at `DELIVERED` more than fourteen days after
+  their delivery event — visible in the moderator's deal list, and nowhere
+  else.
+
+Nothing watches for that, deliberately: a dead man's switch would mean another
+vendor for one job. #85 brings a real job queue, and that is the issue to
+decide it in rather than here.
+
 ## When it goes wrong
 
 | | Where |
