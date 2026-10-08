@@ -54,7 +54,7 @@ stickies are most of this already. The questions, if a blank page helps:
 - HTTPS proxy: what does it do that the API does not? (Hint: `trust proxy` in
   src/app.ts, and why that setting is 1 and not true.)
 - farhand-api: why one app and not several services, and why exactly ONE
-  instance? (docs/14-deployment.md, "One instance, deliberately"; #91)
+  instance? (docs/14-deployment.md, "One instance, for two reasons"; #91)
 - Neon: why the data is not on the same platform as the API — and what that
   bought us in #96. (docs/14-deployment.md; decisions 0002, 0010)
 - Backblaze B2: why bytes are not in the database. (decision 0011)
@@ -160,6 +160,12 @@ sequenceDiagram
 The API's part ends at the `302`. The bytes go from B2 to the browser without
 passing through the API's 512 MB machine — the cost is one extra round trip
 per image, paid on purpose (decision 0011).
+
+It is paid **again on every view**. The redirect is sent `no-store`, because
+a cached redirect would outlive the five-minute signature inside it, and the
+signed URL is different every time, so the bytes are a fresh URL to the
+browser too. Neither hop caches anything. One avatar seen ten times is
+twenty round trips and ten database queries.
 
 ## What is not there yet
 

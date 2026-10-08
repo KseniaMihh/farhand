@@ -12,10 +12,11 @@ services:
     # would race the migration step and could serve a new image against an
     # old schema.
     autoDeployTrigger: off
-    # The rate limiters count in memory (docs/14-deployment.md); two
-    # instances would each keep their own count, so the limits would be
-    # twice as generous as configured. One instance until that moves to a
-    # shared store.
+    # Two reasons, and both have to go before this can be anything else
+    # (docs/14-deployment.md, "One instance, for two reasons"):
+    #   the free plan does not scale past one instance at all; and
+    #   the rate limiters count in memory, so two instances would each keep
+    #   their own count and every documented limit would double (#91).
     numInstances: 1
     envVars:
       - key: NODE_ENV
