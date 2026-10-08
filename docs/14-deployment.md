@@ -291,6 +291,47 @@ of it. So it is two steps, in two releases:
 
 Renaming works the same way: add, copy, switch, and only then drop.
 
+### Contracting is itself two releases (#103)
+
+"Once nothing running reads the old column" reads like *delete the line that
+touches it*. With Prisma it is not, and the difference is the whole site for
+the length of a build.
+
+**Prisma names every column of a model** in its `SELECT` and `RETURNING`
+lists, whether or not the application does anything with them. So the one
+line writing `Profile.avatarUrl` was the smallest part of the problem:
+
+```
+INSERT INTO "Profile" (…) RETURNING …, "avatarUrl", …        register
+SELECT "Profile"."userId", …, "avatarUrl", …                 every profile read
+UPDATE "Profile" SET "bio"=$1 … RETURNING …, "avatarUrl"     PATCH /me/profile
+UPDATE "Profile" SET "avatarFileId"=$1 … RETURNING "avatarUrl"  PUT /me/avatar
+```
+
+Dropping the column under code that still names it breaks registration, every
+profile read, every profile edit and avatar uploads — all of them, for the
+few minutes the old version is still serving.
+
+`@ignore` is what reaches a safe state. It removes the field from the
+**generated client** while leaving it in this schema and in the database, so
+the migration engine sees no drift (`prisma migrate status` stays "up to
+date") and the running code stops naming the column. So:
+
+| | Client names the column | Column exists | Safe |
+|---|---|---|---|
+| before | yes | yes | ✓ |
+| **release 1** — `@ignore`, delete writes, **no migration** | no | yes | ✓ both versions |
+| **release 2** — remove the field, migrate the drop | no | no | ✓ |
+
+Two useful things fall out of doing it in that order. Adding `@ignore` makes
+**the type checker find every remaining use** — it found two in tests that no
+search for the obvious write would have turned up, one of which had been
+comparing a response field against the dead column and passing only because
+both were null. And release 1 can be *proved* before release 2 is written:
+`tests/profiles/avatar-url-column.test.ts` exercises every endpoint that
+touches the table and fails if any statement mentions the column. That is
+what makes the drop safe to apply rather than hoped-for.
+
 ## One instance, for two reasons
 
 `render.yaml` sets `numInstances: 1`, and there are **two independent**

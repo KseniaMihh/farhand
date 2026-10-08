@@ -199,7 +199,11 @@ describe("DELETE /me", () => {
         data: {
           bio: "I fly Tallinn–Tokyo twice a year",
           city: "Tallinn",
-          avatarUrl: "https://example.com/a.png",
+          // avatarUrl was set here too, and it was the one value in this
+          // fixture the application could never have produced: no endpoint has
+          // ever been able to write that column. It is being removed (#103),
+          // so a test that put a value in it by hand was proving the erasure
+          // of a state the system cannot be in.
         },
       });
     });
@@ -248,7 +252,10 @@ describe("DELETE /me", () => {
       expect(after?.displayName).not.toBe("Anna");
       expect(after?.bio).toBeNull();
       expect(after?.city).toBeNull();
-      expect(after?.avatarUrl).toBeNull();
+      // The avatar itself: its row and its bytes go in the same transaction,
+      // which the file tests below prove. What used to be asserted here was
+      // the dead avatarUrl column (#103).
+      expect(after?.avatarFileId).toBeNull();
     });
 
     /** On its own a country identifies nobody, and the history stays readable. */
