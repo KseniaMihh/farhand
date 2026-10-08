@@ -265,10 +265,22 @@ export async function deleteMyAccount(
         displayName: DELETED_DISPLAY_NAME,
         bio: null,
         city: null,
-        avatarUrl: null,
+        // Belt and braces, and unfalsifiable: `removeAccountFiles` below
+        // deletes the avatar's File row in this same transaction, and the
+        // relation is onDelete: SetNull, so the database empties this column
+        // whether or not the line is here — a broken variant that deletes it
+        // changes nothing a test can see (#103). It stays because the erasure
+        // should be legible at the point of erasure, rather than depending on
+        // a foreign-key action written forty lines away in another file.
         avatarFileId: null,
         // countryCode stays: on its own it identifies nobody, and it keeps
         // a deal's history readable.
+        //
+        // avatarUrl is not here any more, and nothing is left behind by that:
+        // the column has held null in every row since the day it was created,
+        // because no endpoint has ever been able to set it. This line nulled
+        // something already null, and it was the last thing in the codebase
+        // naming a column #103 is removing (prisma/schema.prisma).
       },
     });
 

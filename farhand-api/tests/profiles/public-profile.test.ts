@@ -72,15 +72,21 @@ describe("GET /users/:id", () => {
    * whitelist is the only version of this test that still works the day
    * somebody adds a column to Profile.
    *
-   * The old `avatarUrl` COLUMN is set to a stranger's address here on purpose:
-   * it still exists until a later migration drops it (#80), and nothing may
-   * read it. The `avatarUrl` in the answer comes from the avatar file, and
-   * with no file it is null.
+   * The old `avatarUrl` COLUMN used to be set to a stranger's address here, to
+   * prove nothing read it. That is no longer something a test can do, and no
+   * longer something a test needs to do: #103 marked the column `@ignore`, so
+   * it is not in the generated client at all and no code *can* read it — the
+   * type checker refuses before a test could. A guarantee the compiler keeps
+   * beats one a test checks.
+   *
+   * What is still worth proving is here: the answer has exactly these six
+   * keys, and its `avatarUrl` comes from the avatar file, so with no file it
+   * is null.
    */
-  it("returns those six fields and nothing else, never the old column", async () => {
+  it("returns those six fields and nothing else", async () => {
     await prisma.profile.update({
       where: { userId: anna.id },
-      data: { city: "Tallinn", avatarUrl: "https://example.com/a.png" },
+      data: { city: "Tallinn" },
     });
 
     const response = await request(app).get(`/users/${anna.id}`);

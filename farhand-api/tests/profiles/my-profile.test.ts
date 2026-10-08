@@ -150,7 +150,13 @@ describe("PATCH /me/profile", () => {
         bio: stored.bio,
         countryCode: stored.countryCode,
         city: stored.city,
-        avatarUrl: stored.avatarUrl,
+        // Not `stored.avatarUrl`, which is what this line used to say. The
+        // field in the answer is computed from avatarFileId (#80); the column
+        // of the same name is dead and being removed (#103). Comparing them
+        // only ever passed because both were null — give this profile an
+        // avatar and the old assertion would have failed. Anna has no avatar
+        // here, and what the field really does is avatar.test.ts's job.
+        avatarUrl: null,
       });
     });
 
@@ -296,7 +302,11 @@ describe("PATCH /me/profile", () => {
         .send({ avatarUrl: "https://tracker.example.com/pixel.png" });
 
       expect(response.status).toBe(200);
-      expect((await storedProfile(anna.id)).avatarUrl).toBeNull();
+      // It used to be the dead column that was checked here (#103). The thing
+      // worth checking is the one a typed-in URL would have been trying to
+      // reach: the avatar itself, which only PUT /me/avatar can set.
+      expect((await storedProfile(anna.id)).avatarFileId).toBeNull();
+      expect((response.body as ProfileBody).profile.avatarUrl).toBeNull();
     });
 
     /**
