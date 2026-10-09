@@ -4,7 +4,7 @@ import { prisma } from "../../src/db.js";
 import { MAX_FILE_BYTES, storeFile } from "../../src/services/files.js";
 import { storage } from "../../src/storage.js";
 import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
-import { allKeys, objectExists, sample } from "../helpers/files.js";
+import { objectExists, sample } from "../helpers/files.js";
 
 /**
  * storeFile — the one way bytes get in (#79).
@@ -117,14 +117,20 @@ describe("a file that is refused leaves nothing behind", () => {
    * and deletes afterwards must fail — the spy on `put` catches exactly that.
    */
   async function expectNothingStored(attempt: () => Promise<unknown>) {
-    const keysBefore = await allKeys();
     const put = vi.spyOn(storage, "put");
 
     await expectRefused(attempt());
 
+    // This used to compare the whole bucket listing before and after, which
+    // cost more every time anybody ran the suite (#109). It also proved less:
+    // `put` is the only way this code reaches the store, so "never called" is
+    // the stronger statement, and if it ever IS called the key it was given is
+    // named below rather than inferred from a set that changed.
     expect(put).not.toHaveBeenCalled();
     expect(await prisma.file.count()).toBe(0);
-    expect(await allKeys()).toEqual(keysBefore);
+    for (const [key] of put.mock.calls) {
+      expect(await objectExists(key)).toBe(false);
+    }
   }
 
   it("when it is one byte over the limit", async () => {
@@ -178,7 +184,6 @@ describe("a failure halfway through", () => {
   });
 
   it("in the database removes the bytes it had already stored", async () => {
-    const keysBefore = await allKeys();
     const put = vi.spyOn(storage, "put");
     vi.spyOn(prisma.file, "create").mockRejectedValueOnce(
       new Error("the database is down"),
@@ -190,7 +195,15 @@ describe("a failure halfway through", () => {
 
     // The bytes really were stored first — otherwise "removed" proves nothing.
     expect(put).toHaveBeenCalledOnce();
-    expect(await allKeys()).toEqual(keysBefore);
+
+    // And this is the key they were stored under, so the cleanup is checked by
+    // name rather than by "the set of everything looks the same as before"
+    // (#109). Stronger as well as cheaper: a listing comparison would also
+    // pass if the cleanup deleted the wrong object and something else
+    // reappeared.
+    const storedKey = put.mock.calls[0]?.[0];
+    if (!storedKey) throw new Error("expected bytes to have been stored");
+    expect(await objectExists(storedKey)).toBe(false);
   });
 
   it("reports the failure that happened, not the cleanup's", async () => {

@@ -1,23 +1,19 @@
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
 import { env } from "../../src/env.js";
 import { AVATAR_SIDE } from "../../src/images.js";
 import { RATE_LIMITS } from "../../src/middleware/rate-limit.js";
 import { MAX_FILE_BYTES } from "../../src/services/files.js";
+import { storage } from "../../src/storage.js";
 import {
   PASSWORD,
   signUpAndLogIn,
   signUpVerifiedAndLogIn,
   type TestUser,
 } from "../helpers/auth.js";
-import {
-  allKeys,
-  fileFixture,
-  objectExists,
-  sample,
-} from "../helpers/files.js";
+import { fileFixture, objectExists, sample } from "../helpers/files.js";
 import {
   describe as describeImage,
   dominantAt,
@@ -223,13 +219,20 @@ describe("an upload that is refused changes nothing", () => {
   ) {
     await upload(anna, await solidImage(300, 300));
     const [before] = await annasAvatarFiles();
-    const keysBefore = await allKeys();
+
+    // Watch what the refused attempt hands the store, rather than comparing
+    // the whole bucket before and after (#109). Anything it did store has to
+    // be gone again, and naming the key says that; a listing that matches only
+    // says the totals agree.
+    const put = vi.spyOn(storage, "put");
 
     expect((await send()).status).toBe(status);
 
     const after = await annasAvatarFiles();
     expect(after).toEqual([before]);
-    expect(await allKeys()).toEqual(keysBefore);
+    for (const [key] of put.mock.calls) {
+      expect(await objectExists(key)).toBe(false);
+    }
   }
 
   it("when it is not an image", async () => {
@@ -346,7 +349,7 @@ describe("replacing an avatar", () => {
     await upload(anna, await solidImage(300, 300));
     const [old] = await annasAvatarFiles();
     if (!old) throw new Error("expected an avatar");
-    const keysBefore = await allKeys();
+    const put = vi.spyOn(storage, "put");
     const broken = breakInsideTransaction("profile", "update");
 
     const response = await upload(anna, await solidImage(400, 400));
@@ -359,9 +362,14 @@ describe("replacing an avatar", () => {
     });
     expect(profile.avatarFileId).toBe(old.id);
     expect(await objectExists(old.storageKey)).toBe(true);
-    // …and the new one was cleaned up, row and bytes.
+    // …and the new one was cleaned up, row and bytes. The key is the one the
+    // failed upload actually wrote, so this names what must be gone instead of
+    // asking whether the bucket looks the same as it did (#109).
     expect(await annasAvatarFiles()).toEqual([old]);
-    expect(await allKeys()).toEqual(keysBefore);
+    expect(put).toHaveBeenCalledOnce();
+    const newKey = put.mock.calls[0]?.[0];
+    if (!newKey) throw new Error("expected the new avatar bytes to be stored");
+    expect(await objectExists(newKey)).toBe(false);
   });
 });
 

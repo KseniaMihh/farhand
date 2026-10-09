@@ -390,6 +390,8 @@ change, nothing reaches `master` unverified.
 | Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |
 | Format (or only check) | `npm run format` / `npm run format:check` | `farhand-api` |
 | Run the tests | `npm test` / `npm run test:watch` | `farhand-api` |
+| Check the suite left the file store empty | `npm run test:store-empty` | `farhand-api` |
+| Fill the file store, to investigate #110 | `npm run store:fill -- 6000` | `farhand-api` |
 
 After `docker compose down -v` the database is empty, and `npx prisma migrate dev` and `npm run seed` have to
 run again.

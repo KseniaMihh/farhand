@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 
 /**
@@ -118,10 +119,65 @@ async function ensureBucketExists(): Promise<void> {
   }
 }
 
-export async function setup(): Promise<void> {
+/**
+ * Empties the store before the suite runs, and reports what is left (#109).
+ *
+ * Nothing used to empty it, so every file test the project had ever run left
+ * its bytes behind — 5,230 objects by the morning this was written, growing by
+ * about 460 a run. Listing a bucket that size takes 563 ms, and four tests
+ * listed it twice each.
+ *
+ * The number this returns is what `tests/files/store-cleanup.test.ts` asserts
+ * is zero. For that assertion to mean anything on a machine whose store is
+ * empty already — a fresh clone, every CI run — there has to have been
+ * something to remove. Hence the object written first, on purpose: without it
+ * the test would pass whether or not this function did anything at all, which
+ * is the definition of a test that cannot fail.
+ */
+async function startWithAnEmptyStore(): Promise<number> {
+  const { countObjects, emptyBucket, putObjectBehindTheApi } =
+    await import("../helpers/files.js");
+
+  await putObjectBehindTheApi(`files/cleanup-sentinel-${randomUUID()}`);
+  const removed = await emptyBucket();
+  console.info(`[test setup] emptied the file store (${String(removed)})`);
+
+  // Counted, not inferred from `removed`. An `emptyBucket` that quietly did
+  // nothing would report removing nothing and look exactly like an empty
+  // store; only a fresh listing can tell those apart, and the sentinel above
+  // guarantees the listing has something to find if the emptying failed.
+  return countObjects();
+}
+
+export async function setup({
+  provide,
+}: {
+  provide: (key: "storeObjectsAfterCleanup", value: number) => void;
+}): Promise<void> {
   const url = testDatabaseUrl();
 
   await ensureDatabaseExists(url);
   applyMigrations(url);
   await ensureBucketExists();
+  provide("storeObjectsAfterCleanup", await startWithAnEmptyStore());
+}
+
+/**
+ * Runs once after the whole suite.
+ *
+ * Emptying at the start is what keeps the suite fast. Emptying at the end is
+ * what makes "a full run leaves the store no larger than it found it" true for
+ * somebody who looks afterwards rather than before — including whoever next
+ * runs `docker compose ps` and wonders why the container has grown.
+ */
+export async function teardown(): Promise<void> {
+  const { emptyBucket } = await import("../helpers/files.js");
+  await emptyBucket();
+}
+
+declare module "vitest" {
+  interface ProvidedContext {
+    /** 0 when the store was emptied before the suite began (#109). */
+    storeObjectsAfterCleanup: number;
+  }
 }
