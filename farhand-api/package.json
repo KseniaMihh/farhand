@@ -21,7 +21,9 @@
     "seed": "tsx src/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "job:auto-complete": "tsx src/jobs/auto-complete.ts"
+    "job:auto-complete": "tsx src/jobs/auto-complete.ts",
+    "test:store-empty": "tsx tests/assert-store-empty.ts",
+    "store:fill": "tsx tests/fill-store.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

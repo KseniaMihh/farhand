@@ -1,5 +1,6 @@
 import {
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -75,8 +76,21 @@ export async function objectExists(key: string): Promise<boolean> {
   }
 }
 
-/** Every key in the test bucket. Keys are random, so "did the count change?" */
-export async function allKeys(): Promise<string[]> {
+/**
+ * Every key in the test bucket.
+ *
+ * NOT exported any more, and not for tests to assert on (#109). It used to be,
+ * and four tests compared the whole listing before and after — which made them
+ * cost more every time anybody ran the suite, because nothing emptied the
+ * store between runs. At 14,489 leftover objects five of them crossed Vitest's
+ * five-second limit; at 5,690 one listing takes 563 ms and each of those tests
+ * did two.
+ *
+ * A test should name the key it cares about (`objectExists`), and the ones
+ * that did not now do. This stays only for `emptyBucket` below, which has to
+ * list the bucket by definition and runs twice a run rather than twice a test.
+ */
+async function allKeys(): Promise<string[]> {
   const keys: string[] = [];
   let token: string | undefined;
   do {
@@ -89,6 +103,140 @@ export async function allKeys(): Promise<string[]> {
     token = page.NextContinuationToken;
   } while (token);
   return keys;
+}
+
+/**
+ * Removes every object in the test bucket, and says how many there were.
+ *
+ * TODO(#109): the database is truncated before every test and the store never
+ * was, so every file test ever run left its bytes behind. This is the other
+ * half of that: `tests/setup/global-setup.ts` calls it at the start of a run
+ * and again at the end, so a run begins clean and leaves the store as it found
+ * it.
+ *
+ * Deliberately NOT per test: a list-and-delete for each of 774 tests would
+ * cost far more than it saves, and no test needs an empty store — they need
+ * their own keys to behave, which is a different thing.
+ */
+/**
+ * Refuses to empty anything that is not obviously the local test store.
+ *
+ * `emptyBucket` deletes every object it can reach, so it gets what
+ * `tests/setup/truncate.ts` gives the database: several conditions, **all** of
+ * which must hold, so that no single stale environment variable is enough. A
+ * copy of production's `STORAGE_*` in somebody's shell must not be able to
+ * empty the real B2 bucket, and `.env.test` winning is a convention rather
+ * than a guarantee (#109).
+ *
+ * Read from `env` at call time rather than from the module-level constants, so
+ * each condition can be proved by a test that changes one of them.
+ */
+function assertTestStore(): void {
+  const endpoint = env.STORAGE_ENDPOINT ?? "";
+  const name = env.STORAGE_BUCKET ?? "";
+  const host = URL.canParse(endpoint) ? new URL(endpoint).hostname : "";
+  const isLocal =
+    host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+
+  if (env.NODE_ENV !== "test" || !isLocal || !name.endsWith("-test")) {
+    throw new Error(
+      `Refusing to empty the file store: NODE_ENV is "${env.NODE_ENV}", the ` +
+        `endpoint is "${endpoint}" and the bucket is "${name}". This only ` +
+        `runs with NODE_ENV=test, against a store on localhost, in a bucket ` +
+        `whose name ends in "-test". Check .env.test.`,
+    );
+  }
+}
+
+export async function emptyBucket(): Promise<number> {
+  assertTestStore();
+
+  let removed = 0;
+
+  // Listed and deleted in turn rather than listing everything first: the
+  // bucket can hold tens of thousands of objects by the time anybody notices,
+  // and a delete request takes at most 1000 keys anyway.
+  for (;;) {
+    const page = await client.send(
+      new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1000 }),
+    );
+    const objects = (page.Contents ?? [])
+      .map((object) => object.Key)
+      .filter((key): key is string => key !== undefined)
+      .map((Key) => ({ Key }));
+
+    if (objects.length === 0) return removed;
+
+    await client.send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: objects, Quiet: true },
+      }),
+    );
+    removed += objects.length;
+  }
+}
+
+/**
+ * How many objects the bucket holds. For `tests/setup/global-setup.ts` only:
+ * a test that wants to know about one object should ask about that object
+ * with `objectExists`, which is the whole point of #109.
+ */
+export async function countObjects(): Promise<number> {
+  return (await allKeys()).length;
+}
+
+/**
+ * Fills the bucket with `count` small objects, for #110.
+ *
+ * The suite now starts empty, which is the point of #109 — and it also means
+ * the condition the five-second stall was last seen under (a bucket with
+ * thousands of objects in it) no longer happens by accident. So it has to be
+ * possible on purpose. How #110 uses it is in `tests/fill-store.ts`: fill from
+ * here, run the suite from a worktree on the commit before #109. There is no
+ * flag to switch the cleanup off, deliberately.
+ *
+ * Guarded like `emptyBucket`. This one does not destroy anything, but a few
+ * thousand objects written to a real bucket is still somebody's egress bill
+ * and the rule here is that nothing costs money.
+ */
+export async function fillBucket(count: number): Promise<number> {
+  assertTestStore();
+
+  const bytes = sample.png(512);
+  const batch = 100;
+  let written = 0;
+
+  while (written < count) {
+    const size = Math.min(batch, count - written);
+    await Promise.all(
+      Array.from({ length: size }, async () => {
+        await client.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: `files/fill-${randomUUID()}`,
+            Body: bytes,
+            ContentType: "image/png",
+          }),
+        );
+      }),
+    );
+    written += size;
+  }
+
+  return written;
+}
+
+/** Puts bytes under a key without going near the API. The other witness. */
+export async function putObjectBehindTheApi(key: string): Promise<void> {
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: sample.png(),
+      ContentType: "image/png",
+    }),
+  );
 }
 
 /** Removes bytes behind the API's back — the "bytes vanished" situation. */

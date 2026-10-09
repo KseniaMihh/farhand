@@ -127,6 +127,14 @@ jobs:
       - name: Test
         run: npm test
 
+      # The half of #109 that nothing inside the suite can see. global-setup.ts
+      # empties the file store before the suite and again after it; a test
+      # proves the first, and nothing running inside the suite can prove the
+      # second, because it happens after the last test. So it is checked from
+      # out here instead, where the answer is known.
+      - name: The suite leaves the file store empty
+        run: npm run test:store-empty
+
   image:
     name: Build the image and run the stack
     runs-on: ubuntu-latest

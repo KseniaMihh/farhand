@@ -128,6 +128,80 @@ Get-CimInstance Win32_Process -Filter "Name like '%node%'"
 *each other* and says nothing about a second run. Scripts that rewrite source
 files while they run now use a separate worktree with its own database.
 
+### The one that was not a flake: the store filled up (#109)
+
+The database is truncated before every test. The **object store never was**,
+so from #79 until #109 every file test the project ran left its bytes in the
+bucket. Nobody notices, because `docker compose stop` keeps them and `down`
+silently throws them away — the count only goes up, and only on a machine
+that has been running the suite for a while.
+
+| | |
+|---|---|
+| Objects in `farhand-test`, 2026-10-08 | 3,364 |
+| The next morning, after a day's work | **5,230** |
+| Added by one full suite run | ~460 |
+| Listing the bucket at 5,690 objects | **563 ms** |
+| Listing it empty | **3 ms** |
+
+What made that a problem rather than untidiness: a test helper called
+`allKeys()` paged the whole bucket, and four tests called it **twice each**
+to assert "the set of keys did not change". So those tests cost more every
+time anybody ran the suite — and in the scratch worktree, at **14,489**
+objects, five of them crossed Vitest's five-second limit and failed.
+
+That did not look like a store problem. It looked like a mutation-testing
+run in which every deliberately broken variant was caught, including the
+**control variant that changes nothing and must survive**. That is the only
+reason the run was thrown away instead of believed.
+
+**A test whose cost grows with every past run is a time bomb**, and resetting
+the timer is not defusing it. So #109 did both halves:
+
+- `tests/setup/global-setup.ts` empties the bucket before the suite and again
+  after it, so a run starts clean and leaves the store as it found it.
+- `allKeys()` is no longer exported. The four tests that listed everything
+  now name the key they care about — which is **stronger**, not merely
+  cheaper: a listing that matches also passes when the cleanup deleted the
+  wrong object and something else appeared.
+
+The wiring is held by a test, and the test is kept honest by a trick worth
+knowing. `global-setup.ts` writes one object *before* emptying, and the test
+asserts the count afterwards is zero. Without that object the test would pass
+on any machine whose store was already empty — a fresh clone, every CI run —
+whether or not the setup did anything at all.
+
+**This is not the five-second stall (#110).** The growth looked like the
+obvious explanation and the measurement said otherwise: against 5,230 real
+objects a single keyed fetch is 93 ms cold and 3–6 ms warm, and a full suite
+against a full bucket passed with no stall — one run each, 172 s full and
+148 s empty, which is inside the ordinary spread of this suite and so proves
+nothing on its own.
+
+### Getting a full store back on purpose
+
+Emptying the store every run also means the state #110 was last seen in can
+no longer happen by accident. So it has to be reachable deliberately:
+
+```bash
+npm run store:fill -- 6000                    # ~20 s, from master
+git worktree add --detach ../wt 2119c1b       # the commit before #109
+cd ../wt/farhand-api && npm test              # nothing empties anything here
+```
+
+**There is no flag that turns the cleanup off.** There was one for an
+afternoon, and it was removed before it shipped: a switch that disables a
+safety fix would live in the repository for ever for the sake of one
+investigation, and the investigation does not need it. The commit before
+#109 already behaves the old way, and the fill is just objects in a bucket —
+it does not care which commit the suite comes from.
+
+What that afternoon did establish is worth keeping: the tests that prove the
+emptying works will empty a store you have just filled, because that is what
+they are testing. The first attempt seeded 6,000 objects and found 434 at
+the end of the run. Running from before #109 avoids that too, since those
+tests do not exist there.
+
 ## A page made of images still costs one request per image
 
 Raised while mapping the file box for #100, and **mostly settled by #102**.

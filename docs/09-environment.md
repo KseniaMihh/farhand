@@ -259,6 +259,8 @@ being added to `.gitignore`, which is what `git rm --cached` fixes.
 | `npx prisma studio` | Browse the data in a browser | yes |
 | `npm install` | Install dependencies from `package.json` | no |
 | `npm test` | Run the test suite against `farhand_test` | yes |
+| `npm run test:store-empty` | Check the suite left the file store empty (#109) | yes |
+| `npm run store:fill -- 6000` | Fill the file store, to investigate #110 | yes |
 
 ## Why not simpler
 
