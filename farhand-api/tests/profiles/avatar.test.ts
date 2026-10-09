@@ -66,15 +66,64 @@ function remove(user: TestUser) {
   return request(app).delete("/me/avatar").set("Cookie", user.cookie);
 }
 
-/** Follows an avatarUrl the way a browser would, and returns the bytes. */
+/**
+ * Anything inside `download` slower than this is printed, with its step.
+ *
+ * #80 saw this function stall for about five seconds, twice in four full runs,
+ * never in a single-file run, and the cause was never found — three rounds of
+ * theories and no measurement, because nothing recorded WHICH part was slow.
+ * A second is far above anything healthy here (the whole thing is tens of
+ * milliseconds) and far below the five that was seen (#110).
+ */
+const SLOW_DOWNLOAD_MS = 1000;
+
+/**
+ * Follows an avatarUrl the way a browser would, and returns the bytes.
+ *
+ * Timed in three parts, because they fail for different reasons:
+ *
+ *   redirect  our API: a session lookup, the file's visibility rule, and
+ *             signing the URL — which is local arithmetic, so a slow redirect
+ *             means the database or the app, never the store
+ *   fetch     the request to S3Proxy, resolving when its headers arrive
+ *   body      reading the bytes off that response
+ *
+ * Opening the connection is not separable from `fetch` without reaching into
+ * undici's internals, which is not worth it until a stall points this way.
+ */
 async function download(avatarUrl: string): Promise<Buffer> {
+  const started = performance.now();
   const redirect = await request(app).get(avatarUrl);
+  const afterRedirect = performance.now();
+
   expect(redirect.status).toBe(302);
   const location = redirect.headers.location;
   if (!location) throw new Error("expected a redirect");
+
   const served = await fetch(location);
+  const afterFetch = performance.now();
+
   expect(served.status).toBe(200);
-  return Buffer.from(await served.arrayBuffer());
+  const bytes = Buffer.from(await served.arrayBuffer());
+  const afterBody = performance.now();
+
+  const steps = {
+    redirect: afterRedirect - started,
+    fetch: afterFetch - afterRedirect,
+    body: afterBody - afterFetch,
+  };
+
+  for (const [step, ms] of Object.entries(steps)) {
+    if (ms >= SLOW_DOWNLOAD_MS) {
+      console.warn(
+        `[SLOW DOWNLOAD] ${step} took ${ms.toFixed(0)}ms ` +
+          `(redirect ${steps.redirect.toFixed(0)}, fetch ${steps.fetch.toFixed(0)}, ` +
+          `body ${steps.body.toFixed(0)}) — #110`,
+      );
+    }
+  }
+
+  return bytes;
 }
 
 /** Uploads and returns the stored image's bytes. */

@@ -145,10 +145,17 @@ that has been running the suite for a while.
 | Listing it empty | **3 ms** |
 
 What made that a problem rather than untidiness: a test helper called
-`allKeys()` paged the whole bucket, and four tests called it **twice each**
-to assert "the set of keys did not change". So those tests cost more every
-time anybody ran the suite — and in the scratch worktree, at **14,489**
-objects, five of them crossed Vitest's five-second limit and failed.
+`allKeys()` paged the whole bucket to assert "the set of keys did not
+change". So those tests cost more every time anybody ran the suite — and in
+the scratch worktree, at **14,489** objects, five of them crossed Vitest's
+five-second limit and failed.
+
+**Corrected on 2026-10-09**, by counting rather than reading: this section
+first said "four tests called it twice each". Those are four call *sites*,
+and they sit inside two helpers that seventeen tests use between them. The
+real figure is **34 listings per suite run** — counted by making the
+function announce itself. The listing is also superlinear: 563 ms at 5,690
+objects, **2,134 ms at 11,480**.
 
 That did not look like a store problem. It looked like a mutation-testing
 run in which every deliberately broken variant was caught, including the
@@ -160,7 +167,7 @@ the timer is not defusing it. So #109 did both halves:
 
 - `tests/setup/global-setup.ts` empties the bucket before the suite and again
   after it, so a run starts clean and leaves the store as it found it.
-- `allKeys()` is no longer exported. The four tests that listed everything
+- `allKeys()` is no longer exported. The tests that listed everything
   now name the key they care about — which is **stronger**, not merely
   cheaper: a listing that matches also passes when the cleanup deleted the
   wrong object and something else appeared.
@@ -173,10 +180,31 @@ whether or not the setup did anything at all.
 
 **This is not the five-second stall (#110).** The growth looked like the
 obvious explanation and the measurement said otherwise: against 5,230 real
-objects a single keyed fetch is 93 ms cold and 3–6 ms warm, and a full suite
-against a full bucket passed with no stall — one run each, 172 s full and
-148 s empty, which is inside the ordinary spread of this suite and so proves
-nothing on its own.
+objects a single keyed fetch is 93 ms cold and 3–6 ms warm.
+
+#### What it actually costs, measured properly
+
+When this was written the evidence was one run with a full store (172 s) and
+one with an empty one (148 s), and it was recorded as proving nothing on its
+own — correctly, at one run each. #110's experiment then ran the suite
+twenty times and settled it:
+
+| | Runs | Objects | Time |
+|---|---|---|---|
+| Full store | 10 | 6,000 → 10,140 | **174 → 204 s**, rising with every run |
+| Empty store | 10 | 0 | **142–146 s** |
+
+The slowest empty run is 28 s faster than the quickest full one; the two do
+not overlap. And the real variance on identical code is **±2 s**, not the
+wide spread that one-run-each comparison suggested.
+
+One more run isolated the cause rather than inferring it. With the store
+still holding 10,100 objects but `allKeys()` stubbed to return nothing, the
+suite took **145 s** — the empty-store time. So the listing is the whole
+cost, and nothing else about a full store is slow. A separate check agrees:
+writing an object takes 1.5 ms into a store of 460 and 1.2 ms into one of
+10,000, so the backend does not degrade with directory size the way it was
+tempting to assume.
 
 ### Getting a full store back on purpose
 
@@ -201,6 +229,141 @@ emptying works will empty a store you have just filled, because that is what
 they are testing. The first attempt seeded 6,000 objects and found 434 at
 the end of the run. Running from before #109 avoids that too, since those
 tests do not exist there.
+
+## The five-second stall was a timeout, and #109 had already fixed it (#110)
+
+#80 ended with a line in the build log:
+
+> **Still open:** a test that occasionally stalls for five seconds on its
+> first download, seen twice in four full runs, cause not yet found. Written
+> up as its own issue rather than hidden behind a longer timeout.
+
+The instinct was right and **the issue did not exist** — not open, not
+closed, nothing here, searched by number, title and keyword. That is worth
+more attention than the stall. #69 built a test that fails when the API
+contract and the code disagree, because version 1 was called finished with
+five documented endpoints nobody had built. The build log has no such test,
+so a sentence in it claiming work was filed is believed by everybody,
+including whoever wrote it. The same failure one level up: not the code
+going missing, the record of the gap going missing.
+
+### What was known going in
+
+| | |
+|---|---|
+| Frequency | **2 sightings in 4 full runs**, during #80 |
+| Never seen | In a single-file run — only in a whole suite |
+| Where | `download()` in `tests/profiles/avatar.test.ts`: ask the API, follow the redirect, fetch the bytes |
+| Ruled out then | IPv6 resolution, idle connections |
+
+Nothing recorded *which part* was slow, which is why #80's three rounds of
+theories stayed theories.
+
+### Three hypotheses that died before the experiment ran
+
+| | How |
+|---|---|
+| **A stale kept-alive connection** | The best fit for the symptom — "first download in a file", "full suite only", "about five seconds" — and wrong. A fetch, 35 s idle, another: **10 ms**. After 65 s idle: **6 ms**. The reason it cannot happen is that undici drops idle connections after about 4 s, long before the server would. #80 was right |
+| **WSL2 filesystem slowness** | `docker inspect farhand-storage` shows **no mounts at all**. The objects live in the container's own writable layer, never on a Windows path |
+| **The store filling up** | 93 ms cold and 3–6 ms warm for one keyed fetch against 5,230 objects. It costs time (above), but not in a way that stalls |
+
+### What was built before guessing again
+
+**`download()` times itself in three parts** and prints any step over a
+second with all three numbers. The split is where the parts fail for
+different reasons: `redirect` is our API — session, visibility rule, and
+signing, all local, so a slow redirect means the database or the app and
+never the store; `fetch` is the request to S3Proxy, resolving at its
+headers; `body` is reading the bytes.
+
+**The store's garbage collection is logged** —
+`JAVA_TOOL_OPTIONS: -Xlog:gc` in `docker-compose.yml`. S3Proxy is a Java
+program with a heap of up to 75% of this machine's memory, and a
+multi-second pause looks exactly like a request that hung. Nothing logged
+them, so the idea could not be examined at all. Normal pauses are 8–16 ms.
+
+### The result
+
+Twenty full suite runs at `2119c1b`, the commit before #109, where nothing
+empties the store: ten with the store filled, ten with it empty.
+
+| | Failures | Slow downloads | Time |
+|---|---|---|---|
+| Full store | **2 of 10** | 0 | 165–230 s |
+| Empty store | **0 of 10** | 0 | 141–150 s |
+
+**Not one slow download, with instrumentation proven to catch one.** But two
+runs failed, both with a full store, in tests scattered across unrelated
+files — including `deals/events.test.ts`, which touches no files at all. The
+rate, 2 in 10, is in the same neighbourhood as #80's 2 in 4.
+
+A captured failure says what the earlier rounds of this never knew:
+
+```
+FAIL  tests/files/account-deletion.test.ts > deleting an account
+        > deletes its photos: the rows and the bytes
+Error: Test timed out in 5000ms.
+```
+
+### It is not a stall. It is a timeout with no headroom
+
+Two measurements finish it.
+
+**Every per-key operation is flat**, whatever the store holds. Only listing
+grows:
+
+| | 0 objects | ~9,000 objects |
+|---|---|---|
+| `HeadObject` | 1.12 ms | 0.91 ms |
+| `DeleteObject` | 1.04 ms | 0.93 ms |
+| `PutObject` | 1.53 ms | 1.19 ms |
+| **A full listing** | **3 ms** | **~1,700 ms** |
+
+**And the suite runs a cluster of tests close to the limit already.** On an
+empty store the slowest are 2.9–3.1 s against Vitest's 5 s — under two
+seconds of room. They are the ones that hash passwords with argon2 and
+re-encode images, which are slow on purpose.
+
+Put those together. `when it is not an image` takes 2,985 ms on an empty
+store and is one of the tests that failed in **both** failing runs. It uses a
+helper that lists the whole store **twice**:
+
+```
+3.0 s  the test itself
+3.4 s  two listings at ~1.7 s each, with 9,000 objects in the store
+-----
+6.4 s  against a 5 s limit
+```
+
+That is the whole phenomenon. It looked random because which test tips over
+depends on what the machine is doing; it only happened in whole-suite runs
+because a single file never accumulated enough objects; and it moved between
+files because several tests sit at the same height. #80 saw it surface at a
+download and reasonably assumed the download had stalled. The download was
+never slow — it was simply in a test that ran out of time.
+
+### So it is already fixed, and that is not luck
+
+#109 emptied the store before every run and stopped the tests listing it.
+Both halves remove the seconds that caused this, which is why the empty arm
+above failed 0 times in 10 and why every run on `master` since has been
+clean. The fix landed before the diagnosis, aimed at a cost rather than a
+crash — the crash was the same cost, further along.
+
+**What is left is the headroom.** Under two seconds on the slowest tests is
+thin, and the next slow thing anybody adds will do this again somewhere else.
+That is a standing hazard rather than a bug, and it is recorded here because
+the lesson of #80 is what happens when it is not.
+
+What nobody should do is raise the timeout. #80 refused to and was right, and
+now there is a reason rather than an instinct: the limit is the only thing
+that made this visible at all. Raising it would have turned a failing test
+into a suite that was quietly, unaccountably slower every month.
+
+The instrumentation stays. It earned its place by being proved — a deliberate
+delay in each of the three steps, each reported as itself — and then by
+ruling the download out, which is what sent the investigation to the right
+place.
 
 ## A page made of images still costs one request per image
 
