@@ -37,6 +37,12 @@ services:
       S3PROXY_CREDENTIAL: farhand-local-secret
       JCLOUDS_PROVIDER: filesystem
       JCLOUDS_FILESYSTEM_BASEDIR: /tmp
+      # S3Proxy is a Java program with a heap of up to 75% of this machine's
+      # memory, and a long garbage-collection pause looks exactly like a
+      # request that hung. Nothing logged them, so the possibility could not be
+      # checked at all — one line turns "maybe it was GC" into something
+      # `docker logs farhand-storage` answers (#110).
+      JAVA_TOOL_OPTIONS: "-Xlog:gc"
     ports:
       - "9000:80"
 
