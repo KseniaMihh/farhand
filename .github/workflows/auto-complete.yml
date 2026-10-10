@@ -41,6 +41,23 @@ jobs:
     name: Complete deals delivered 14 days ago
     runs-on: ubuntu-latest
 
+    # The DIRECT string, like the migration step in ci.yml. This is a
+    # short-lived batch process, not a web server: it opens one connection,
+    # does its work and exits, so Neon's pooler would add a hop and the
+    # pooler's own limits for nothing.
+    #
+    # On the job rather than the Sweep step, because the Sweep is not the
+    # first thing that needs it. prisma.config.ts resolves DATABASE_URL with
+    # Prisma's env() helper, which throws if the variable is missing, so
+    # `prisma generate` fails without it — and did, on every scheduled run
+    # until #114. ci.yml meets the same thing by copying .env.test into place.
+    #
+    # It is also the only variable src/env.ts requires without a default.
+    # Everything else it validates is optional or defaulted, including the
+    # storage credentials — a sweep touches no files.
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
     defaults:
       run:
         working-directory: farhand-api
@@ -62,21 +79,18 @@ jobs:
         run: npx prisma generate
 
       - name: Sweep
-        # The DIRECT string, like the migration step in ci.yml. This is a
-        # short-lived batch process, not a web server: it opens one connection,
-        # does its work and exits, so Neon's pooler would add a hop and the
-        # pooler's own limits for nothing.
-        #
         # The script exits 1 if it throws, which fails this step, which emails
         # whoever owns the repository. A run that finds nothing to do logs
         # `completed: 0` and succeeds — silence here means "nothing was due",
         # not "nothing happened".
         run: npm run job:auto-complete
         env:
-          # The only variable src/env.ts requires without a default.
-          # Everything else it validates is optional or defaulted, including
-          # the storage credentials — a sweep touches no files.
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           # Not needed, but it turns off pino's pretty-printing, which starts
           # a worker thread to format logs nobody is reading here (#70).
+          #
+          # On this step and NOT on the job: under NODE_ENV=production,
+          # `npm ci` skips devDependencies, and tsx — which runs the job — is
+          # one. Moved up with DATABASE_URL, it would fix the generate step
+          # and break this one (#114). (prisma is a devDependency too, but
+          # survives: @prisma/client brings it in as a peer.)
           NODE_ENV: production
