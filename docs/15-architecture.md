@@ -24,7 +24,7 @@ flowchart LR
     neon[("Neon PostgreSQL<br/>rows")]
     b2[("Backblaze B2<br/>private file bytes")]
     sentry["Sentry<br/>5xx errors"]
-    cron["GitHub Actions<br/>daily sweep, 03:17 UTC"]
+    cron["GitHub Actions<br/>daily sweep"]
 
     browser -->|"HTTPS + session cookie"| edge
     edge -->|"proxies"| api

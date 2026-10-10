@@ -210,7 +210,7 @@ happened between #25 and #101, because nothing scheduled it.
 | | |
 |---|---|
 | What | `.github/workflows/auto-complete.yml` |
-| When | Daily, 03:17 UTC. Not on the hour: jobs queued at `:00` compete with everybody else's |
+| When | Daily, scheduled for 03:17 UTC — and run whenever GitHub gets to it. The first two runs started at 10:28 and 09:45. Not on the hour: jobs queued at `:00` compete with everybody else's |
 | How | `npm run job:auto-complete`, with Neon's **direct** string |
 | By hand | The workflow has `workflow_dispatch`, so it can be run from the Actions tab |
 
@@ -231,7 +231,13 @@ changes nothing anybody would feel. Two sweeps at once would also be harmless
 Worth being honest about, because this is the part that was not built.
 
 - **A run that fails** sets exit code 1, fails the step, and GitHub emails the
-  repository owner. That one is covered.
+  repository owner. That one is covered — and it is how #114 was found: the
+  workflow failed on its first two scheduled runs, before reaching the sweep,
+  because `prisma generate` had no `DATABASE_URL`. #101 had checked the file's
+  shape and never run it.
+- **A change to the workflow is not done until it has run.** Actions →
+  *Auto-complete delivered deals* → *Run workflow*, and read the log for
+  `completed: N`. That is what `workflow_dispatch` is for.
 - **A run that finds nothing** logs `completed: 0` and succeeds. Silence here
   means "nothing was due", not "nothing happened".
 - **A schedule that stops running tells nobody.** GitHub's documented
