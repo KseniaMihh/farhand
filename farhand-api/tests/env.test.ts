@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
@@ -50,6 +52,13 @@ async function load(overrides: Record<string, string> = {}): Promise<Loaded> {
   const env: Record<string, string | undefined> = {
     ...process.env,
     ...REQUIRED,
+    // `src/env.ts` starts with `import "dotenv/config"`, so without this the
+    // child also reads whatever `.env` happens to be on disk — and CI puts one
+    // there (`cp .env.test .env`, ci.yml) holding a complete storage set. That
+    // filled in the very variables a case had just removed, so "half a
+    // configuration is refused" passed on a laptop and failed in CI. Pointed
+    // at a file that cannot exist, the only environment is the one below.
+    DOTENV_CONFIG_PATH: path.join(tmpdir(), "farhand-no-such-file.env"),
   };
   // The suite's own settings are in `process.env` (vitest.config.ts hands
   // them to every worker), and they include a complete storage set. Removing
