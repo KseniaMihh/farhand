@@ -396,7 +396,7 @@ authRouter.post(
     // identical response.
     res.status(200).json({
       message:
-        "If an account exists for that email, a reset link is on its way.",
+        "If an account exists for that email, a reset code is on its way.",
     });
   },
 );
@@ -512,7 +512,7 @@ authRouter.post(
     }
 
     res.status(200).json({
-      message: "If an account needs verifying, a new link is on its way.",
+      message: "If an account needs verifying, a new code is on its way.",
     });
   },
 );

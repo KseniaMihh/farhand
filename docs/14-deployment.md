@@ -161,12 +161,63 @@ the check is worth repeating if any of the five settings ever change:
 4. The key in that address is a bare UUID, naming neither the file nor its
    owner.
 
-Step 2 needs a verified account, and production has no mail provider, so the
-only way to get one today is `UPDATE "User" SET "emailVerifiedAt" = now()` in
-Neon. That is a gap in #10's feature, not in this one — see
-`docs/15-architecture.md`, "What is not there yet".
+Step 2 needs a verified account. Before step 5 below existed there was no way
+to get one — production delivered no mail — so the account used to prove this
+was verified with `UPDATE "User" SET "emailVerifiedAt" = now()` in Neon. Since
+#119 the ordinary flow works, and that SQL is only a way out if the provider
+itself is down.
 
-### 5. The monitor
+### 5. Email
+
+Without this the API still runs — and nobody but you can use it, because
+`requireVerified` guards 41 routes and nobody can confirm an address. Needed
+before anyone else is invited, which is why it is a step rather than a nicety
+(#119, [decision 0014](10-decisions/0014-brevo-for-email.md)).
+
+1. **Make an address for the project**, not your own: a new mailbox such as
+   `farhand.app@gmail.com`. It becomes the sender of every message the API
+   sends, and it is the one Brevo will ask you to prove you own. A personal
+   address here is shown to every stranger who registers.
+2. **Sign up at Brevo** with that address. The free plan is 300 emails a day
+   with no expiry and asks for no card.
+3. **Verify the sender**, *Senders, Domains & Dedicated IPs → Senders → Add a
+   sender*. Brevo emails a code to the address; paste it back.
+4. **Create an API key**, *SMTP & API → API keys → Generate a new API key*.
+   Copy it then — the dashboard shows it once.
+5. **Give Render the settings**, *the service → Environment*:
+
+| Variable | Value |
+|---|---|
+| `MAIL_API_KEY` | the key from step 4 |
+| `MAIL_FROM` | the address from step 1, exactly as Brevo verified it |
+| `MAIL_FROM_NAME` | optional; what inboxes show instead of the address. Defaults to `Farhand` |
+| `MAIL_REPLY_TO` | **leave unset.** A reply to the visible From goes nowhere, and a personal address here is published to everyone who registers |
+
+`MAIL_API_KEY` and `MAIL_FROM` are all-or-none, checked in `src/env.ts` the
+same way the `STORAGE_*` set is: one without the other and the API refuses to
+start rather than discovering it at the first registration.
+
+**What recipients will see is not `MAIL_FROM`.** Farhand has no domain, a
+`gmail.com` address cannot be DKIM-signed by us, so Brevo replaces the domain
+part with one of its own: `farhand.app@5000123.brevosend.com`. The message is
+delivered and authenticated — by Brevo — and the cost is that the sender looks
+unfamiliar, which is the thing most likely to put a first email in a spam
+folder. The fix is a domain, three DNS records and one changed setting, on the
+day there is a domain; decision 0014 holds the full argument.
+
+Then prove it, the way storage was proved:
+
+1. Register through the live API with an address you can read:
+   `POST /auth/register` (remember the `Origin` header, or every write is
+   `403`).
+2. The mail arrives, carrying a **code** rather than a link — there is no page
+   for a link to land on until #93 — and `POST /auth/verify-email` with that
+   code answers `200`.
+3. Render's logs show `Email sent` and **no token**. A token in a log is a
+   working credential; if one appears there, that is a bug and not a
+   convenience.
+
+### 6. The monitor
 
 Add a check in Better Stack or UptimeRobot (both free for this):
 
@@ -423,7 +474,7 @@ measured here, and each one has already decided something:
 | A single instance | See above: half the reason `numInstances` is `1` |
 | Sleeps after 15 idle minutes | The cold start above — and it wipes the rate-limit counters, which is a reminder that they are not durable state |
 | 0.1 CPU, 512 MB | Why argon2id hashing and avatar re-encoding are the two expensive things the API does, and why both are limited per user |
-| **Outbound SMTP is blocked** (ports 25, 465, 587) | Email cannot be sent by connecting to a mail server. Whatever sends it in #86 has to be a provider with an **HTTP API**. Worth knowing before that issue picks a library |
+| **Outbound SMTP is blocked** (ports 25, 465, 587) | Email cannot be sent by connecting to a mail server. This is what chose Brevo's HTTP API in #119 — one `fetch`, no SMTP library in the project at all (decision 0014) |
 
 ## What is not here
 

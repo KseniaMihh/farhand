@@ -222,7 +222,9 @@ that trade gets decided, with decision 0012 as the argument against
 
 | Missing | What happens today | Issue |
 |---|---|---|
-| An email provider | Verification and reset tokens are written to the log and delivered nowhere. Render's free plan blocks outbound SMTP, so whatever sends them must be called over HTTP | #85, #86 |
+| A domain of its own | `APP_ORIGIN` is the API's own `onrender.com` address, and mail is sent from an address whose domain the provider rewrites, because a free mailbox cannot be DKIM-signed by us (#119, decision 0014). A domain fixes the sender, the link in a verification email, and the placeholder together | #93 |
+| Emails anybody asked for | Verification and password resets are delivered since #119. Nothing tells a person that their need was matched or their deal moved — that is which-events-email, a `Notification` table, and an opt-out | #86 |
+| A verification LINK rather than a code | The email carries a code, because a link needs a page to land on and an inbox cannot follow a link to `POST /auth/verify-email` | #93 |
 | Anything that notices the sweep stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED` | #101 named it, #85 may do more |
 | Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |
 | A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
