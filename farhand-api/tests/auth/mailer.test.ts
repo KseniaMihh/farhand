@@ -431,11 +431,19 @@ describe("the whole way through", () => {
       displayName: "Twice",
       countryCode: "EE",
     };
+
+    // Stubbed BEFORE the first registration, not between the two. A variant
+    // run caught this: the first one used to go out to the real api.brevo.com
+    // with a nonsense key, and only passed because the mailer swallows what
+    // the provider says. A test that quietly needs the internet is a test
+    // that fails on a train.
+    const { seen } = stubProvider();
     expect((await request(app).post("/auth/register").send(body)).status).toBe(
       201,
     );
+    expect(seen).toHaveLength(1);
+    seen.length = 0;
 
-    const { seen } = stubProvider();
     expect((await request(app).post("/auth/register").send(body)).status).toBe(
       201,
     );
