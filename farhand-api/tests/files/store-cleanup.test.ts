@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, inject, it } from "vitest";
 import { env } from "../../src/env.js";
 import {
+  CLEANUP_STORE,
   emptyBucket,
   objectExists,
   putObjectBehindTheApi,
+  SHARED_STORE,
 } from "../helpers/files.js";
 
 /**
@@ -24,30 +26,53 @@ import {
  *
  * The second is the one worth being careful about, because it is a wiring
  * check and those are the easy ones to fake. See the comment on the test.
+ *
+ * Everything that empties a store here empties `CLEANUP_STORE`, not the one
+ * the rest of the suite uses (#111). These tests prove emptying works by
+ * emptying, so on the shared store they wiped it partway through every run.
+ * Nothing depended on that — but it cost an afternoon once, when 6,000
+ * objects seeded to reproduce #110 came back as 434.
  */
 
 describe("emptyBucket", () => {
   it("removes what is there and says how much it removed", async () => {
     const first = `files/${randomUUID()}`;
     const second = `files/${randomUUID()}`;
-    for (const key of [first, second]) await putObjectBehindTheApi(key);
+    for (const key of [first, second]) {
+      await putObjectBehindTheApi(key, CLEANUP_STORE);
+    }
 
-    expect(await objectExists(first)).toBe(true);
-    expect(await objectExists(second)).toBe(true);
+    expect(await objectExists(first, CLEANUP_STORE)).toBe(true);
+    expect(await objectExists(second, CLEANUP_STORE)).toBe(true);
 
-    const removed = await emptyBucket();
+    const removed = await emptyBucket(CLEANUP_STORE);
 
     expect(removed).toBeGreaterThanOrEqual(2);
-    expect(await objectExists(first)).toBe(false);
-    expect(await objectExists(second)).toBe(false);
+    expect(await objectExists(first, CLEANUP_STORE)).toBe(false);
+    expect(await objectExists(second, CLEANUP_STORE)).toBe(false);
   });
 
   it("is happy to run against a store that is already empty", async () => {
-    await emptyBucket();
+    await emptyBucket(CLEANUP_STORE);
 
     // Called twice in a row by anybody debugging, and by setup-then-teardown
     // on a suite that stored nothing. It must not throw, and it must say zero.
-    expect(await emptyBucket()).toBe(0);
+    expect(await emptyBucket(CLEANUP_STORE)).toBe(0);
+  });
+
+  /**
+   * The reason #111 exists, stated as an assertion rather than a comment.
+   * Everything above empties a store; none of it may touch the one the rest
+   * of the suite is using.
+   */
+  it("never touches the store the rest of the suite shares", async () => {
+    const theirs = `files/${randomUUID()}`;
+    await putObjectBehindTheApi(theirs);
+
+    await emptyBucket(CLEANUP_STORE);
+
+    expect(await objectExists(theirs)).toBe(true);
+    expect(CLEANUP_STORE).not.toBe(SHARED_STORE);
   });
 });
 
@@ -74,18 +99,27 @@ describe("emptyBucket refuses anything that is not the test store", () => {
    * from the environment, so changing `env` steers the guard without moving
    * the store — which is what makes "it refused before deleting anything"
    * checkable at all.
+   *
+   * The witness object always goes in a bucket that exists, while `target` is
+   * what `emptyBucket` is asked to empty and may be a name with nothing behind
+   * it. Writing the witness into `target` was the first version, and it failed
+   * for the wrong reason: the put itself got `NoSuchBucket` and the guard was
+   * never reached, so the test passed nothing and proved nothing.
    */
-  async function expectRefused(breakOneSetting: () => void) {
+  async function expectRefused(
+    breakOneSetting: () => void,
+    target: string = CLEANUP_STORE,
+  ) {
     const key = `files/${randomUUID()}`;
-    await putObjectBehindTheApi(key);
+    await putObjectBehindTheApi(key, CLEANUP_STORE);
 
     breakOneSetting();
-    await expect(emptyBucket()).rejects.toThrow(/Refusing to empty/);
+    await expect(emptyBucket(target)).rejects.toThrow(/Refusing to empty/);
 
     // Not merely "it threw": a guard that threw halfway through the deleting
-    // would also throw.
+    // would also throw. And nothing anywhere else may have gone either.
     Object.assign(env, settings);
-    expect(await objectExists(key)).toBe(true);
+    expect(await objectExists(key, CLEANUP_STORE)).toBe(true);
   }
 
   it("not when NODE_ENV says this is not a test run", async () => {
@@ -116,19 +150,54 @@ describe("emptyBucket refuses anything that is not the test store", () => {
     });
   });
 
-  it("not when the bucket is not named like a test bucket", async () => {
-    await expectRefused(() => {
-      env.STORAGE_BUCKET = "farhand-files";
-    });
+  /**
+   * These two are #111's whole point, and they pin it from both sides.
+   *
+   * With two buckets in play the guard has to judge **the one it is handed**.
+   * A guard that went back to reading `env.STORAGE_BUCKET` would approve a
+   * perfectly good configured name and then delete from whatever it was
+   * actually given — a worse version of the bug the guard exists to prevent,
+   * and one that would pass every other test in this file.
+   */
+  it("not when the bucket it is handed is not a test bucket", async () => {
+    // The configured bucket stays perfectly valid throughout. Only the
+    // argument is wrong, so only a guard reading the argument refuses.
+    expect(env.STORAGE_BUCKET).toMatch(/-test$/);
+    await expectRefused(() => undefined, "farhand-files");
   });
 
-  it("but it does empty the real test store", async () => {
+  it("and it does not refuse a good bucket because the settings name a bad one", async () => {
+    // The mirror image: the configured name is nonsense, the argument is
+    // fine. A guard reading the settings would refuse this, and emptying
+    // the cleanup store would stop working for a reason nobody could see.
     const key = `files/${randomUUID()}`;
-    await putObjectBehindTheApi(key);
+    await putObjectBehindTheApi(key, CLEANUP_STORE);
 
-    await emptyBucket();
+    env.STORAGE_BUCKET = "farhand-files";
+    await emptyBucket(CLEANUP_STORE);
 
-    expect(await objectExists(key)).toBe(false);
+    Object.assign(env, settings);
+    expect(await objectExists(key, CLEANUP_STORE)).toBe(false);
+  });
+
+  it("but it does empty a real test store", async () => {
+    const key = `files/${randomUUID()}`;
+    await putObjectBehindTheApi(key, CLEANUP_STORE);
+
+    await emptyBucket(CLEANUP_STORE);
+
+    expect(await objectExists(key, CLEANUP_STORE)).toBe(false);
+
+    // And one object left behind ON PURPOSE, as the last thing this file does
+    // to the cleanup store. Without it these tests end with that store empty
+    // by coincidence, and then `teardown` emptying it is unobservable — a
+    // broken version that forgets the second store passes everything. With
+    // it, `npm run test:store-empty` fails. The equivalent of the sentinel
+    // `global-setup.ts` writes before emptying, at the other end of the run.
+    await putObjectBehindTheApi(
+      `files/teardown-sentinel-${randomUUID()}`,
+      CLEANUP_STORE,
+    );
   });
 });
 

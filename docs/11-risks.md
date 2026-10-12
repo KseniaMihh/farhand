@@ -166,7 +166,9 @@ reason the run was thrown away instead of believed.
 the timer is not defusing it. So #109 did both halves:
 
 - `tests/setup/global-setup.ts` empties the bucket before the suite and again
-  after it, so a run starts clean and leaves the store as it found it.
+  after it, so a run starts clean and leaves the store as it found it. Since
+  #111 that covers both buckets, and `npm run test:store-empty` counts both —
+  a second store nobody empties would be the first store's problem again.
 - `allKeys()` is no longer exported. The tests that listed everything
   now name the key they care about — which is **stronger**, not merely
   cheaper: a listing that matches also passes when the cleanup deleted the
@@ -224,11 +226,26 @@ investigation, and the investigation does not need it. The commit before
 #109 already behaves the old way, and the fill is just objects in a bucket —
 it does not care which commit the suite comes from.
 
-What that afternoon did establish is worth keeping: the tests that prove the
-emptying works will empty a store you have just filled, because that is what
-they are testing. The first attempt seeded 6,000 objects and found 434 at
-the end of the run. Running from before #109 avoids that too, since those
-tests do not exist there.
+**That hazard is gone as of #111**, and the history is worth keeping because
+it is why the fix exists. The tests that prove the emptying works used to
+empty a store you had just filled — that is what they are testing, and they
+ran against the same bucket as everything else. The first attempt at the
+paragraph above seeded 6,000 objects and found 434 at the end of the run.
+
+They now use a second bucket of their own, `CLEANUP_STORE`, derived from the
+configured one by name: `farhand-test` becomes `farhand-cleanup-test`. So a
+filled store survives a run on **any** commit, and the recipe above no
+longer depends on checking out an old one — that is only still there
+because the pre-#109 commit is also where nothing empties the store at all.
+
+The guard came with it. `assertTestStore` now judges **the bucket it is
+handed** rather than the configured one. With two buckets in play, a guard
+reading `env.STORAGE_BUCKET` would approve a perfectly good configured name
+and then delete from whatever it was actually given — a worse version of the
+bug the guard exists to prevent, and one that would have passed every test
+written for #109. Two tests pin it from both sides: a bad bucket is refused
+while the settings are good, and a good bucket is **not** refused while the
+settings are bad.
 
 ## The five-second stall was a timeout, and #109 had already fixed it (#110)
 
