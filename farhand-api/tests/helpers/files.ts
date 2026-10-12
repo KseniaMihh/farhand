@@ -1,6 +1,8 @@
 import {
+  CreateBucketCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -42,7 +44,30 @@ const client = new S3Client({
   forcePathStyle: true,
 });
 
-const bucket = required("STORAGE_BUCKET", env.STORAGE_BUCKET);
+/**
+ * The store the application uses, and the one almost every test means.
+ */
+export const SHARED_STORE = required("STORAGE_BUCKET", env.STORAGE_BUCKET);
+
+/**
+ * A second store, for the tests that prove emptying works (#111).
+ *
+ * Those tests empty a bucket, because that is the thing they are testing. On
+ * the shared one that meant every test file ordered after them started from an
+ * empty store — harmless, since #109 left every test asserting on keys it
+ * created itself, and exactly the kind of coupling that is free to remove
+ * while nothing relies on it.
+ *
+ * It also cost real time once already: #109 seeded 6,000 objects to recreate
+ * #110's conditions, ran the suite, and found 434 — these tests had emptied
+ * the lot. That produced a `KEEP_TEST_STORE` flag which was rightly thrown
+ * away. With a second bucket, nobody needs the flag.
+ *
+ * Derived rather than configured, so there is no second thing to set in
+ * `.env.test`, and the `-test` suffix the guard insists on survives:
+ * `farhand-test` becomes `farhand-cleanup-test`.
+ */
+export const CLEANUP_STORE = `${SHARED_STORE.replace(/-test$/, "")}-cleanup-test`;
 
 /** Real leading bytes of each type, padded to `size`. Enough to sniff. */
 function withHeader(header: number[], size: number): Buffer {
@@ -67,9 +92,12 @@ export const sample = {
 };
 
 /** Does an object exist under this key, according to the store itself? */
-export async function objectExists(key: string): Promise<boolean> {
+export async function objectExists(
+  key: string,
+  store: string = SHARED_STORE,
+): Promise<boolean> {
   try {
-    await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    await client.send(new HeadObjectCommand({ Bucket: store, Key: key }));
     return true;
   } catch {
     return false;
@@ -90,12 +118,12 @@ export async function objectExists(key: string): Promise<boolean> {
  * that did not now do. This stays only for `emptyBucket` below, which has to
  * list the bucket by definition and runs twice a run rather than twice a test.
  */
-async function allKeys(): Promise<string[]> {
+async function allKeys(store: string = SHARED_STORE): Promise<string[]> {
   const keys: string[] = [];
   let token: string | undefined;
   do {
     const page = await client.send(
-      new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token }),
+      new ListObjectsV2Command({ Bucket: store, ContinuationToken: token }),
     );
     for (const object of page.Contents ?? []) {
       if (object.Key) keys.push(object.Key);
@@ -131,9 +159,13 @@ async function allKeys(): Promise<string[]> {
  * Read from `env` at call time rather than from the module-level constants, so
  * each condition can be proved by a test that changes one of them.
  */
-function assertTestStore(): void {
+function assertTestStore(name: string): void {
+  // The name being acted on is an ARGUMENT, not `env.STORAGE_BUCKET`, and
+  // that is the point of #111: with two buckets in play, a guard reading the
+  // configured one would approve `farhand-test` and then delete from whatever
+  // it was actually handed. The other two conditions still come from `env`,
+  // because there is only ever one endpoint and one NODE_ENV.
   const endpoint = env.STORAGE_ENDPOINT ?? "";
-  const name = env.STORAGE_BUCKET ?? "";
   const host = URL.canParse(endpoint) ? new URL(endpoint).hostname : "";
   const isLocal =
     host === "localhost" || host === "127.0.0.1" || host === "[::1]";
@@ -148,8 +180,31 @@ function assertTestStore(): void {
   }
 }
 
-export async function emptyBucket(): Promise<number> {
-  assertTestStore();
+/**
+ * Creates a bucket if it is not there.
+ *
+ * `src/storage.ts` has an `ensureBucket` of its own, and it only knows the
+ * configured bucket. The cleanup store is not configured anywhere — it is
+ * derived — so the independent witness has to be able to make it too (#111).
+ *
+ * Guarded like the rest: this one creates rather than destroys, but a bucket
+ * conjured on somebody's real storage account is still litter on a service
+ * the rule here says we never pay for.
+ */
+export async function ensureBucket(name: string): Promise<void> {
+  assertTestStore(name);
+
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: name }));
+  } catch {
+    await client.send(new CreateBucketCommand({ Bucket: name }));
+  }
+}
+
+export async function emptyBucket(
+  store: string = SHARED_STORE,
+): Promise<number> {
+  assertTestStore(store);
 
   let removed = 0;
 
@@ -158,7 +213,7 @@ export async function emptyBucket(): Promise<number> {
   // and a delete request takes at most 1000 keys anyway.
   for (;;) {
     const page = await client.send(
-      new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1000 }),
+      new ListObjectsV2Command({ Bucket: store, MaxKeys: 1000 }),
     );
     const objects = (page.Contents ?? [])
       .map((object) => object.Key)
@@ -169,7 +224,7 @@ export async function emptyBucket(): Promise<number> {
 
     await client.send(
       new DeleteObjectsCommand({
-        Bucket: bucket,
+        Bucket: store,
         Delete: { Objects: objects, Quiet: true },
       }),
     );
@@ -182,8 +237,10 @@ export async function emptyBucket(): Promise<number> {
  * a test that wants to know about one object should ask about that object
  * with `objectExists`, which is the whole point of #109.
  */
-export async function countObjects(): Promise<number> {
-  return (await allKeys()).length;
+export async function countObjects(
+  store: string = SHARED_STORE,
+): Promise<number> {
+  return (await allKeys(store)).length;
 }
 
 /**
@@ -200,8 +257,11 @@ export async function countObjects(): Promise<number> {
  * thousand objects written to a real bucket is still somebody's egress bill
  * and the rule here is that nothing costs money.
  */
-export async function fillBucket(count: number): Promise<number> {
-  assertTestStore();
+export async function fillBucket(
+  count: number,
+  store: string = SHARED_STORE,
+): Promise<number> {
+  assertTestStore(store);
 
   const bytes = sample.png(512);
   const batch = 100;
@@ -213,7 +273,7 @@ export async function fillBucket(count: number): Promise<number> {
       Array.from({ length: size }, async () => {
         await client.send(
           new PutObjectCommand({
-            Bucket: bucket,
+            Bucket: store,
             Key: `files/fill-${randomUUID()}`,
             Body: bytes,
             ContentType: "image/png",
@@ -228,10 +288,13 @@ export async function fillBucket(count: number): Promise<number> {
 }
 
 /** Puts bytes under a key without going near the API. The other witness. */
-export async function putObjectBehindTheApi(key: string): Promise<void> {
+export async function putObjectBehindTheApi(
+  key: string,
+  store: string = SHARED_STORE,
+): Promise<void> {
   await client.send(
     new PutObjectCommand({
-      Bucket: bucket,
+      Bucket: store,
       Key: key,
       Body: sample.png(),
       ContentType: "image/png",
@@ -241,7 +304,11 @@ export async function putObjectBehindTheApi(key: string): Promise<void> {
 
 /** Removes bytes behind the API's back — the "bytes vanished" situation. */
 export async function deleteObjectBehindTheApi(key: string): Promise<void> {
-  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  // No store argument on purpose: this removes bytes the API wrote, and the
+  // API only ever writes to the shared store.
+  await client.send(
+    new DeleteObjectCommand({ Bucket: SHARED_STORE, Key: key }),
+  );
 }
 
 /**
@@ -262,7 +329,9 @@ export async function fileFixture(input: {
 
   await client.send(
     new PutObjectCommand({
-      Bucket: bucket,
+      // The shared store, always: this writes a row the API will read, and the
+      // API knows only one bucket.
+      Bucket: SHARED_STORE,
       Key: storageKey,
       Body: bytes,
       ContentType: "image/png",

@@ -21,18 +21,27 @@ import { config as loadEnvFile } from "dotenv";
 // shell, so this can never be pointed at a real store by accident.
 loadEnvFile({ path: ".env.test", override: true, quiet: true });
 
-const { countObjects } = await import("./helpers/files.js");
+const { CLEANUP_STORE, countObjects, SHARED_STORE } =
+  await import("./helpers/files.js");
 
-const left = await countObjects();
+// Both stores since #111. The cleanup one is derived rather than
+// configured, which makes it exactly the sort of thing that grows for years
+// because nobody remembers it is there.
+const stores = [SHARED_STORE, CLEANUP_STORE];
+const counts = await Promise.all(stores.map((name) => countObjects(name)));
+const left = counts.reduce((sum, n) => sum + n, 0);
 
 if (left !== 0) {
+  const detail = stores
+    .map((name, i) => `${name}: ${String(counts[i])}`)
+    .join(", ");
   console.error(
-    `The file store still holds ${String(left)} object(s) after the suite. ` +
-      `The teardown in tests/setup/global-setup.ts did not run, or did not ` +
-      `finish. Left alone this grows every run until listing the bucket times ` +
-      `a test out (#109).`,
+    `The file stores still hold ${String(left)} object(s) after the suite ` +
+      `(${detail}). The teardown in tests/setup/global-setup.ts did not run, ` +
+      `or did not finish. Left alone this grows every run until listing a ` +
+      `bucket times a test out (#109).`,
   );
   process.exit(1);
 }
 
-console.info("[store] empty after the suite, as it should be");
+console.info("[store] both stores empty after the suite, as they should be");

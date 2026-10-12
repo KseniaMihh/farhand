@@ -135,18 +135,41 @@ async function ensureBucketExists(): Promise<void> {
  * is the definition of a test that cannot fail.
  */
 async function startWithAnEmptyStore(): Promise<number> {
-  const { countObjects, emptyBucket, putObjectBehindTheApi } =
-    await import("../helpers/files.js");
+  const {
+    CLEANUP_STORE,
+    countObjects,
+    emptyBucket,
+    ensureBucket,
+    putObjectBehindTheApi,
+  } = await import("../helpers/files.js");
+
+  // The second store is derived rather than configured, so nothing else
+  // creates it (#111). Emptying a bucket that does not exist is an error,
+  // not a no-op.
+  //
+  // Unfalsifiable on a warm machine: S3Proxy keeps the bucket inside its
+  // container, so once any run has made it, a version of this line that does
+  // nothing looks identical. It bites on a fresh container and in CI, where
+  // the service starts empty every time.
+  await ensureBucket(CLEANUP_STORE);
 
   await putObjectBehindTheApi(`files/cleanup-sentinel-${randomUUID()}`);
-  const removed = await emptyBucket();
-  console.info(`[test setup] emptied the file store (${String(removed)})`);
+  const removed = (await emptyBucket()) + (await emptyBucket(CLEANUP_STORE));
+  console.info(`[test setup] emptied the file stores (${String(removed)})`);
 
   // Counted, not inferred from `removed`. An `emptyBucket` that quietly did
   // nothing would report removing nothing and look exactly like an empty
   // store; only a fresh listing can tell those apart, and the sentinel above
   // guarantees the listing has something to find if the emptying failed.
-  return countObjects();
+  //
+  // Both stores, summed: either one left holding anything is a failure, and
+  // the test that reads this asserts zero.
+  //
+  // Belt and braces, and unfalsifiable: both stores have just been emptied,
+  // so a version counting only the first still answers zero. It would earn
+  // its place the day emptying the second one silently stopped working —
+  // which is the only scenario it exists for (#111).
+  return (await countObjects()) + (await countObjects(CLEANUP_STORE));
 }
 
 export async function setup({
@@ -169,10 +192,14 @@ export async function setup({
  * what makes "a full run leaves the store no larger than it found it" true for
  * somebody who looks afterwards rather than before — including whoever next
  * runs `docker compose ps` and wonders why the container has grown.
+ *
+ * Both stores since #111, for the same reason: a second bucket that nobody
+ * empties is the first bucket's problem all over again.
  */
 export async function teardown(): Promise<void> {
-  const { emptyBucket } = await import("../helpers/files.js");
+  const { CLEANUP_STORE, emptyBucket } = await import("../helpers/files.js");
   await emptyBucket();
+  await emptyBucket(CLEANUP_STORE);
 }
 
 declare module "vitest" {
