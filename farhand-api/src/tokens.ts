@@ -19,16 +19,20 @@ import type { Prisma, TokenType } from "@prisma/client";
 const TOKEN_BYTES = 32;
 
 /**
- * How long a verification link works. Long enough to survive "I'll check my
- * email after lunch", short enough that a link sitting in an old inbox is
- * dead. A new link can always be asked for, with POST
+ * How long a verification code works. Long enough to survive "I'll check my
+ * email after lunch", short enough that a code sitting in an old inbox is
+ * dead. A new one can always be asked for, with POST
  * /auth/resend-verification (#41).
+ *
+ * A code, not a link, and src/mailer.ts says why: there is no page for a link
+ * to land on until #93. These two constants are what the emails quote, so the
+ * sentence a person reads cannot drift from the row in the database (#119).
  */
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * How long a password reset link works: one hour — much shorter than the day a
- * verification link gets. A reset link can take over the account, so the
+ * How long a password reset code works: one hour — much shorter than the day a
+ * verification code gets. A reset code can take over the account, so the
  * window in which a leaked or forwarded email is dangerous should be small.
  * Someone who asks for a reset is usually waiting for the email right now.
  */

@@ -110,11 +110,11 @@ failing dependency is a normal answer from this endpoint, not an error.
 |---|---|---|---|
 | POST | `/auth/register` | — | Email, password, display name, country. Always responds the same whether or not the email exists |
 | POST | `/auth/verify-email` | — | Token from the email |
-| POST | `/auth/resend-verification` | — | A new verification link. Always responds identically |
+| POST | `/auth/resend-verification` | — | A new verification code. Always responds identically |
 | POST | `/auth/login` | — | Sets an httpOnly session cookie |
 | POST | `/auth/logout` | SESSION | Deletes this device's session |
 | GET | `/auth/me` | SESSION | Current user and profile |
-| POST | `/auth/forgot-password` | — | Emails a one-hour reset link. Always responds identically |
+| POST | `/auth/forgot-password` | — | Emails a one-hour reset code. Always responds identically |
 | POST | `/auth/reset-password` | — | Token plus new password; revokes all sessions |
 
 Every endpoint in this section is rate limited — see [Rate limits](#rate-limits) below.
@@ -174,20 +174,33 @@ verified keeps its original timestamp.
 Returns `422` with the same body for every token that cannot be used: unknown,
 already used, expired, or of the wrong kind (a password-reset token). Telling
 "used" apart from "never existed" would help nobody who legitimately holds the
-link.
+code.
 
 Tokens are single use, even when two requests with the same token arrive at the
-same moment (a double-click). They expire 24 hours after they are sent. Asking for a new link with
-`POST /auth/resend-verification` retires every older one, so only the newest
-works.
+same moment (a double-click). They expire 24 hours after they are sent. Asking
+for a new code with `POST /auth/resend-verification` retires every older one,
+so only the newest works.
 
 The raw token exists only in the email. The database stores its SHA-256 hash,
-so a leaked database contains no working links. In development there is no mail
-provider: the token is written to the server log instead.
+so a leaked database contains no working codes.
+
+**What the email contains is a code, not a link** (#119). A link has to land on
+a page, and there is no frontend yet — `APP_ORIGIN` is the API's own address —
+while an inbox cannot follow a link to a `POST`. A `GET` that verified would be
+spent by the first link prefetcher that saw it. So the message quotes the token
+and says that Farhand will ask for it; #93 is where it becomes a link, and that
+changes the words in `src/mailer.ts` and nothing else.
+
+Where mail goes depends on configuration, not on the environment: with
+`MAIL_API_KEY` and `MAIL_FROM` set, it is really sent (Brevo over HTTPS,
+[decision 0014](10-decisions/0014-brevo-for-email.md)); with neither, the token
+is written to the server log, which is how a local account is confirmed. In
+production with no provider it is neither sent nor logged — a token in a
+production log is a working credential.
 
 ### `POST /auth/resend-verification`
 
-For someone whose verification link expired or never arrived.
+For someone whose verification code expired or never arrived.
 
 ```json
 { "email": "anna@example.com" }
@@ -197,13 +210,13 @@ The email is normalised and validated as at registration. Returns `200` with the
 same body in every case:
 
 ```json
-{ "message": "If an account needs verifying, a new link is on its way." }
+{ "message": "If an account needs verifying, a new code is on its way." }
 ```
 
-A new link is emailed only when the account exists, is not verified yet, and is
+A new code is emailed only when the account exists, is not verified yet, and is
 not banned or deleted — suspended users get one. Unknown and already verified
 addresses get the same answer and no email, so the endpoint reveals neither who
-has an account nor whose is verified. The new link retires every older one.
+has an account nor whose is verified. The new code retires every older one.
 
 The same known few-millisecond gap as `forgot-password`, with the same v2 fix.
 
@@ -318,14 +331,15 @@ The email is normalised and validated as at registration. Returns `200` with the
 same body whether or not the email has an account:
 
 ```json
-{ "message": "If an account exists for that email, a reset link is on its way." }
+{ "message": "If an account exists for that email, a reset code is on its way." }
 ```
 
-If the account exists and is not banned or deleted, a reset token is emailed
-(logged in development). Unverified accounts get one too. Asking again retires
-every earlier unused link, so only the newest one works. Links expire after one
-hour — much shorter than a verification link, because a reset link can take over
-the account.
+If the account exists and is not banned or deleted, a reset token is emailed —
+printed to the log instead when no mail provider is configured, which is every
+environment but production (#119). Unverified accounts get one too. Asking
+again retires every earlier unused code, so only the newest one works. Codes
+expire after one hour — much shorter than a verification code, because a reset
+code can take over the account.
 
 Known and deliberate: a real account costs one extra database write, so it
 answers a few milliseconds slower than an unknown email. The complete fix is to
@@ -349,7 +363,7 @@ Returns `200`:
 ```
 
 A successful reset sets the new password, uses up the token, marks the email as
-verified if it was not already (the link reached the inbox, which proves
+verified if it was not already (the code reached the inbox, which proves
 ownership), and **logs the account out on every device**. It does not log the
 user in: they log in with the new password.
 
@@ -521,7 +535,7 @@ cannot clear it.
 | Display name — replaced with `Deleted account` | Proposals and messages, attributed to that name |
 | Bio, city, avatar | Country code, which identifies nobody on its own and keeps a deal's history readable |
 | Every session, on every device | Reports filed about them, so moderation is still possible |
-| Every verification and password-reset token, so a link already sitting in an inbox cannot act on the account afterwards | |
+| Every verification and password-reset token, so a code already sitting in an inbox cannot act on the account afterwards | |
 
 The profile row is **blanked, not deleted**. An event whose actor has no
 profile at all reads as somebody we cannot label (#67), which is true and says

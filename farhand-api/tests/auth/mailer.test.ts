@@ -1,0 +1,449 @@
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "../../src/app.js";
+import { prisma } from "../../src/db.js";
+import { env } from "../../src/env.js";
+import { logger } from "../../src/logger.js";
+import { mailer, SEND_TIMEOUT_MS, transport } from "../../src/mailer.js";
+import * as observability from "../../src/observability.js";
+import {
+  EMAIL_VERIFICATION_TTL_MS,
+  PASSWORD_RESET_TTL_MS,
+} from "../../src/tokens.js";
+
+/**
+ * Sending email for real (#119).
+ *
+ * Until now `mailer.ts` delivered nothing anywhere and the suite was happy:
+ * every auth test either spies on `mailer` — intercepting before the body runs
+ * — or sets `emailVerifiedAt` directly. 118 tests pass against a mailer that
+ * does nothing at all, which is precisely why these exist.
+ *
+ * Nothing here sends anything. There are two seams, one per question:
+ *
+ *   transport.send   spied on, to ask "what message was composed?"
+ *   global fetch     stubbed, to ask "what request would Brevo receive?"
+ *
+ * The second is the fake provider. It is not a test of an SDK, because there
+ * is no SDK: the provider is one `fetch` to one URL, which is the whole reason
+ * it can be checked this way.
+ */
+
+const app = createApp();
+
+/** Unusual on purpose, so a match in a log or an error is never a coincidence. */
+const TOKEN = "raw-token-7f3c-nobody-should-log-this";
+const TO = "nell@example.com";
+
+/** The settings a configured mailer has. */
+const KEY = "brevo-key-xyz";
+const FROM = "farhand.app@example.com";
+
+let saved: Record<string, unknown>;
+
+beforeEach(() => {
+  saved = {
+    MAIL_API_KEY: env.MAIL_API_KEY,
+    MAIL_FROM: env.MAIL_FROM,
+    MAIL_FROM_NAME: env.MAIL_FROM_NAME,
+    MAIL_REPLY_TO: env.MAIL_REPLY_TO,
+    NODE_ENV: env.NODE_ENV,
+  };
+});
+
+afterEach(() => {
+  Object.assign(env, saved);
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+/** Mail configured, as Render has it. */
+function configured(extra: Record<string, string> = {}) {
+  env.MAIL_API_KEY = KEY;
+  env.MAIL_FROM = FROM;
+  env.MAIL_FROM_NAME = undefined;
+  env.MAIL_REPLY_TO = undefined;
+  Object.assign(env, extra);
+}
+
+/** Mail not configured — the state of every other test file, and of CI. */
+function notConfigured() {
+  env.MAIL_API_KEY = undefined;
+  env.MAIL_FROM = undefined;
+  env.MAIL_FROM_NAME = undefined;
+  env.MAIL_REPLY_TO = undefined;
+}
+
+interface SeenRequest {
+  url: string;
+  method: string | undefined;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Stands in for Brevo. Records what it was asked, answers how it is told to.
+ */
+function stubProvider(answer: { status?: number; body?: string } = {}) {
+  const seen: SeenRequest[] = [];
+
+  const fetchStub = vi.fn((url: string | URL, init?: RequestInit) => {
+    seen.push({
+      url: String(url),
+      method: init?.method,
+      headers: (init?.headers ?? {}) as Record<string, string>,
+      // A string, or the assertions below see `{}` and fail — which is the
+      // right outcome: the body has to be JSON we built, not an object handed
+      // to `fetch` to stringify however it likes.
+      body: JSON.parse(
+        typeof init?.body === "string" ? init.body : "{}",
+      ) as Record<string, unknown>,
+    });
+
+    return Promise.resolve(
+      new Response(answer.body ?? '{"messageId":"<1@brevo>"}', {
+        status: answer.status ?? 201,
+      }),
+    );
+  });
+
+  vi.stubGlobal("fetch", fetchStub);
+  return { seen, fetchStub };
+}
+
+/** One message, as `transport.send` takes it. */
+const message = {
+  to: TO,
+  subject: "Confirm your email address",
+  text: `Your code is ${TOKEN}`,
+};
+
+/** Everything a spy recorded, flattened, so a token cannot hide in an object. */
+function everythingLogged(
+  ...spies: { mock: { calls: unknown[][] } }[]
+): string {
+  // Errors are unwrapped by hand, and that is the point of this helper:
+  // `JSON.stringify(new Error("secret"))` is `{}`, so the first version of it
+  // reported "no token anywhere" about a log line that carried the provider's
+  // error verbatim. A check that cannot see what it forbids is worse than none.
+  return spies
+    .map((spy) =>
+      JSON.stringify(spy.mock.calls, (_key, value: unknown) =>
+        value instanceof Error
+          ? `${value.name}: ${value.message} ${value.stack ?? ""}`
+          : value,
+      ),
+    )
+    .join(" ");
+}
+
+describe("the request Brevo receives", () => {
+  it("is an HTTPS POST to the email API, with the key in a header", async () => {
+    configured();
+    const { seen } = stubProvider();
+
+    await transport.send(message);
+
+    expect(seen).toHaveLength(1);
+    const sent = seen[0];
+    if (!sent) throw new Error("expected one request");
+
+    expect(sent.url).toBe("https://api.brevo.com/v3/smtp/email");
+    expect(sent.method).toBe("POST");
+    expect(sent.headers["api-key"]).toBe(KEY);
+    expect(sent.headers["content-type"]).toBe("application/json");
+
+    // The path says `smtp` and the protocol is HTTPS, which is the point:
+    // Render's free plan blocks ports 25, 465 and 587, so the real SMTP is
+    // not available to us at all (docs/14-deployment.md).
+    expect(new URL(sent.url).protocol).toBe("https:");
+  });
+
+  it("names the sender from the settings, with a default display name", async () => {
+    configured();
+    const { seen } = stubProvider();
+
+    await transport.send(message);
+
+    expect(seen[0]?.body.sender).toEqual({ email: FROM, name: "Farhand" });
+  });
+
+  it("uses the configured display name when there is one", async () => {
+    configured({ MAIL_FROM_NAME: "Farhand (test)" });
+    const { seen } = stubProvider();
+
+    await transport.send(message);
+
+    expect(seen[0]?.body.sender).toEqual({
+      email: FROM,
+      name: "Farhand (test)",
+    });
+  });
+
+  it("leaves replyTo out entirely when none is configured", async () => {
+    configured();
+    const { seen } = stubProvider();
+
+    await transport.send(message);
+
+    // Absent, not null and not empty. A verification email does not need
+    // replies, and the alternative — a person's own address — would be shown
+    // to every stranger who registers (#119).
+    expect(seen[0]?.body).not.toHaveProperty("replyTo");
+  });
+
+  it("carries replyTo when an address is configured", async () => {
+    configured({ MAIL_REPLY_TO: "hello@farhand.example" });
+    const { seen } = stubProvider();
+
+    await transport.send(message);
+
+    expect(seen[0]?.body.replyTo).toEqual({ email: "hello@farhand.example" });
+  });
+
+  it("sends the recipient, the subject and plain text — no HTML", async () => {
+    configured();
+    const { seen } = stubProvider();
+
+    await transport.send(message);
+
+    expect(seen[0]?.body).toMatchObject({
+      to: [{ email: TO }],
+      subject: message.subject,
+      textContent: message.text,
+    });
+    expect(seen[0]?.body).not.toHaveProperty("htmlContent");
+  });
+
+  it("throws when the provider refuses, saying the status and nothing else", async () => {
+    configured();
+    // Brevo echoes what it was given when it complains, so its answer can
+    // hold the whole email — and the email holds the token.
+    stubProvider({
+      status: 401,
+      body: JSON.stringify({ code: "unauthorized", payload: message.text }),
+    });
+
+    await expect(transport.send(message)).rejects.toThrow(/401/);
+    await expect(transport.send(message)).rejects.not.toThrow(
+      new RegExp(TOKEN),
+    );
+  });
+
+  it(`gives up after ${String(SEND_TIMEOUT_MS)}ms rather than holding the request`, async () => {
+    configured();
+    vi.useFakeTimers();
+
+    // A provider that accepts the connection and then says nothing. The only
+    // way out is our own clock, so the implementation has to carry one — and
+    // it has to be a plain `setTimeout`, because `AbortSignal.timeout` runs on
+    // a timer Vitest cannot advance, which would make this test a five-second
+    // wait in every run.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new Error("aborted"));
+            });
+          }),
+      ),
+    );
+
+    const sending = transport.send(message);
+    const settled = vi.fn();
+    void sending.catch(settled);
+
+    await vi.advanceTimersByTimeAsync(SEND_TIMEOUT_MS - 1);
+    expect(settled).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(2);
+    await expect(sending).rejects.toThrow();
+  });
+
+  it("leaves no timer behind when the send succeeds", async () => {
+    configured();
+    vi.useFakeTimers();
+    stubProvider();
+
+    await transport.send(message);
+
+    // A timer nobody cleared keeps the process alive after everything else is
+    // done, which on a server is a handle that never closes.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("what the messages say", () => {
+  it("gives the verification code, and names the hours it lasts", async () => {
+    configured();
+    const send = vi.spyOn(transport, "send").mockResolvedValue();
+
+    await mailer.sendVerificationEmail(TO, TOKEN);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const sent = send.mock.calls[0]?.[0];
+    expect(sent?.to).toBe(TO);
+    expect(sent?.subject).toMatch(/confirm/i);
+    expect(sent?.text).toContain(TOKEN);
+    // Read from the constant, so the words cannot drift from the database:
+    // 24 hours is what `EMAIL_VERIFICATION_TTL_MS` grants.
+    expect(sent?.text).toContain(String(EMAIL_VERIFICATION_TTL_MS / 3_600_000));
+  });
+
+  it("is a code rather than a link, because there is no page to land on", async () => {
+    configured();
+    const send = vi.spyOn(transport, "send").mockResolvedValue();
+
+    await mailer.sendVerificationEmail(TO, TOKEN);
+
+    // `APP_ORIGIN` is still the API's own address — there is no frontend yet
+    // (#93) — and an inbox cannot follow a link to `POST /auth/verify-email`.
+    // A link would either 404 or need a GET that verifies, which a link
+    // prefetcher would spend on the user's behalf. #93 is where this changes.
+    expect(send.mock.calls[0]?.[0].text).not.toMatch(/https?:\/\//);
+  });
+
+  it("says a reset code is good for one hour", async () => {
+    configured();
+    const send = vi.spyOn(transport, "send").mockResolvedValue();
+
+    await mailer.sendPasswordResetEmail(TO, TOKEN);
+
+    const sent = send.mock.calls[0]?.[0];
+    expect(sent?.subject).toMatch(/password/i);
+    expect(sent?.text).toContain(TOKEN);
+    expect(sent?.text).toContain(String(PASSWORD_RESET_TTL_MS / 3_600_000));
+    expect(sent?.text).toMatch(/hour/i);
+  });
+});
+
+describe("when mail is not configured", () => {
+  it("logs the token in development, so a developer can copy it", async () => {
+    notConfigured();
+    env.NODE_ENV = "development";
+    const written = vi.spyOn(logger, "info");
+    const { fetchStub } = stubProvider();
+
+    await mailer.sendVerificationEmail(TO, TOKEN);
+
+    expect(everythingLogged(written)).toContain(TOKEN);
+    // And nothing was asked of anybody: there is nobody configured to ask.
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("says nothing was sent in production, and never the token", async () => {
+    notConfigured();
+    env.NODE_ENV = "production";
+    const warned = vi.spyOn(logger, "warn");
+    const written = vi.spyOn(logger, "info");
+    const failed = vi.spyOn(logger, "error");
+
+    await mailer.sendVerificationEmail(TO, TOKEN);
+    await mailer.sendPasswordResetEmail(TO, TOKEN);
+
+    expect(warned).toHaveBeenCalledTimes(2);
+    expect(everythingLogged(warned)).toContain(TO);
+    // The rule this file inherited and must not lose: a token in a production
+    // log is a working credential, in a place far more people can read than
+    // can read the database.
+    expect(everythingLogged(warned, written, failed)).not.toContain(TOKEN);
+  });
+});
+
+describe("when the provider is unwell", () => {
+  it("does not make it the caller's problem", async () => {
+    configured();
+    vi.spyOn(transport, "send").mockRejectedValue(new Error("502 from Brevo"));
+
+    await expect(
+      mailer.sendVerificationEmail(TO, TOKEN),
+    ).resolves.toBeUndefined();
+  });
+
+  it("reports the failure, with no token in it", async () => {
+    configured();
+    vi.spyOn(transport, "send").mockRejectedValue(
+      new Error(`502 while sending ${TOKEN}`),
+    );
+    const reported = vi.spyOn(observability, "reportError");
+    const failed = vi.spyOn(logger, "error");
+
+    await mailer.sendVerificationEmail(TO, TOKEN);
+
+    // Visible, not swallowed: #29's reporting hears about it.
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(failed).toHaveBeenCalledTimes(1);
+    // Even when the provider's own error quotes the message back at us, what
+    // we store and send onward must not.
+    expect(everythingLogged(reported, failed)).not.toContain(TOKEN);
+  });
+
+  it("still answers 201 to the registration that caused it", async () => {
+    configured();
+    vi.spyOn(transport, "send").mockRejectedValue(new Error("503"));
+
+    const response = await request(app).post("/auth/register").send({
+      email: "sam@example.com",
+      password: "a long enough password",
+      displayName: "Sam",
+      countryCode: "EE",
+    });
+
+    // The route awaits the mailer inside a try that only forgives a duplicate
+    // email, so anything else it threw would be a 500 — which is why the
+    // guarantee lives in the mailer and not in the route.
+    expect(response.status).toBe(201);
+    // And the account is really there: a third party being unwell must not
+    // undo work that was already committed.
+    expect(
+      await prisma.user.findUnique({ where: { email: "sam@example.com" } }),
+    ).not.toBeNull();
+  });
+});
+
+describe("the whole way through", () => {
+  it("reaches the provider exactly once when somebody registers", async () => {
+    configured();
+    const { seen } = stubProvider();
+
+    const response = await request(app).post("/auth/register").send({
+      email: "kadri@example.com",
+      password: "a long enough password",
+      displayName: "Kadri",
+      countryCode: "EE",
+    });
+
+    expect(response.status).toBe(201);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.body.to).toEqual([{ email: "kadri@example.com" }]);
+    // Nothing in this chain was mocked except Brevo itself: route, service,
+    // token, mailer, transport, HTTP body. Nothing covered that before.
+  });
+
+  it("sends nothing when the address is already taken", async () => {
+    configured();
+    const body = {
+      email: "twice@example.com",
+      password: "a long enough password",
+      displayName: "Twice",
+      countryCode: "EE",
+    };
+    expect((await request(app).post("/auth/register").send(body)).status).toBe(
+      201,
+    );
+
+    const { seen } = stubProvider();
+    expect((await request(app).post("/auth/register").send(body)).status).toBe(
+      201,
+    );
+
+    // The identical answer is the anti-enumeration rule from #9; the silence
+    // is the other half of it. An email saying "somebody tried to register
+    // your address" is a notification nobody asked for, and the real owner
+    // already has a token.
+    expect(seen).toHaveLength(0);
+  });
+});

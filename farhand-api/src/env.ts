@@ -11,6 +11,32 @@ import { z } from "zod";
  * Everywhere else in the codebase, import `env` from here rather than reading
  * `process.env` directly — that way the values are validated and typed.
  */
+/**
+ * An optional setting where "set, but empty" means "not set" (#119).
+ *
+ * Only for settings that are genuinely optional. A dashboard makes it easy to
+ * add a variable and save it blank, and for a display name or a reply address
+ * the forgiving reading is the right one: the alternative is an API that
+ * refuses to boot because somebody left a decoration empty. The halves of a
+ * required pair are NOT wrapped in this — blank there means a configuration
+ * somebody meant to set and got wrong, which should stop the deploy.
+ *
+ * Found by a test, not by thinking: `MAIL_REPLY_TO=""` took the whole API
+ * down in `tests/env.test.ts` before this existed.
+ */
+function blankIsAbsent<T extends z.ZodType>(schema: T) {
+  // `preprocess` and not `transform().pipe()`: the empty string has to become
+  // `undefined` BEFORE `optional()` looks at it. The other way round, the key
+  // is present, so `optional()` never applies and the inner schema is handed
+  // an undefined it rightly refuses — which is exactly what the first version
+  // of this did.
+  return z.preprocess(
+    (value: unknown) =>
+      typeof value === "string" && value.trim() === "" ? undefined : value,
+    schema.optional(),
+  );
+}
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -88,6 +114,37 @@ const envSchema = z.object({
   STORAGE_BUCKET: z.string().min(1).optional(),
   STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+
+  /**
+   * How email is sent, and who it appears to come from (#119).
+   *
+   * Optional, on the same terms as the storage set: without them the API
+   * starts, registering works, and the verification token is logged in
+   * development instead of delivered. What is NOT optional is the pair —
+   * a key with no sender, or a sender with no key, is refused below.
+   *
+   * Every one of these is a SETTING rather than a constant, because the
+   * sender is the part most likely to change: today it is a project address
+   * that Brevo has verified, and the day Farhand has a domain of its own it
+   * becomes `no-reply@that-domain`, which should be a change in Render and
+   * not a pull request.
+   */
+  MAIL_API_KEY: z.string().min(1).optional(),
+  MAIL_FROM: z.string().trim().pipe(z.email()).optional(),
+  /** What an inbox shows instead of the address. Defaults to "Farhand". */
+  MAIL_FROM_NAME: blankIsAbsent(z.string().trim().min(1)),
+  /**
+   * Where replies go, if anywhere.
+   *
+   * Deliberately optional and deliberately empty by default. The sender
+   * address is rewritten by the provider while Farhand has no domain
+   * (decision 0014), so a reply to the visible From goes nowhere — and the
+   * alternative, putting a personal address here, shows it to every stranger
+   * who registers. A verification email does not need replies. Set it only
+   * when there is an address that belongs to the project rather than to a
+   * person.
+   */
+  MAIL_REPLY_TO: blankIsAbsent(z.string().trim().pipe(z.email())),
 });
 
 const STORAGE_KEYS = [
@@ -98,18 +155,44 @@ const STORAGE_KEYS = [
   "STORAGE_SECRET_ACCESS_KEY",
 ] as const;
 
+/**
+ * The mail settings that stand or fall together (#119).
+ *
+ * `MAIL_FROM_NAME` and `MAIL_REPLY_TO` are not here on purpose: a key and a
+ * sender are what sending requires, while a display name has a default and a
+ * reply address is a choice.
+ */
+const MAIL_KEYS = ["MAIL_API_KEY", "MAIL_FROM"] as const;
+
+/**
+ * A set of variables that only means anything complete.
+ *
+ * Written once and used twice since #119. The alternative — failing on the
+ * first upload, or on the first registration an hour after a deploy — is the
+ * thing `env.ts` exists to prevent (#2).
+ */
+function allOrNone(
+  values: Record<string, unknown>,
+  ctx: z.core.$RefinementCtx,
+  keys: readonly string[],
+  prefix: string,
+): void {
+  const set = keys.filter((key) => values[key] !== undefined);
+  if (set.length === 0 || set.length === keys.length) return;
+
+  for (const key of keys.filter((k) => !set.includes(k))) {
+    ctx.addIssue({
+      code: "custom",
+      path: [key],
+      message: `${key} is required when any ${prefix} variable is set`,
+    });
+  }
+}
+
 const parsed = envSchema
   .superRefine((values, ctx) => {
-    const set = STORAGE_KEYS.filter((key) => values[key] !== undefined);
-    if (set.length > 0 && set.length < STORAGE_KEYS.length) {
-      for (const key of STORAGE_KEYS.filter((k) => !set.includes(k))) {
-        ctx.addIssue({
-          code: "custom",
-          path: [key],
-          message: `${key} is required when any STORAGE_ variable is set`,
-        });
-      }
-    }
+    allOrNone(values, ctx, STORAGE_KEYS, "STORAGE_");
+    allOrNone(values, ctx, MAIL_KEYS, "MAIL_");
   })
   .safeParse(process.env);
 
