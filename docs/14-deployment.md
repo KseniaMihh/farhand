@@ -146,6 +146,26 @@ can be saved blank, the same reason `SENTRY_DSN` is not listed there.
 Production's bucket is created here, by hand. The API never creates it, and
 never makes anything in it public.
 
+**Done for the live service on 2026-10-12**, and proved rather than assumed.
+Nothing at start-up talks to B2 — `src/server.ts` skips `ensureBucket` in
+production deliberately — so the first upload is the first real contact, and
+the check is worth repeating if any of the five settings ever change:
+
+1. The API restarts and answers `/health`. That alone proves all five values
+   are present and well-formed, because `src/env.ts` refuses to boot otherwise.
+2. An upload through `PUT /me/avatar` succeeds, and the `/files/:id` path in
+   the answer shows the image in a browser.
+3. The B2 address that path redirects to, **with the query string removed**,
+   is refused by B2 (`UnauthorizedAccess`). This is the one that matters: it is
+   the difference between "private" and "nobody has guessed the link yet".
+4. The key in that address is a bare UUID, naming neither the file nor its
+   owner.
+
+Step 2 needs a verified account, and production has no mail provider, so the
+only way to get one today is `UPDATE "User" SET "emailVerifiedAt" = now()` in
+Neon. That is a gap in #10's feature, not in this one — see
+`docs/15-architecture.md`, "What is not there yet".
+
 ### 5. The monitor
 
 Add a check in Better Stack or UptimeRobot (both free for this):

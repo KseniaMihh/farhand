@@ -211,9 +211,11 @@ database statements rather than the four it used to (#102 measured four; a
 file is an avatar *or* a need photo *or* a receipt, so two of the three
 relations it loaded were never going to be read).
 
-What remains is one API request per image on a cold page. Removing that
-needs the list response to carry its own signed links, which waits for a
-list response that carries images at all — #81 or #93
+What remains is one API request per image on a cold page. Removing that needs
+the list response to carry its own signed links. #81 built the half that was
+missing — `GET /needs` now gives each card a `coverPhoto` — and deliberately
+made it a path rather than a link, so the request is still made. #93 is where
+that trade gets decided, with decision 0012 as the argument against
 (`docs/11-risks.md`).
 
 ## What is not there yet
@@ -224,7 +226,7 @@ list response that carries images at all — #81 or #93
 | Anything that notices the sweep stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED` | #101 named it, #85 may do more |
 | Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |
 | A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
-| Signed links inside list responses | A page of N images is N requests to the API. #102 made each one cheaper and took it out of the browsing budget; removing the requests needs a list response that carries images, which nothing does yet | #81, #93 |
+| Signed links inside list responses | A page of N images is N requests to the API. #102 made each one cheaper and took it out of the browsing budget. #81 added the list response that carries images — `GET /needs` gives each card a `coverPhoto` — but as a **path**, so the N requests are still there. Whether a list should hand out signed links instead is #93's to decide, and decision 0012 holds the argument against it: a signed link dies in five minutes and anything that stored the answer dies with it | #93 |
 | A frontend | `APP_ORIGIN` is the API's own URL — a placeholder until something else deserves it | #93 |
 | Proof the hop count is right | `trust proxy 1` assumes exactly one proxy, inherited from the Fly setup and never checked. Log in on production and compare `Session.ipAddress` with your real address; a CDN in front would make it two | — |
 | A measured latency figure | The cross-Atlantic numbers in this document are estimates. `GET /health/ready` returns the real `latencyMs` from the deployed service | — |
