@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { z } from "zod";
 import { countryCode, currencyCode } from "../schemas/common.js";
 import {
@@ -8,6 +8,14 @@ import {
   requireAuth,
   requireVerified,
 } from "../middleware/auth.js";
+import { limiters } from "../middleware/rate-limit.js";
+import { MAX_FILE_BYTES } from "../services/files.js";
+import {
+  addNeedPhoto,
+  removeNeedPhoto,
+  withCoverPhotos,
+  withPhotos,
+} from "../services/need-photos.js";
 import {
   createNeed,
   deleteNeed,
@@ -124,6 +132,61 @@ needsRouter.delete(
   },
 );
 
+/* ─────────────────────────── photos (#81) ─────────────────────────── */
+
+/**
+ * The body of POST /needs/:id/photos is the image itself, read raw — the same
+ * shape and the same reasoning as PUT /me/avatar (src/routes/profiles.ts): the
+ * JSON parser in app.ts stays at 100 kb for everything else, and the ceiling
+ * here is twice the file limit so that an upload a little over gets the
+ * documented 422 while one ten times over is not received at all.
+ */
+const photoBody = express.raw({
+  type: () => true,
+  limit: MAX_FILE_BYTES * 2,
+});
+
+/** The :photoId of a removal, parsed rather than trusted like every param. */
+const photoParams = needParams.extend({ photoId: z.string().min(1) });
+
+/**
+ * AUTH, and limited per user: every photo is decoded, resized and re-encoded,
+ * which is the most expensive thing this API does (#81).
+ *
+ * Whether this caller may add one at all — owner, and the need still editable —
+ * is decided in ../services/need-photos.js, which asks ../services/needs.js.
+ */
+needsRouter.post(
+  "/needs/:id/photos",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  limiters.needPhotoByUser,
+  photoBody,
+  async (req, res) => {
+    const { id } = needParams.parse(req.params);
+    // With no body at all the raw parser leaves `{}` behind, not a Buffer.
+    const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const photo = await addNeedPhoto(id, getAuth(req).user, bytes);
+
+    res.status(201).json({ photo });
+  },
+);
+
+/** AUTH. 204: there is nothing left to describe. */
+needsRouter.delete(
+  "/needs/:id/photos/:photoId",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  async (req, res) => {
+    const { id, photoId } = photoParams.parse(req.params);
+    await removeNeedPhoto(id, photoId, getAuth(req).user, req.log);
+
+    res.status(204).end();
+  },
+);
+
 /* ───────────────────────────── browsing (#16) ───────────────────────────── */
 
 /**
@@ -156,7 +219,8 @@ needsRouter.get("/needs", async (req, res) => {
     limit,
   );
 
-  res.json(page);
+  // One query for the photos of the whole page, never one per need (#102).
+  res.json({ ...page, items: await withCoverPhotos(page.items) });
 });
 
 /**
@@ -170,7 +234,8 @@ needsRouter.get("/needs/:id", optionalAuth, async (req, res) => {
   const { id } = needParams.parse(req.params);
   const need = await getVisibleNeed(id, req.auth?.user.id);
 
-  res.json({ need });
+  // A photo follows its need: anybody who got this far may see them (#81).
+  res.json({ need: await withPhotos(need) });
 });
 
 needsRouter.get("/me/needs", requireAuth, async (req, res) => {
@@ -181,5 +246,5 @@ needsRouter.get("/me/needs", requireAuth, async (req, res) => {
     limit,
   );
 
-  res.json(page);
+  res.json({ ...page, items: await withCoverPhotos(page.items) });
 });

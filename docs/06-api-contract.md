@@ -663,6 +663,8 @@ the answer is the same.
 | PATCH | `/needs/:id` | AUTH | Owner only, `DRAFT` or `OPEN` only |
 | DELETE | `/needs/:id` | AUTH | Owner only, no live deal. Closes it; the row stays |
 | GET | `/me/needs` | SESSION | Includes non-public statuses |
+| POST | `/needs/:id/photos` | AUTH | The image as the body. Owner only, `DRAFT` or `OPEN` only, at most 6 |
+| DELETE | `/needs/:id/photos/:photoId` | AUTH | Owner only, `DRAFT` or `OPEN` only |
 
 ### `GET /needs`
 
@@ -681,10 +683,23 @@ An absent filter narrows nothing. Filters combine: all of them must match.
 
 ```json
 {
-  "items": [{ "id": "cm1…", "title": "Japanese sunscreen, 50 ml", "…": "…" }],
+  "items": [
+    {
+      "id": "cm1…",
+      "title": "Japanese sunscreen, 50 ml",
+      "coverPhoto": "/files/3f1c…",
+      "…": "…"
+    }
+  ],
   "nextCursor": "MjAyNi0wOS0yM1QxMDoxMjozMy4wMDBafGNtMWFiYw"
 }
 ```
+
+`coverPhoto` is the first photo of that need, as a path, or `null` when it has
+none — never absent, so a card with no picture is a case the client draws
+rather than guesses at. One picture per card, not the whole set: the ids are
+for deleting photos, which happens on the need's own page. The whole page's
+covers cost one query, however many needs are on it (#81).
 
 `nextCursor` is `null` on the last page. Searching is a plain case-insensitive
 match, not a full-text index — fine at this size, and worth revisiting when the
@@ -703,10 +718,28 @@ A matched need stays readable because a deal is running on it and both sides
 need to see what was agreed. Everything else answers `404`, not `403`: a draft
 nobody published should not be discoverable by trying ids.
 
+The need carries its photos, oldest first — the order they were added:
+
+```json
+{
+  "need": {
+    "id": "cm1…",
+    "title": "Japanese sunscreen, 50 ml",
+    "photos": [{ "id": "3f1c…", "url": "/files/3f1c…" }],
+    "…": "…"
+  }
+}
+```
+
+`photos` is `[]` when there are none. A photo follows its need: whoever got
+this answer may follow those paths, and whoever may not see the need cannot see
+them either, which is one rule rather than two.
+
 ### `GET /me/needs`
 
 `SESSION`. The caller's own needs, every status, newest first, paged exactly
-like the public list. This is where someone finds their drafts.
+like the public list, each with the same `coverPhoto` as the public list. This
+is where someone finds their drafts.
 
 ### `POST /needs`
 
@@ -772,7 +805,78 @@ Refused with `409` while a deal is live, meaning any deal on this need whose
 status is not `CANCELLED` — the same definition the database's
 `one_active_deal_per_need` index uses.
 
+### `POST /needs/:id/photos`
+
+Version 2 (#81). The body **is the image** — no JSON, no multipart:
+
+```js
+fetch(`/needs/${id}/photos`, { method: "POST", body: file });
+```
+
+Returns `201` with the photo and the path that serves it:
+
+```json
+{ "photo": { "id": "3f1c…", "url": "/files/3f1c…" } }
+```
+
+| Rule | |
+|---|---|
+| Who | The owner, and only while the need is `DRAFT` or `OPEN` |
+| How many | **6 per need.** The seventh is `409`, naming the limit |
+| Size and type | The shared upload rules under [Files](#files): at most 5 MB, JPEG, PNG or WebP, read from the first bytes |
+| Smallest | 200 px on the shorter side, or `422` |
+| Shape | At most 3 times longer than wide, or `422` |
+| Stored as | WebP, at most 1280 px on its **long** edge, aspect kept, no metadata |
+
+**A product photo is not cropped.** An avatar is squared off because a face
+fits a square; crop a photo of a bottle and you throw away the bottle. So only
+the long edge is capped and the shape is kept, and a picture smaller than that
+is left at its own size rather than blown up.
+
+**Which is why a shape beyond 3:1 is refused rather than resized.** A
+scrolling screenshot of 1080 × 6000 capped on its long edge would be 230 ×
+1280, and the small print — usually the whole reason for sending such a picture
+— would be gone. Refusing says so and asks for a crop; 3:1 is wider than
+anything a camera or a single phone screen produces, and it means nothing
+accepted is ever stored narrower than about 426 px. The reasoning, and the
+three alternatives weighed against it, are in
+`docs/10-decisions/0013-need-photos-keep-their-shape.md`.
+
+**Rate limited to 40 an hour, per signed-in user** (`RATE_LIMITS.needPhoto`).
+Every upload is decoded, resized and re-encoded, which is the most expensive
+thing this API does. A refused upload still spends budget, for the reason
+`POST /conversations/:id/messages` gives: the limiter runs before the handler,
+or a flood of invalid requests would be free.
+
+The limit of six is enforced **under a lock on the need's row**, not by
+counting and then inserting. Re-encoding sits between those two steps, so two
+uploads at five photos would both count five and the need would end with seven
+— the same check-then-act race `POST /reports` describes, answered the same
+way: the database decides. A refused upload leaves nothing behind, not even
+bytes nobody can see.
+
+### `DELETE /needs/:id/photos/:photoId`
+
+Returns `204`. Row and bytes both go.
+
+The photo must belong to **this** need: a photo id from another need, even
+another need of your own, answers `404`. Deleting the same photo twice answers
+`404` the second time — **deliberately unlike `DELETE /needs/:id`,
+`DELETE /helps/:id` and `DELETE /me/avatar`, which answer `204` again.** Those
+describe a state ("this need is closed", "I have no avatar") and the second
+request wants the state the first one reached. A photo id names one particular
+picture, and once it is gone the id names nothing; a `204` would claim
+otherwise. A client that double-clicks should treat this `404` as "already
+done" rather than as an error worth showing.
+
+Allowed only while the need is `DRAFT` or `OPEN`, the same as adding one and
+the same as editing the need's words: once it is `MATCHED`, somebody has agreed
+to shop for what the pictures showed.
+
 ### Who may change a need
+
+Adding and removing photos answers exactly as editing the need does, because it
+is the same rule in the same function (`loadEditableOwnNeed`):
 
 | Case | Response |
 |---|---|
@@ -780,6 +884,7 @@ status is not `CANCELLED` — the same definition the database's
 | Email not confirmed, or account suspended | `403` |
 | Someone else's need | `403` |
 | No such need | `404` |
+| Need is not `DRAFT` or `OPEN` | `409` |
 
 `403` rather than `404` for someone else's need, unlike most of this API: a
 need is public, so refusing reveals nothing that `GET /needs/:id` would not.
@@ -1533,6 +1638,11 @@ a moderator could see that something was reported but not what.
 A target that has since been deleted comes back as `null` rather than an error,
 or the queue would jam on a row nobody could close.
 
+A reported **need** comes with its `photos`, the same field `GET /needs/:id`
+gives (#81). It is the only place a moderator is handed a photo id, and the
+pictures are usually what a `PROHIBITED_ITEM` report is about; the matching
+permission is in [Files](#files).
+
 ### `POST /admin/reports/:id/resolve`
 
 ```json
@@ -1615,12 +1725,20 @@ Who may see a file:
 | Purpose | Visible to |
 |---|---|
 | `AVATAR` | Anyone, while the owner's profile is visible — the rule of `GET /users/:id`, so not once they are banned |
-| `NEED_PHOTO` | Whoever may see the need: anyone while it is `OPEN` or `MATCHED`, its owner always |
+| `NEED_PHOTO` | Whoever may see the need: anyone while it is `OPEN` or `MATCHED`, its owner always — and moderators, whatever its status (#81) |
 | `PRODUCT_RECEIPT`, `SHIPPING_RECEIPT` | The two people in the deal, and moderators |
 
 A file that does not exist and a file you may not see get the same
 `404 NOT_FOUND`, `"File not found"`, so a receipt's id cannot be checked by
 somebody it does not belong to.
+
+The moderator case on a need's photo exists because `PROHIBITED_ITEM` is one of
+`ReportReason`'s values and a report about a prohibited item is usually a
+report about the picture. Without it, removing the need would hide the evidence
+it was removed for — from the people who have to review that decision later.
+The ids come from `GET /admin/reports/:id`, which carries a reported need's
+photos; nothing else shows a moderator a photo id, so the two halves only work
+together.
 
 The API does not ask the store whether the bytes still exist before
 redirecting — that would be a request to the store on every image shown. If

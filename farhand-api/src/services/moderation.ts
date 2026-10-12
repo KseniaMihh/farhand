@@ -12,6 +12,7 @@ import { ROLE_RANK } from "../middleware/auth.js";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import { logger } from "../logger.js";
+import { withPhotos } from "./need-photos.js";
 import {
   afterCursor,
   type CursorPosition,
@@ -232,8 +233,17 @@ export async function getReportWithTarget(
           where: { id: report.targetId },
           include: { profile: true },
         });
-      case "NEED":
-        return prisma.need.findUnique({ where: { id: report.targetId } });
+      case "NEED": {
+        const need = await prisma.need.findUnique({
+          where: { id: report.targetId },
+        });
+        // With its photos (#81). A report about a prohibited item is usually a
+        // report about the picture, and this is the only place a moderator is
+        // given the ids — the file rule lets them follow the paths
+        // (src/services/files.ts), including after the need has been taken
+        // down, which is when the evidence matters most.
+        return need === null ? null : await withPhotos(need);
+      }
       case "HELP":
         return prisma.help.findUnique({ where: { id: report.targetId } });
       case "MESSAGE":

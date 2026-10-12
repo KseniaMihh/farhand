@@ -195,6 +195,19 @@ receipt is private to the two deal participants and moderators
 (`06-api-contract.md`, "Files"). Deleting an account deletes its avatar and
 need photos and keeps its receipts.
 
+A need's photos are `File` rows with `needId` set and no table of their own
+(#81). **There is no position column**: they are read oldest first, with the id
+breaking ties, which is the order they were added. Re-ordering is a feature
+nobody has asked for, and a column that exists but is never set is what #103
+spent two releases removing. Nothing limits them in the schema either — six per
+need is a rule the service holds under a row lock, because a count cannot be a
+unique index.
+
+Photos stay when a need is closed, expires or is taken down. They become
+invisible to everybody but the owner and moderators by the same rule that hides
+the need itself, so keeping them costs storage and no new code — and a
+moderator reviewing a takedown can still see what was taken down.
+
 ## Cross-cutting decisions
 
 | Decision | Reason |

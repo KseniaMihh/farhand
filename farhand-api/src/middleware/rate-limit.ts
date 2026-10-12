@@ -95,6 +95,19 @@ export const RATE_LIMITS = {
    * an hour is more than anybody choosing a picture needs.
    */
   avatar: { windowMs: 60 * 60 * 1000, perUser: 20 },
+
+  /**
+   * Need photos, per signed-in user (#81). The same work as an avatar —
+   * decoded, resized, re-encoded — and the only reason the number is larger is
+   * that one need may carry six of them.
+   *
+   *   6    photos on a need
+   *   ×6   needs somebody could plausibly photograph in an hour
+   *   +4   changes of mind
+   *   ---
+   *   40   per user per hour
+   */
+  needPhoto: { windowMs: 60 * 60 * 1000, perUser: 40 },
 } as const;
 
 /** What a limiter counts by. */
@@ -283,6 +296,11 @@ export const limiters = {
   avatarByUser: createRateLimiter({
     windowMs: RATE_LIMITS.avatar.windowMs,
     max: RATE_LIMITS.avatar.perUser,
+    by: "user",
+  }),
+  needPhotoByUser: createRateLimiter({
+    windowMs: RATE_LIMITS.needPhoto.windowMs,
+    max: RATE_LIMITS.needPhoto.perUser,
     by: "user",
   }),
 };

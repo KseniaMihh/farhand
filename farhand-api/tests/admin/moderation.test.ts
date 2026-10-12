@@ -6,6 +6,7 @@ import { prisma } from "../../src/db.js";
 import { logger } from "../../src/logger.js";
 import { PASSWORD, signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
+import { fileFixture } from "../helpers/files.js";
 import { createCategory } from "../helpers/needs.js";
 import { breakInsideTransaction } from "../helpers/transactions.js";
 
@@ -576,6 +577,62 @@ describe("GET /admin/reports/:id — seeing what was reported", () => {
     expect(response.status).toBe(200);
     expect(body.report.id).toBe(report.id);
     expect(body.target?.title).toBe("Japanese sunscreen");
+  });
+
+  /**
+   * The gap #81 found, which is two gaps.
+   *
+   * `ReportReason` has had PROHIBITED_ITEM since #26, and the thing such a
+   * report is usually about is the PICTURE. But the rule for a need's photo
+   * (src/services/files.ts) named only the owner and the public, so the moment
+   * a moderator acted — REMOVED is not OPEN or MATCHED — the evidence they
+   * acted on became invisible, to them most of all. And the report view had no
+   * photos in it at all, so even before that they had no id to ask for.
+   *
+   * Both halves are needed. A rule that admits a moderator to an address
+   * nothing gives them is dead code; a path they are not allowed to follow is
+   * a 404.
+   */
+  it("shows a reported need's photos, and lets a moderator open them", async () => {
+    const need = await makeNeed();
+    const photo = await fileFixture({
+      ownerId: kadri.id,
+      purpose: "NEED_PHOTO",
+      needId: need.id,
+    });
+    const report = await reportOn("NEED", need.id);
+
+    const seen = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+    expect(seen.status).toBe(200);
+    expect(
+      (seen.body as { target: { photos: { id: string; url: string }[] } })
+        .target.photos,
+    ).toEqual([{ id: photo.id, url: `/files/${photo.id}` }]);
+
+    // Before taking it down, and after: the second is the one that used to
+    // fail, and it is the one that matters, because a resolved report is
+    // reviewed by somebody else later.
+    expect(
+      (await request(app).get(`/files/${photo.id}`).set("Cookie", mo.cookie))
+        .status,
+    ).toBe(302);
+
+    expect((await remove(mo, "NEED", need.id, "Prohibited item")).status).toBe(
+      201,
+    );
+
+    expect(
+      (await request(app).get(`/files/${photo.id}`).set("Cookie", mo.cookie))
+        .status,
+    ).toBe(302);
+    // And it is still hidden from everybody else, which is the half that must
+    // not have been widened to achieve the half above.
+    expect(
+      (await request(app).get(`/files/${photo.id}`).set("Cookie", marek.cookie))
+        .status,
+    ).toBe(404);
   });
 
   it("shows a reported message, an offer and a person", async () => {
