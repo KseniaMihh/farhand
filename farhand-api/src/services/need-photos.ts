@@ -113,6 +113,13 @@ export async function addNeedPhoto(
   // Before the image library, never after: a file that is not a JPEG, PNG or
   // WebP — an SVG, which is a document that can carry script — must not reach
   // a decoder at all (#80).
+  //
+  // `storeBytes` checks again, and that is not the same check: by then the
+  // bytes are the WebP we produced, so they always pass. Deleting this line
+  // and running the suite answers 201 to an SVG (sharp decodes those happily)
+  // and 500 to an empty body, because `sharp()` throws on an empty buffer
+  // before the try/catch that turns a bad image into a 422. Measured, in a
+  // variant run, rather than argued.
   checkUpload(bytes, "NEED_PHOTO");
   await assertUnderPhotoLimit(need.id, prisma);
 
@@ -183,7 +190,15 @@ export async function removeNeedPhoto(
 
   if (removed.count === 0) {
     // Somebody else removed it between the two statements. The id names
-    // nothing now, which is exactly what a second DELETE of it means.
+    // nothing now, which is exactly what a second DELETE of it means — and
+    // not deleting the bytes matters more than the status: the winner's row
+    // is gone, but these bytes may be the ones it is about to delete itself.
+    //
+    // NOT COVERED BY A TEST, and labelled rather than left looking covered:
+    // it needs two removals of one photo to interleave between the lookup and
+    // the delete. A variant run with this check deleted shows nothing at all,
+    // because every reachable path has already answered 404 above (#111's
+    // habit of writing down which broken versions cannot be caught).
     throw HttpError.notFound("Photo not found");
   }
 

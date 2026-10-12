@@ -356,6 +356,13 @@ describe("what is stored", () => {
     const needId = await aNeed();
 
     // Red, green, blue stripes. Cropped from the middle this is all green.
+    //
+    // The two colour checks are a second line rather than the first: in every
+    // broken version built for this issue — cover-cropping like an avatar,
+    // enlarging, cropping at the source's own size — the SIZE is wrong too, so
+    // the assertion above fails first and the colours are never read. They
+    // would catch a change that keeps the dimensions and loses the edges, and
+    // nothing here produces one. Said out loud rather than counted as proof.
     const stored = await storedBytesOf(needId, await threeStripes(400));
 
     expect(await describeImage(stored)).toMatchObject({
