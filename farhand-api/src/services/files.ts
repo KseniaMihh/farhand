@@ -141,8 +141,67 @@ export function checkUpload(bytes: Buffer, purpose: FilePurpose): string {
  * minutes, and anything that stored one would break with it. Relative to the
  * API's address, which a client already prefixes to every request it makes.
  */
+// Overloaded so a caller holding a file it just created gets a `string` back,
+// rather than a `string | null` it has to pretend to handle (#81).
+export function filePath(fileId: string): string;
+export function filePath(fileId: string | null): string | null;
 export function filePath(fileId: string | null): string | null {
   return fileId === null ? null : `/files/${fileId}`;
+}
+
+/** Bytes in the store and nothing in the database yet: the first half. */
+export interface StoredBytes {
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/**
+ * Validates and stores the bytes. Writes nothing to the database.
+ *
+ * Its own function since #81, which needs the row written inside a
+ * transaction while this — a call to another machine — stays outside one. The
+ * rules still live in one place: every upload reaches the store through here.
+ */
+export async function storeBytes(
+  bytes: Buffer,
+  purpose: FilePurpose,
+): Promise<StoredBytes> {
+  const mimeType = checkUpload(bytes, purpose);
+
+  const storageKey = newStorageKey();
+  await storage.put(storageKey, bytes, mimeType);
+
+  return { storageKey, mimeType, sizeBytes: bytes.length };
+}
+
+/**
+ * The row for bytes already stored.
+ *
+ * Takes a client, so the caller may put this write inside a transaction it
+ * controls. #81 does: the row is what the six-photos-per-need limit counts, so
+ * counting and inserting have to be one indivisible step, which they are not
+ * if the insert happens on its own connection.
+ *
+ * Does NOT delete the bytes when it fails — the caller holding the transaction
+ * is the only one that knows whether the row is really gone.
+ */
+export async function storeFileRow(
+  stored: StoredBytes,
+  input: Omit<StoreFileInput, "bytes">,
+  client: Prisma.TransactionClient = prisma,
+): Promise<File> {
+  return client.file.create({
+    data: {
+      ownerId: input.ownerId,
+      purpose: input.purpose,
+      storageKey: stored.storageKey,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+      needId: input.needId ?? null,
+      dealId: input.dealId ?? null,
+    },
+  });
 }
 
 /**
@@ -153,29 +212,16 @@ export function filePath(fileId: string | null): string | null {
  * the invisible side (docs/10-decisions/0011-backblaze-b2-for-files.md).
  */
 export async function storeFile(input: StoreFileInput): Promise<File> {
-  const mimeType = checkUpload(input.bytes, input.purpose);
-
   // If the store fails, nothing has been written to the database yet.
-  const storageKey = newStorageKey();
-  await storage.put(storageKey, input.bytes, mimeType);
+  const stored = await storeBytes(input.bytes, input.purpose);
 
   try {
-    return await prisma.file.create({
-      data: {
-        ownerId: input.ownerId,
-        purpose: input.purpose,
-        storageKey,
-        mimeType,
-        sizeBytes: input.bytes.length,
-        needId: input.needId ?? null,
-        dealId: input.dealId ?? null,
-      },
-    });
+    return await storeFileRow(stored, input);
   } catch (error) {
     // Bytes are already stored and nothing points at them: delete them, then
     // rethrow the ORIGINAL error — it is the one that explains what went
     // wrong. If the cleanup itself fails, the orphan is private and harmless.
-    await storage.delete(storageKey).catch(() => undefined);
+    await storage.delete(stored.storageKey).catch(() => undefined);
     throw error;
   }
 }
@@ -245,10 +291,22 @@ async function isVisibleTo(
       // see, which is worth saying out loud (#102).
       if (!need) return false;
 
+      // A moderator too, since #81. `ReportReason` has had PROHIBITED_ITEM
+      // since #26 and `ReportTarget` has had NEED, so a report about a
+      // picture is a thing this API accepts — and without this line the act
+      // of removing the need hid the evidence it was removed for, from the
+      // only people who need to look at it. Receipts have had the same case
+      // since #79; this was an oversight, not a decision. The id comes from
+      // GET /admin/reports/:id, which carries a need's photos for exactly
+      // this reason (docs/02-roles-and-permissions.md).
+      const isModerator =
+        viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
+
       return (
         viewer?.id === need.requesterId ||
         need.status === "OPEN" ||
-        need.status === "MATCHED"
+        need.status === "MATCHED" ||
+        isModerator
       );
     }
 

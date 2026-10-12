@@ -236,7 +236,7 @@ describe("a photo on a need", () => {
     await expectHiddenFrom(file.id);
   });
 
-  it("on a closed need is hidden from everyone but its owner", async () => {
+  it("on a closed need is hidden from strangers, not from its owner", async () => {
     const need = await needWithStatus("CLOSED");
     const file = await fileFixture({
       ownerId: kadri.id,
@@ -247,6 +247,36 @@ describe("a photo on a need", () => {
     await expectVisibleTo(file.id, kadri);
     await expectHiddenFrom(file.id, stranger);
   });
+
+  /**
+   * The moderator case, added by #81.
+   *
+   * A receipt has had one since #79 (`isParticipant || isModerator`) and a
+   * need's photo had not, which was an oversight rather than a decision:
+   * PROHIBITED_ITEM is one of `ReportReason`'s values and NEED is one of
+   * `ReportTarget`'s, so a report about a picture is a thing this API accepts.
+   * Without this, the act of removing the need hid the evidence it was removed
+   * for — and `GET /admin/reports/:id` is how a moderator gets the id at all
+   * (tests/admin/moderation.test.ts).
+   */
+  describe.each<NeedStatus>(["DRAFT", "CLOSED", "EXPIRED", "REMOVED"])(
+    "on a %s need",
+    (status) => {
+      it("is visible to a moderator, who may have to look at why", async () => {
+        const need = await needWithStatus(status);
+        const file = await fileFixture({
+          ownerId: kadri.id,
+          purpose: "NEED_PHOTO",
+          needId: need.id,
+        });
+
+        await expectVisibleTo(file.id, moderator);
+        // The same request from somebody with no role is still a 404: this is
+        // one more case, not a wider rule.
+        await expectHiddenFrom(file.id, stranger);
+      });
+    },
+  );
 });
 
 describe.each<FilePurpose>(["PRODUCT_RECEIPT", "SHIPPING_RECEIPT"])(

@@ -9,6 +9,7 @@ import { READ_URL_SECONDS, REDIRECT_CACHE_SECONDS } from "../../src/storage.js";
 import { signUpVerifiedAndLogIn, type TestUser } from "../helpers/auth.js";
 import { fileFixture } from "../helpers/files.js";
 import { createCategory, createDealFor } from "../helpers/needs.js";
+import { statementsDuring, tablesRead } from "../helpers/queries.js";
 
 /**
  * What showing a page of images costs (#102).
@@ -41,48 +42,6 @@ function nextIp(): string {
   addressCounter += 1;
   // 198.51.100.x is a documentation range: it can never be a real client.
   return `198.51.100.${String(addressCounter)}`;
-}
-
-interface QueryEvent {
-  query: string;
-  params: string;
-}
-
-/**
- * The statements the shared client sent while `run` was happening.
- *
- * The client announces them while NODE_ENV is test (src/db.ts), which is the
- * same seam tests/helps/browse.test.ts uses to EXPLAIN the browse query. The
- * `$on` type only exists when query logging is on — hence the cast.
- */
-async function statementsDuring(
-  run: () => Promise<unknown>,
-): Promise<string[]> {
-  const seen: string[] = [];
-  const client = prisma as unknown as {
-    $on: (event: "query", listener: (event: QueryEvent) => void) => void;
-  };
-
-  client.$on("query", (event) => {
-    seen.push(event.query);
-  });
-
-  await run();
-  // The event is emitted after the query resolves, so give it a tick to land.
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  return seen;
-}
-
-/** Which tables were SELECTed, in order, once each. */
-function tablesRead(statements: string[]): string[] {
-  const tables: string[] = [];
-  for (const sql of statements) {
-    if (!sql.includes("SELECT")) continue;
-    const match = /FROM "public"\."(\w+)"/.exec(sql);
-    if (match?.[1] && !tables.includes(match[1])) tables.push(match[1]);
-  }
-  return tables;
 }
 
 let kadri: TestUser;

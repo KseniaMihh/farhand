@@ -108,21 +108,25 @@ export function pixelBomb(): Promise<Buffer> {
 }
 
 /**
- * 300 × 100 in three stripes: red, green, blue. Cropped square from the
- * middle it is all green; squashed into a square it still has red at its left
- * edge. One colour could not tell those two apart.
+ * Three times as wide as it is tall, in three stripes: red, green, blue.
+ * Cropped square from the middle it is all green; squashed into a square it
+ * still has red at its left edge. One colour could not tell those two apart.
+ *
+ * The stripe size is an argument because #81's photos are not cropped at all
+ * and have a minimum side of 200: the same image, larger, says "both edges
+ * survived" instead of "the middle was taken".
  */
-export async function threeStripes(): Promise<Buffer> {
+export async function threeStripes(side = 100): Promise<Buffer> {
   const stripe = (background: string) =>
-    sharp({ create: { width: 100, height: 100, channels: 3, background } })
+    sharp({ create: { width: side, height: side, channels: 3, background } })
       .png()
       .toBuffer();
   return sharp({
-    create: { width: 300, height: 100, channels: 3, background: "#0f0" },
+    create: { width: side * 3, height: side, channels: 3, background: "#0f0" },
   })
     .composite([
       { input: await stripe("#f00"), left: 0, top: 0 },
-      { input: await stripe("#00f"), left: 200, top: 0 },
+      { input: await stripe("#00f"), left: side * 2, top: 0 },
     ])
     .png()
     .toBuffer();

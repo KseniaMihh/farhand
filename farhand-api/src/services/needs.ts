@@ -121,6 +121,38 @@ async function loadOwnNeed(actor: User, needId: string): Promise<Need> {
 }
 
 /**
+ * The statuses a need may still be changed in — its words and its photos.
+ *
+ * Once it is MATCHED somebody has agreed to shop for exactly what it said, and
+ * changing it afterwards would change the deal under their feet. Listed rather
+ * than written as "not MATCHED and not CLOSED and…", so a status added one day
+ * is refused until somebody decides otherwise.
+ */
+const EDITABLE_STATUSES: readonly NeedStatus[] = ["DRAFT", "OPEN"];
+
+/**
+ * Loads a need this user may change, or explains why not: the owner check
+ * above plus the two statuses it may be changed in.
+ *
+ * Exported because #81's photos are the second caller. A photo is part of what
+ * a need says, so "who may change this need" has to be one answer, in one
+ * place — including the 403, which is the unusual half (see `loadOwnNeed`) and
+ * exactly the kind of thing a second copy would get wrong.
+ */
+export async function loadEditableOwnNeed(
+  actor: User,
+  needId: string,
+): Promise<Need> {
+  const need = await loadOwnNeed(actor, needId);
+
+  if (!EDITABLE_STATUSES.includes(need.status)) {
+    throw HttpError.conflict("This need can no longer be edited");
+  }
+
+  return need;
+}
+
+/**
  * Creates a need for this user. A draft skips the open-needs limit: nobody can
  * be spammed by something only its author can see.
  */
@@ -159,11 +191,7 @@ export async function updateNeed(
   needId: string,
   input: UpdateNeedInput,
 ): Promise<Need> {
-  const need = await loadOwnNeed(actor, needId);
-
-  if (need.status !== "DRAFT" && need.status !== "OPEN") {
-    throw HttpError.conflict("This need can no longer be edited");
-  }
+  const need = await loadEditableOwnNeed(actor, needId);
 
   const isPublishing = need.status === "DRAFT" && input.status === "OPEN";
   if (isPublishing) {
