@@ -194,6 +194,12 @@ export async function addReceipt(
   const deal = await dealForReceipt(user, dealId);
   const purpose = PURPOSE_OF[kind];
 
+  // Permission BEFORE status, and the order is load-bearing: it means the
+  // refusal somebody is not allowed to make does not depend on what state the
+  // deal is in. A moderator gets the same 403 whether the deal is disputed or
+  // finished, and learns nothing from the difference. Shown by a variant run —
+  // removing DISPUTED from the lists below changed only the test about
+  // DISPUTED, and not the one about moderators.
   if (!WHEN_ALLOWED[purpose].includes(deal.status)) {
     throw HttpError.conflict(
       `A ${kind} receipt cannot be attached to a deal that is ${deal.status}`,
