@@ -402,6 +402,11 @@ describe("the blind window", () => {
 
     expect(seen.items.map((one) => one.id)).toEqual([row.id]);
     expect(seen.items[0]?.published).toBe(true);
+
+    // This reads the public list, so it exercises the rule's QUERY form only.
+    // A variant run proved the point by breaking the JavaScript form and
+    // leaving this green — "the two spellings agree" at the bottom of the file
+    // is what covers the other one, which is why that test exists.
   });
 
   it("keeps a lone review hidden until the very last day", async () => {
@@ -451,6 +456,13 @@ describe("editing", () => {
     await reviewRow(deal, kadri, 2);
 
     expect((await editReview(deal.id, kadri, { rating: 5 })).status).toBe(409);
+
+    // Which of the two rules refuses it: a variant run showed this case is
+    // held by the DEADLINE check that every review request passes through,
+    // not by the published check inside the edit. Both give the right answer
+    // and the outer one gets there first. Said here so that nobody reads this
+    // test as cover for the inner rule — "both sides have written" above is
+    // what covers that.
   });
 
   it("is refused to somebody who has not written one", async () => {
