@@ -298,6 +298,11 @@ describe("what a removed review looks like", () => {
       .reviews;
     expect(reviews.map((one) => one.id)).toEqual([review.id]);
     expect(reviews[0]).toMatchObject({ removed: true, rating: null });
+
+    // The deal's answer goes through the JavaScript form of the rule, which is
+    // why this test and the public-list ones catch different breakages — and
+    // why a removal that filtered reviews out of `allOnDeal` is caught here
+    // rather than by the test about the pair.
   });
 });
 
@@ -364,6 +369,11 @@ describe("the pair rule remembers what was written", () => {
     // not unmake it. Otherwise this is a trick: write something abusive about
     // the person you expect to review you badly, get it removed, and their
     // honest review of you disappears until the deadline.
+    //
+    // This reads the public list, so it holds the rule's QUERY form. A variant
+    // run proved the distinction matters: filtering removed reviews out of the
+    // JavaScript form left this green and failed a different test instead.
+    // Aimed at the query's pair clause, it is this one that goes red.
     expect(await reviewsAbout(kadri.id)).toHaveLength(1);
     expect((await reviewsAbout(kadri.id))[0]?.removed).toBe(false);
   });
