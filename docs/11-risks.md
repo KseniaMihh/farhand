@@ -439,6 +439,67 @@ Two limits are still the ones to watch when it happens:
   `$0` (decision 0011). Images stop being served rather than start costing
   money. Nothing in #102 changes this: the bytes are fetched either way.
 
+## One click in a confirmation email can lock somebody out for good (#121)
+
+Found by looking at the first real email the live site ever sent (#119), and
+**deliberately not fixed** — the reasons are below, and so is the trigger that
+should make somebody fix it.
+
+Gmail shows an **unsubscribe** button beside the sender of our confirmation
+email, because Brevo attaches a `List-Unsubscribe` header to everything it
+sends. Clicking it blocklists that address **for our sender**, and in a product
+whose only email is authentication, "unsubscribe" therefore means:
+
+| What they lose | Why it is permanent |
+|---|---|
+| The confirmation code | `requireVerified` guards 41 routes: an unconfirmed account can read and nothing else |
+| Every password reset, afterwards | Same blocklist, same sender |
+| Any way to notice | `POST /auth/register` and `/auth/forgot-password` answer identically whatever happens — #9's rule against enumeration, working exactly as designed |
+
+### What the research settled
+
+| Question | Answer |
+|---|---|
+| Can Brevo be told not to attach it? | **No.** Its help centre says the header is added automatically to campaigns *and* transactional mail; replacing it with `List-Help` is **Enterprise-only**, under conditions that describe our case exactly (recipient-triggered, no promotional content) |
+| Would our own domain remove it? | **No.** Nothing ties the header to sender authentication. A domain fixes the rewritten sender and the spam risk, not this |
+| Do the alternatives behave differently? | **Yes.** Resend does not manage lists for transactional mail at all — the header is yours to add if you want one. SendGrid has explicit `bypass_unsubscribe_management`. **Both need a verified domain**, which is what ruled them out in #119 |
+| Can we tell that an address is blocked? | Brevo exposes `GET /v3/smtp/blockedContacts` and shows a `blocked` status in its own log. Whether a send to a blocked address *fails* or quietly succeeds is **untested** — see below |
+
+### The untested half
+
+Brevo documents "Blocked" as a **delivery status** rather than a send error,
+which suggests the API call succeeds and the message is simply never delivered
+— meaning `src/mailer.ts`'s failure path never fires, and nothing reaches the
+log or Sentry. That is an inference, not an observation. The experiment that
+would settle it, kept here so it does not have to be re-derived:
+
+1. register a throwaway alias on the live site, which sends the first email;
+2. click **unsubscribe** in that message on purpose;
+3. call `POST /auth/resend-verification` for the same address;
+4. read both logs — Render's for `Email sent` against `Could not send email`,
+   Brevo's for whether a second message exists and with what status.
+
+`Could not send email` would mean the failure is loud and support could notice.
+Anything else means it is silent, and the risk below is the worse version.
+
+### Why it is not being fixed now
+
+The fix is **a domain plus a provider that distinguishes transactional mail**,
+and a domain is bought when there is a frontend to put on it (#93). Buying one
+now would break the rule that nothing here costs money, to solve a problem that
+cannot yet affect anybody: there are no users, and the only addresses in the
+production database are the author's own test aliases.
+
+### The trigger
+
+**Before the first real person who is not the author registers.** In practice
+that is #93 going live, which is also when the domain appears — so the work is:
+authenticate the domain, move to Resend (or SendGrid), and send transactional
+mail with no unsubscribe header. Decision
+`10-decisions/0015-living-with-a-transactional-unsubscribe.md` holds the
+reasoning; `14-deployment.md` holds what to do if somebody is blocked in the
+meantime.
+
 ## Product and legal risks
 
 | Risk | Severity | Position taken |

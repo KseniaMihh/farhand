@@ -183,7 +183,9 @@ before anyone else is invited, which is why it is a step rather than a nicety
 3. **Verify the sender**, *Senders, Domains & Dedicated IPs → Senders → Add a
    sender*. Brevo emails a code to the address; paste it back.
 4. **Create an API key**, *SMTP & API → API keys → Generate a new API key*.
-   Copy it then — the dashboard shows it once.
+   Name it for what holds it — `farhand-api-render` — so a second key for a
+   laptop can be revoked without taking production down. Copy it then: the
+   dashboard shows it once.
 5. **Give Render the settings**, *the service → Environment*:
 
 | Variable | Value |
@@ -216,6 +218,50 @@ Then prove it, the way storage was proved:
 3. Render's logs show `Email sent` and **no token**. A token in a log is a
    working credential; if one appears there, that is a bug and not a
    convenience.
+
+**Done for the live service on 2026-10-12**, and all three held: the message
+reached the inbox rather than the spam folder — which was the uncertain part,
+since the sender is borrowed — and the code confirmed the account.
+
+#### When somebody says they never got an email
+
+Read this before telling anybody to check their spam folder again. Every
+message Brevo sends carries an unsubscribe button, and **clicking it blocklists
+that address for our sender**: no confirmation code, no password reset, and no
+sign of trouble anywhere the person can see (#121,
+[decision 0015](10-decisions/0015-living-with-a-transactional-unsubscribe.md)).
+
+1. **Brevo → Transactional → Logs**, filtered by the address. A row with status
+   `blocked` says the message was refused on our side of the fence. No row at
+   all says the API call never reached Brevo — that one is in Render's logs
+   instead, as `Could not send email`.
+2. **The blocklist itself**, with the key from the password manager:
+
+   ```bash
+   curl -H "api-key: $BREVO_KEY" \
+     "https://api.brevo.com/v3/smtp/blockedContacts?limit=50"
+   ```
+
+   Each entry carries the reason it was blocked — an unsubscribe, a hard
+   bounce, a spam complaint, or somebody blocking it by hand — which decides
+   whether step 3 is appropriate at all.
+3. **Undo it only if it was a mistake**, and ask the person first:
+
+   ```bash
+   curl -X DELETE -H "api-key: $BREVO_KEY" \
+     "https://api.brevo.com/v3/smtp/blockedContacts/somebody@example.com"
+   ```
+
+   Brevo warns that unblocking somebody who genuinely asked to be blocked can
+   get the account suspended. "They clicked it by accident and want back in" is
+   the only case this is for.
+4. **If they were blocked and want to stay unsubscribed**, there is nothing to
+   do about their account: they cannot be verified and cannot reset a password.
+   Say so plainly rather than leaving them retrying.
+
+The real fix is a domain plus a provider that distinguishes transactional mail,
+and it waits for #93 — the reasoning, and the trigger that should force it, are
+in decision 0015 and `11-risks.md`.
 
 ### 6. The monitor
 
