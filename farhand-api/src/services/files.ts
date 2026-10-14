@@ -3,6 +3,7 @@ import type { File, FilePurpose, Prisma, User } from "@prisma/client";
 import type { Logger } from "pino";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { logger } from "../logger.js";
 import { ROLE_RANK } from "../middleware/auth.js";
 import { storage } from "../storage.js";
 
@@ -242,6 +243,16 @@ const FILE_FACTS = {
 type FileFacts = Pick<File, keyof typeof FILE_FACTS>;
 
 /**
+ * Whether a viewer may see a file, and on what grounds.
+ *
+ * Three answers rather than two, since #82. "yes" is the file's own people —
+ * an avatar's public, a need's owner or its readers, a deal's two sides.
+ * "moderator" is somebody seeing it because of what they are rather than who
+ * they are, and that difference is the one worth writing down afterwards.
+ */
+type Visibility = "no" | "yes" | "moderator";
+
+/**
  * May this viewer see this file?
  *
  * Who may see what: docs/06-api-contract.md, "Files", from the rule in
@@ -260,7 +271,7 @@ type FileFacts = Pick<File, keyof typeof FILE_FACTS>;
 async function isVisibleTo(
   file: FileFacts,
   viewer: User | undefined,
-): Promise<boolean> {
+): Promise<Visibility> {
   switch (file.purpose) {
     // The rule of GET /users/:id. Named, not "anything but BANNED", so a
     // status added one day is hidden until somebody decides otherwise.
@@ -270,14 +281,16 @@ async function isVisibleTo(
         select: { status: true },
       });
 
-      return owner?.status === "ACTIVE" || owner?.status === "SUSPENDED";
+      return owner?.status === "ACTIVE" || owner?.status === "SUSPENDED"
+        ? "yes"
+        : "no";
     }
 
     case "NEED_PHOTO": {
       // A photo belonging to no need is nobody's, and saying so costs no
       // query at all — the column is nullable, so the rule has to answer for
       // it whether or not an endpoint can produce one.
-      if (!file.needId) return false;
+      if (!file.needId) return "no";
 
       const need = await prisma.need.findUnique({
         where: { id: file.needId },
@@ -289,7 +302,7 @@ async function isVisibleTo(
       // `findUnique` returns `Need | null`, and explained rather than tested —
       // a broken variant that deletes this line changes nothing a test could
       // see, which is worth saying out loud (#102).
-      if (!need) return false;
+      if (!need) return "no";
 
       // A moderator too, since #81. `ReportReason` has had PROHIBITED_ITEM
       // since #26 and `ReportTarget` has had NEED, so a report about a
@@ -299,15 +312,15 @@ async function isVisibleTo(
       // since #79; this was an oversight, not a decision. The id comes from
       // GET /admin/reports/:id, which carries a need's photos for exactly
       // this reason (docs/02-roles-and-permissions.md).
-      const isModerator =
-        viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
-
-      return (
+      if (
         viewer?.id === need.requesterId ||
         need.status === "OPEN" ||
-        need.status === "MATCHED" ||
-        isModerator
-      );
+        need.status === "MATCHED"
+      ) {
+        return "yes";
+      }
+
+      return isModerator(viewer) ? "moderator" : "no";
     }
 
     case "PRODUCT_RECEIPT":
@@ -315,23 +328,28 @@ async function isVisibleTo(
       // Same free refusal, and here it matters more: a receipt with no deal
       // has nobody who may see it, so skipping the query must never be read
       // as skipping the permission.
-      if (!file.dealId) return false;
+      if (!file.dealId) return "no";
 
       const deal = await prisma.deal.findUnique({
         where: { id: file.dealId },
         select: { requesterId: true, helperId: true },
       });
       // Unreachable for the same reason, and kept for the same reason.
-      if (!deal) return false;
+      if (!deal) return "no";
 
       const isParticipant =
         viewer?.id === deal.requesterId || viewer?.id === deal.helperId;
-      const isModerator =
-        viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
 
-      return isParticipant || isModerator;
+      if (isParticipant) return "yes";
+
+      return isModerator(viewer) ? "moderator" : "no";
     }
   }
+}
+
+/** `MODERATOR` or above, and signed in at all. */
+function isModerator(viewer: User | undefined): boolean {
+  return viewer !== undefined && ROLE_RANK[viewer.role] >= ROLE_RANK.MODERATOR;
 }
 
 /**
@@ -357,8 +375,30 @@ export async function fileReadUrl(
     throw HttpError.notFound("File not found");
   }
 
-  if (!(await isVisibleTo(file, viewer))) {
+  const seenAs = await isVisibleTo(file, viewer);
+
+  if (seenAs === "no") {
     throw HttpError.notFound("File not found");
+  }
+
+  if (seenAs === "moderator" && viewer) {
+    // Reading is not a decision, so it writes no AdminAction — but a power
+    // that leaves no trace at all is one nobody can ask about afterwards
+    // (docs/07-trust-and-safety.md). The same shape as a moderator opening a
+    // deal or a conversation (#27, services/deals.ts), and extended here to
+    // the two files only a moderator can reach: a deal's receipt (#82) and a
+    // need's photo after the need is gone, which #81 allowed and did not
+    // record.
+    logger.info(
+      {
+        moderatorId: viewer.id,
+        fileId,
+        purpose: file.purpose,
+        dealId: file.dealId,
+        needId: file.needId,
+      },
+      "moderator read a file",
+    );
   }
 
   return storage.signedReadUrl(file.storageKey);

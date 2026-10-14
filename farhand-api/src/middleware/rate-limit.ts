@@ -108,6 +108,14 @@ export const RATE_LIMITS = {
    *   40   per user per hour
    */
   needPhoto: { windowMs: 60 * 60 * 1000, perUser: 40 },
+
+  /**
+   * Receipts on a deal, per signed-in user (#82). The same work as a need's
+   * photo, in smaller quantities: six per deal at most, and a person is in a
+   * handful of deals at once. Twenty an hour is more than anybody
+   * photographing a till roll needs, including the retries.
+   */
+  receipt: { windowMs: 60 * 60 * 1000, perUser: 20 },
 } as const;
 
 /** What a limiter counts by. */
@@ -301,6 +309,11 @@ export const limiters = {
   needPhotoByUser: createRateLimiter({
     windowMs: RATE_LIMITS.needPhoto.windowMs,
     max: RATE_LIMITS.needPhoto.perUser,
+    by: "user",
+  }),
+  receiptByUser: createRateLimiter({
+    windowMs: RATE_LIMITS.receipt.windowMs,
+    max: RATE_LIMITS.receipt.perUser,
     by: "user",
   }),
 };
