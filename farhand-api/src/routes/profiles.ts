@@ -16,6 +16,12 @@ import {
   ownProfileView,
   updateMyProfile,
 } from "../services/profiles.js";
+import { reviewsAbout } from "../services/reviews.js";
+import {
+  decodeCursor,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from "../services/shared.js";
 
 export const profilesRouter: Router = Router();
 
@@ -33,6 +39,17 @@ export const profilesRouter: Router = Router();
  */
 
 const userParams = z.object({ id: z.string().min(1) });
+
+/** The query string of the review list — the same shape as every other. */
+const reviewListQuery = z.object({
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_PAGE_SIZE)
+    .default(DEFAULT_PAGE_SIZE),
+});
 
 /**
  * The fields someone may change about themselves.
@@ -72,6 +89,33 @@ profilesRouter.get("/users/:id", async (req, res) => {
   const user = await getPublicProfile(id);
 
   res.json({ user });
+});
+
+/**
+ * What has been said about somebody, by the people who dealt with them (#83).
+ *
+ * Public and unauthenticated, like the profile it belongs beside: a review
+ * exists to tell a stranger whether this person is worth trading with, and a
+ * stranger is exactly who has no session.
+ *
+ * Paged like every other list here. The alternative — every review ever — is
+ * fine for the first year and is the kind of endpoint that quietly becomes a
+ * way to ask the database for a whole table.
+ *
+ * Only published reviews, decided inside the service: a blind window is a
+ * condition in the query, not a promise the caller is trusted to keep.
+ */
+profilesRouter.get("/users/:id/reviews", async (req, res) => {
+  const { id } = userParams.parse(req.params);
+  const { cursor, limit } = reviewListQuery.parse(req.query);
+  const page = await reviewsAbout(
+    id,
+    cursor === undefined ? undefined : decodeCursor(cursor),
+    limit,
+    new Date(),
+  );
+
+  res.json(page);
 });
 
 /**

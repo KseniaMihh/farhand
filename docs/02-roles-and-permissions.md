@@ -53,7 +53,8 @@ the API on every request.
 | Read a deal, or its event log | Only its requester and helper, plus moderators. A stranger gets `404`, never `403` — saying a deal exists is itself the leak |
 | Find an account | `MODERATOR` or above. Email matched exactly, never partially, so the endpoint cannot become a way to list everybody at a domain (#67) |
 | Advance a deal | Only the person named for that transition in `04-deal-lifecycle.md` |
-| Write a review | Only a participant of a `COMPLETED` deal, once |
+| Write a review | Only a participant of a `COMPLETED` deal, once, about the other side — and only within 14 days of completion, after which everybody can read and nobody can write (#83, decision 0017) |
+| Read a review | Anybody, once it is published: both sides have written, or the 14 days have passed. Before that, only its author, who is also the only person who can still change it |
 | See a receipt file | Only the two deal participants, plus moderators — and a moderator's read is written to the log, the way a moderator opening a deal or a conversation is (#82) |
 | Attach a receipt to a deal | Only the helper, who is the one who buys. The requester and a moderator get `403`, a stranger `404`; three of each kind, and nothing deletes one (#82) |
 | See an avatar or a need photo | Whoever may see the profile or the need it belongs to (#79). Anyone else gets the same `404` as for a file that does not exist |

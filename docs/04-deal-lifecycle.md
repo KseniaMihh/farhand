@@ -46,7 +46,7 @@ docs/06-api-contract.md. The first `DealEvent` is written there too, with
 | `PRODUCT_PAID` | `PURCHASED` | Helper | — | Receipt upload allowed, never required (#82) |
 | `PURCHASED` | `SHIPPED` | Helper | Tracking number and real postage present | Requester notified to settle the difference |
 | `SHIPPED` | `DELIVERED` | Requester | — | — |
-| `DELIVERED` | `COMPLETED` | Requester, or automatically after 14 days | — | Reviews unlock |
+| `DELIVERED` | `COMPLETED` | Requester, or automatically after 14 days | — | Reviews unlock, and their 14-day window starts (#83) |
 | Any state before `SHIPPED` | `CANCELLED` | Either side | Reason required | Need may reopen |
 | Any state from `PRODUCT_PAID` to `SHIPPED` | `DISPUTED` | Either side | Reason required | Deal frozen |
 | `DISPUTED` | `CANCELLED` or previous state | Moderator | Reason required | Resolution note recorded |

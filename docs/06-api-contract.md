@@ -459,9 +459,10 @@ What is deliberately not here:
 | `city` | A display name plus a city is often enough to find a real person, and nothing in a deal needs it. Its owner can see and set it; nobody else can read it |
 | `role`, `status` | Moderators are not announced, and a suspension is between the account and us |
 
-No rating summary: reviews are version 2. The field is absent rather than
-present and always `null` — a `null` nobody can explain is worse than an
-absence, and it will arrive with the reviews that give it a value.
+No rating summary yet, although the reviews it would summarise now exist
+(#83). The field is absent rather than present and always `null` — a `null`
+nobody can explain is worse than an absence — and #84 is where it arrives.
+What a stranger can read today is the list: `GET /users/:id/reviews`.
 
 The owner of a profile sees exactly what a stranger sees. `GET /auth/me` is
 where somebody reads their own private fields, and there is no third answer in
@@ -1524,6 +1525,96 @@ every other list here.
 | `status` | One `DealStatus`. Anything else is `422` |
 | `limit` | 1–50, default 20 |
 | `cursor` | From `nextCursor` |
+
+## Reviews
+
+Version 2 (#83). A review is not feedback between two people who already know
+what happened — it is a signal to the next stranger deciding whether to trade
+with one of them. That is why it is public, why it hangs off a completed deal
+rather than off a person, and why both sides of the same deal can write one.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/deals/:id/review` | AUTH | Participant of a `COMPLETED` deal, once, before the window closes |
+| PATCH | `/deals/:id/review` | AUTH | The caller's own, and only while it is still hidden |
+| GET | `/users/:id/reviews` | — | Public. Published reviews about that person, newest first, paged |
+
+### The blind window
+
+**Neither side sees the other's review until both have written one**, and
+**writing closes when the window does**:
+
+```
+deadline   the deal's COMPLETED event + 14 days
+writable   before the deadline, and only once
+visible    both sides have written, or the deadline has passed
+editable   mine, and not yet visible
+```
+
+The second half is what makes the first half worth having. With a timer per
+review instead, the second person could simply wait: say nothing, let an honest
+two-star publish itself on day 15, read it, and answer with a revenge one-star
+on day 16. Measuring from the deal means that by the time anybody can read, no
+one can write. Both reviews also become visible at the same moment rather than
+on two different days ([decision
+0017](10-decisions/0017-reviews-are-blind-until-both-are-in.md)).
+
+Fourteen days is the same number as the auto-complete sweep, and for the same
+reason: it is this product's existing idea of how long somebody reasonably
+takes to get round to something.
+
+There is no column and no scheduled job behind any of this. "When did this deal
+complete" is already in the event log, and the rest is that date and the clock.
+
+### `POST /deals/:id/review`
+
+```json
+{ "rating": 4, "comment": "Bought exactly the right thing." }
+```
+
+| Field | Rule |
+|---|---|
+| `rating` | A whole number, 1–5. Also a CHECK constraint in the database, so the rule holds even if this route is bypassed |
+| `comment` | 1–1000 characters, or `null`. Optional |
+
+**The target is not in the body.** It is the other person in the deal, derived
+by the service: a client that could name the target could name itself.
+
+Returns `201` with the review, including `published: false` while the window
+holds. Refusals:
+
+| Case | Response |
+|---|---|
+| Not signed in | `401` |
+| A deal the caller is not in | `404`, exactly as for a deal that does not exist |
+| A moderator | `403` — they can read the deal; reviewing is for the two who traded |
+| A deal that is not `COMPLETED` | `409` |
+| After the deadline | `409` |
+| A second review from the same person | `409`, refused by the unique index rather than by a look-first read (#19) |
+
+### `PATCH /deals/:id/review`
+
+The same body, and the same rules about what it may say. Allowed exactly as
+long as the review is unpublished: until then it is a draft that only its
+author can see, and afterwards it is a public statement somebody may have acted
+on. `409` once published, `404` if the caller has not written one.
+
+**Nothing deletes a review**, at any point, by anybody. There is no endpoint.
+
+### `GET /users/:id/reviews`
+
+Public and unauthenticated, like the profile beside it: a stranger is exactly
+who this is for. Paged like every other list (`limit` 1–50, `cursor`), newest
+first, and **published reviews only** — the window is a condition in the query,
+not a promise the caller is trusted to keep.
+
+A review whose author has since deleted their account reads as
+`Deleted account`, because #66 blanks the profile rather than removing it. What
+was said about the other person stays: it was true when it was written.
+
+`GET /deals/:id` also carries `reviews`, and that list is assembled per caller:
+your own always, published or not, because you are the only person who may read
+it inside the window — and the only one who can still change it.
 
 ## Reports and moderation
 

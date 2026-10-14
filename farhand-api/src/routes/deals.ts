@@ -19,6 +19,12 @@ import {
 import { MAX_FILE_BYTES } from "../services/files.js";
 import { addReceipt, receiptsForDeal } from "../services/receipts.js";
 import {
+  editReview,
+  MAX_COMMENT_LENGTH,
+  reviewsOnDeal,
+  writeReview,
+} from "../services/reviews.js";
+import {
   decodeCursor,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
@@ -181,8 +187,68 @@ dealsRouter.get(
     const deal = await getDeal(getAuth(req).user, id);
 
     // Whoever may see the deal may see its receipts: `getDeal` has already
-    // decided who that is, and there is no second rule here (#82).
-    res.json({ deal: { ...deal, receipts: await receiptsForDeal(deal.id) } });
+    // decided who that is, and there is no second rule here (#82). Reviews
+    // are not the same: a review inside its blind window is its author's
+    // alone, so that answer is assembled per caller (#83).
+    res.json({
+      deal: {
+        ...deal,
+        receipts: await receiptsForDeal(deal.id),
+        reviews: await reviewsOnDeal(getAuth(req).user, deal.id, new Date()),
+      },
+    });
+  },
+);
+
+/* ─────────────────────────── reviews (#83) ─────────────────────────── */
+
+/**
+ * What a review may say. The target is NOT here: it is the other person in the
+ * deal, derived by the service, because a client that could name the target
+ * could name itself.
+ *
+ * The rating's bounds are the same 1–5 the database CHECK constraint enforces,
+ * stated twice on purpose — a clean `422` naming the field here, and a rule
+ * that holds even if this route is bypassed there.
+ */
+const reviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_COMMENT_LENGTH)
+    .nullable()
+    .default(null),
+});
+
+/** AUTH. A participant of a completed deal, once, before the window closes. */
+dealsRouter.post(
+  "/deals/:id/review",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const input = reviewSchema.parse(req.body);
+    const review = await writeReview(getAuth(req).user, id, input, new Date());
+
+    res.status(201).json({ review });
+  },
+);
+
+/** AUTH. The caller's own, and only while nobody else can read it. */
+dealsRouter.patch(
+  "/deals/:id/review",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const input = reviewSchema.parse(req.body);
+    const review = await editReview(getAuth(req).user, id, input, new Date());
+
+    res.json({ review });
   },
 );
 

@@ -182,6 +182,16 @@ thing that is reported, resolved and then happens again deserves a new report.
 
 **`Review`** — unique on `(dealId, authorId)`, so one review per side per deal,
 and only after `COMPLETED`. Ratings are constrained to 1–5 in the database.
+Both rules are enforced there rather than only in code, and #83 proves each
+with a test that writes straight to the table.
+
+**There is no `publishedAt`, and no job that sets one.** Whether a review is
+visible is a question about rows and the clock — both sides have written, or
+the deal's `COMPLETED` event is more than 14 days old — so it is computed when
+somebody asks (decision 0017). A column would be a second copy of a fact the
+data already contains, and the sort of copy that is wrong at three in the
+morning when a job did not run. Nothing updates a review after it is published
+either: it is public text somebody may have acted on.
 
 **`File`** — metadata only; the bytes live in object storage (Backblaze B2,
 decision 0011). A row names the owner, the purpose, a random storage key, the
