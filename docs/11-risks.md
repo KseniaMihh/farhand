@@ -500,6 +500,30 @@ mail with no unsubscribe header. Decision
 reasoning; `14-deployment.md` holds what to do if somebody is blocked in the
 meantime.
 
+## A review cannot be reported or removed (#83)
+
+Found while building reviews, and left open deliberately — but with a shorter
+fuse than most of what is on this page.
+
+A review is public text about a named real person, written by somebody who had
+one argument with them. `ReportTarget` has `USER`, `NEED`, `HELP` and
+`MESSAGE`, and `POST /admin/content/:type/:id/remove` knows needs, offers and
+messages. A review is in neither list, so it can be reported through nothing
+and removed by nobody — not a moderator, and not even its author, since
+#83 deliberately makes them permanent once published (decision 0017).
+
+| | |
+|---|---|
+| What exists | Reviews, public, permanent, attached to a person's profile through #84 |
+| What is missing | `REVIEW` in `ReportTarget`; `review` as a content type for the takedown endpoint; and a decision about what removal means for #84's average |
+| Why not now | There are no users. The first real review will be written by somebody we know |
+| **Trigger** | **Before the frontend goes live** — the same event as the domain, the sender rewrite (#121) and the verification link |
+
+This is not the same shape as #121's unsubscribe, which is a third party's
+behaviour we cannot change. This one is entirely ours, is a few hours of work,
+and the only reason it is not done is that version 1's scope rule says a thing
+without an issue is not planned work.
+
 ## Product and legal risks
 
 | Risk | Severity | Position taken |
