@@ -1,3 +1,4 @@
+import { ReportTarget } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -21,7 +22,16 @@ export const reportsRouter: Router = Router();
  * something you have to go looking for (docs/02-roles-and-permissions.md).
  */
 
-const TARGET_TYPES = ["USER", "NEED", "HELP", "MESSAGE"] as const;
+/**
+ * Read from the schema rather than typed out again (#125).
+ *
+ * This was a hand-written copy of `ReportTarget`, in two route files, and
+ * adding `REVIEW` to the enum left both of them quietly refusing the new value
+ * with a `422` — the drift that `docs/README.md`'s first rule is about.
+ * Prisma generates the enum as a real object, so the list can come from there
+ * and the next value added arrives here on its own.
+ */
+const TARGET_TYPES = ReportTarget;
 const REASONS = [
   "PROHIBITED_ITEM",
   "SCAM",

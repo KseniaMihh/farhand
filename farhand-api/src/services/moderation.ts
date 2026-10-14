@@ -13,6 +13,7 @@ import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import { logger } from "../logger.js";
 import { withPhotos } from "./need-photos.js";
+import { reviewAsEvidence } from "./reviews.js";
 import {
   afterCursor,
   type CursorPosition,
@@ -120,7 +121,21 @@ export async function actOnUser(
 }
 
 /**
- * Take a need, an offer or a message down.
+ * Take a need, an offer, a message or a review down.
+ *
+ * TODO(#125): the REVIEW branch. `Review.removedAt` is the same column and the
+ * same reason as `Message.removedAt` — hidden, kept as evidence — but what
+ * "hidden" means is NOT the same, and the difference is deliberate:
+ *
+ *   a message  keeps its place in the thread, body null. A hole that says
+ *              "removed" is honest; one that closes up makes the conversation
+ *              read as though nothing was sent (docs/06-api-contract.md)
+ *   a review   disappears from everywhere but a moderator's view. A list has
+ *              no narrative to break, and a tombstone on somebody's profile
+ *              is itself a mark that a moderator's action should not leave
+ *
+ * The person the action is recorded against is the review's AUTHOR, as it is
+ * the sender for a message: a takedown is about who wrote the thing.
  */
 export async function removeContent(
   actor: User,
@@ -156,6 +171,17 @@ export async function removeContent(
       await tx.help.update({
         where: { id: contentId },
         data: { status: "REMOVED" },
+      });
+    } else if (contentType === "REVIEW") {
+      const review = await tx.review.findUnique({ where: { id: contentId } });
+      if (!review) throw HttpError.notFound("Review not found");
+      if (review.removedAt) {
+        throw HttpError.conflict("This review has already been removed");
+      }
+      targetUserId = review.authorId;
+      await tx.review.update({
+        where: { id: contentId },
+        data: { removedAt: new Date() },
       });
     } else {
       // MESSAGE
@@ -255,6 +281,34 @@ export async function getReportWithTarget(
             },
           },
         });
+
+      case "REVIEW": {
+        // What a moderator needs to judge it: the words, the rating, the deal
+        // it came from, and both people. A permission to remove something
+        // nobody can show you is as useless as #81's permission to open a
+        // photo whose id nothing handed out.
+        const review = await prisma.review.findUnique({
+          where: { id: report.targetId },
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+            removedAt: true,
+            dealId: true,
+            authorId: true,
+            author: { select: { profile: { select: { displayName: true } } } },
+            target: { select: { id: true, profile: true } },
+          },
+        });
+
+        // `reviewAsEvidence`, not the view everybody else gets: that one hides
+        // the words of a removed review, which would make the evidence
+        // unreadable by the only people allowed to read it (#125).
+        return review === null
+          ? null
+          : { ...reviewAsEvidence(review), target: review.target };
+      }
     }
   })();
 

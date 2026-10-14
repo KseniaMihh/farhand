@@ -1612,6 +1612,33 @@ A review whose author has since deleted their account reads as
 `Deleted account`, because #66 blanks the profile rather than removing it. What
 was said about the other person stays: it was true when it was written.
 
+### A review a moderator has removed
+
+It **keeps its place** in every list it was in, with `removed: true` and both
+`rating` and `comment` as `null` — the same argument the contract makes for a
+removed message: a hole that says "removed" is honest, one that closes up makes
+the list read as though nothing was ever written. Its own author sees the same
+thing; they know what they wrote, and showing it back would read as though it
+were still standing.
+
+It **counts for nothing**. Not in #84's average, not in the count beside it. If
+a review was abusive or false enough to take down, its one star is very likely
+part of the same abuse, and leaving it in would let somebody damage a
+reputation from behind a review nobody can read.
+
+Those are two rules, deliberately — `publishedWhere` decides what is listed,
+`countedWhere` decides what is averaged
+([decision 0018](10-decisions/0018-a-removed-review-keeps-its-place.md)). A
+profile will therefore say *"5.0 from 3 reviews"* above a list of four. The
+number and the list disagree, and the tombstone in the list is what explains
+the difference.
+
+**A removal never unpublishes anything.** "Both sides have written" is a fact
+about the past, so a removed review still completes the pair that published the
+other one. Otherwise there is a trick: write something abusive about the person
+you expect to review you badly, get it removed, and their honest review of you
+disappears until the deadline.
+
 `GET /deals/:id` also carries `reviews`, and that list is assembled per caller:
 your own always, published or not, because you are the only person who may read
 it inside the window — and the only one who can still change it.
@@ -1626,7 +1653,7 @@ it inside the window — and the only one who can still change it.
 | POST | `/admin/reports/:id/resolve` | MOD | Resolution note required |
 | GET | `/admin/users` | MOD | Find an account by email or display name, filter by status, paged |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
-| POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, help or message |
+| POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, offer, message or review |
 
 Everything under `/admin` requires `MODERATOR` or above, and the prefix is not
 decoration: keeping those routes together is what makes a missing guard obvious
@@ -1645,7 +1672,7 @@ at a glance (docs/02-roles-and-permissions.md).
 
 | Field | Rule |
 |---|---|
-| `targetType` | `USER`, `NEED`, `HELP` or `MESSAGE` |
+| `targetType` | `USER`, `NEED`, `HELP`, `MESSAGE` or `REVIEW`. The list comes from the schema, not from a copy in the route (#125) |
 | `targetId` | The id of a thing of that type |
 | `reason` | `PROHIBITED_ITEM`, `SCAM`, `HARASSMENT`, `SEXUAL_CONTENT`, `SPAM` or `OTHER` |
 | `details` | Up to 2000 characters. May be `null` |
@@ -1787,18 +1814,19 @@ because a ban that quietly expires is not a ban.
 
 ### `POST /admin/content/:type/:id/remove`
 
-`type` is `NEED`, `HELP` or `MESSAGE`; `USER` is `422`, because an account is
-banned rather than removed. The body is `{ "reason": "…" }`, required.
+`type` is `NEED`, `HELP`, `MESSAGE` or `REVIEW`; `USER` is `422`, because an
+account is banned rather than removed. The body is `{ "reason": "…" }`,
+required.
 
-A need or an offer becomes `REMOVED`; a message keeps its row and gets
-`removedAt`, so the thread still shows that something was there and its words
-are gone (#21). Removing something twice is `409` — it is already gone, and a
-second entry in the log would suggest it had come back.
+A need or an offer becomes `REMOVED`; a message or a review keeps its row and
+gets `removedAt`, so what was there still shows and its words are gone (#21,
+#125). Removing something twice is `409` — it is already gone, and a second
+entry in the log would suggest it had come back.
 
 The `AdminAction` records **both** halves: `targetUserId` is whose account it
-was about — the need's requester, the offer's helper, the message's sender —
-and `contentType`/`contentId` are what was actually taken down. A log that
-cannot answer "what did you remove?" is not an audit log.
+was about — the need's requester, the offer's helper, the message's sender, the
+review's **author** — and `contentType`/`contentId` are what was actually taken
+down. A log that cannot answer "what did you remove?" is not an audit log.
 
 ### `GET /admin/reports/:id`
 
@@ -1813,6 +1841,12 @@ A reported **need** comes with its `photos`, the same field `GET /needs/:id`
 gives (#81). It is the only place a moderator is handed a photo id, and the
 pictures are usually what a `PROHIBITED_ITEM` report is about; the matching
 permission is in [Files](#files).
+
+A reported **review** comes back **as it was written**, with its rating, its
+comment and its `removedAt` — even after it has been removed, when every other
+reader sees those two fields as `null` (#125). The row is kept as evidence, and
+evidence the only permitted reader cannot read is not evidence. This is the one
+place in the API where a removed review's words appear.
 
 ### `POST /admin/reports/:id/resolve`
 

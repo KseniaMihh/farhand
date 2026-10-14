@@ -83,6 +83,7 @@ enum ReportTarget {
   NEED
   HELP
   MESSAGE
+  REVIEW // #125
 }
 
 enum ReportReason {
@@ -418,6 +419,11 @@ model Review {
   rating    Int // 1–5, enforced by CHECK constraint (see SQL below)
   comment   String?  @db.VarChar(1000)
   createdAt DateTime @default(now())
+  // Hidden by a moderator, kept for evidence — the same column and the same
+  // reason as Message.removedAt (#125). A removed review counts for nothing:
+  // not in a profile's average, not in its count, not in any list but a
+  // moderator's.
+  removedAt DateTime?
 
   @@unique([dealId, authorId])
   @@index([targetId])
