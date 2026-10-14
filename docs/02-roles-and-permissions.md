@@ -54,7 +54,8 @@ the API on every request.
 | Find an account | `MODERATOR` or above. Email matched exactly, never partially, so the endpoint cannot become a way to list everybody at a domain (#67) |
 | Advance a deal | Only the person named for that transition in `04-deal-lifecycle.md` |
 | Write a review | Only a participant of a `COMPLETED` deal, once |
-| See a receipt file | Only the two deal participants, plus moderators |
+| See a receipt file | Only the two deal participants, plus moderators — and a moderator's read is written to the log, the way a moderator opening a deal or a conversation is (#82) |
+| Attach a receipt to a deal | Only the helper, who is the one who buys. The requester and a moderator get `403`, a stranger `404`; three of each kind, and nothing deletes one (#82) |
 | See an avatar or a need photo | Whoever may see the profile or the need it belongs to (#79). Anyone else gets the same `404` as for a file that does not exist |
 | See a need photo as a moderator | Whatever the need's status, including `REMOVED` (#81). Removing a need would otherwise hide the picture it was removed for, and `PROHIBITED_ITEM` reports are usually about the picture |
 | Set or remove an avatar | Only your own. `PUT /me/avatar` has no id in it, so there is no somebody else to name (#80) |

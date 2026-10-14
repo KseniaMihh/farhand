@@ -318,8 +318,14 @@ export async function listMyDeals(
 
 /**
  * Which side of a deal the caller is on, if any.
+ *
+ * Exported since #82, where receipts need the same answer: a moderator may
+ * read a deal and not add evidence to it, the requester may read it and not
+ * attach the receipt for a thing they did not buy, and a stranger must not be
+ * able to tell the deal exists at all. One function, so those three answers
+ * cannot drift into two versions.
  */
-function sideOf(
+export function sideOf(
   actor: User,
   deal: { requesterId: string; helperId: string } | null,
 ): "requester" | "helper" | "moderator" | null {

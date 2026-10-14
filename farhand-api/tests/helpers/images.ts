@@ -51,14 +51,27 @@ export function photoWithMetadata(): Promise<Buffer> {
  * note "rotate 90° clockwise" (orientation 6) — what a phone held upright
  * writes. Turned as the note says, it is 200 × 400 with red on TOP.
  */
-export async function sidewaysPhoto(): Promise<Buffer> {
+export async function sidewaysPhoto(scale = 1): Promise<Buffer> {
+  // `scale` because #82's receipts refuse anything under 300px on the shorter
+  // side, and this is 200 — the same picture, larger, keeps one fixture for
+  // both rules rather than two that can drift apart.
   const red = await sharp({
-    create: { width: 200, height: 200, channels: 3, background: "#f00" },
+    create: {
+      width: 200 * scale,
+      height: 200 * scale,
+      channels: 3,
+      background: "#f00",
+    },
   })
     .png()
     .toBuffer();
   return sharp({
-    create: { width: 400, height: 200, channels: 3, background: "#00f" },
+    create: {
+      width: 400 * scale,
+      height: 200 * scale,
+      channels: 3,
+      background: "#00f",
+    },
   })
     .composite([{ input: red, left: 0, top: 0 }])
     .jpeg({ quality: 95 })

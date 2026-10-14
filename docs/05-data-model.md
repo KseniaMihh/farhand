@@ -208,6 +208,16 @@ invisible to everybody but the owner and moderators by the same rule that hides
 the need itself, so keeping them costs storage and no new code — and a
 moderator reviewing a takedown can still see what was taken down.
 
+A deal's receipts are the same shape with `dealId` set instead, in two kinds —
+`PRODUCT_RECEIPT` and `SHIPPING_RECEIPT` — and **no table of their own either**
+(#82). Two things about them are unlike every other file here: the row is
+**never deleted by anybody**, because a receipt is evidence in somebody else's
+dispute rather than a possession of whoever uploaded it; and the bytes may be a
+**PDF**, stored exactly as they arrived, because nothing here can safely
+rewrite one and a receipt emailed by a shop has no camera position to strip.
+Three of each kind per deal, held by a lock on the deal's row rather than by a
+constraint, for the reason the photo limit is.
+
 ## Cross-cutting decisions
 
 | Decision | Reason |

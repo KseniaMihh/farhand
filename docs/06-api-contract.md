@@ -1244,6 +1244,7 @@ Enforced in `src/services/conversations.ts`, not in the routes.
 | GET | `/deals/:id/quotes` | AUTH | Every revision, newest first. Participants only |
 | POST | `/deals/:id/transition` | AUTH | Body: `{ to, note?, trackingNumber?, shippingActual? }`. Validated against the transition table |
 | GET | `/deals/:id/events` | AUTH | The history alone, oldest first, with who did each step |
+| POST | `/deals/:id/receipts/:kind` | AUTH | The file as the body. `kind` is `product` or `shipping`. Helper only, at most 3 of each |
 
 One transition endpoint rather than one endpoint per status keeps the rules in a
 single place. The alternative is recorded in the decisions folder.
@@ -1447,6 +1448,71 @@ One deal, with its quotes (newest first) and its full event log (**oldest
 first** — a history reads forwards). For the deal's two people, and for a
 moderator, who cannot judge a report without reading what it is about. Anybody
 else gets `404`.
+
+It also carries its receipts, oldest first, both kinds together (#82):
+
+```json
+{
+  "deal": {
+    "id": "cm1…",
+    "status": "SHIPPED",
+    "receipts": [
+      {
+        "id": "3f1c…",
+        "kind": "product",
+        "url": "/files/3f1c…",
+        "uploadedAt": "2026-10-14T09:12:33.000Z"
+      }
+    ],
+    "…": "…"
+  }
+}
+```
+
+Whoever may see the deal may see its receipts — there is no second rule, and
+the paths are paths rather than signed links (decision 0012).
+
+### `POST /deals/:id/receipts/:kind`
+
+Version 2 (#82). The body **is the file**, as for the other two uploads:
+
+```js
+fetch(`/deals/${id}/receipts/product`, { method: "POST", body: file });
+```
+
+Returns `201` with `{ "receipt": { "id", "kind", "url", "uploadedAt" } }`.
+
+| Rule | |
+|---|---|
+| Who | **The helper only.** The requester and a moderator get `403`; a stranger gets `404`, like everywhere else in this section |
+| `kind` | `product` or `shipping`. Anything else is `422` |
+| When | A product receipt from `PRODUCT_PAID`; a shipping one from `PURCHASED`. Both also in `DISPUTED`. Never in `COMPLETED` or `CANCELLED`, and never before the money is sent — otherwise `409` |
+| How many | **3 of each kind**, counted separately. A fourth is `409` |
+| Size and type | The shared upload rules under [Files](#files): at most 5 MB, and here a PDF is allowed as well as JPEG, PNG and WebP |
+| Smallest image | 300 px on the shorter side, or `422` |
+| Stored as | A photograph becomes WebP, at most 2000 px on its long edge, with no metadata. **A PDF is stored exactly as it arrived** |
+
+**A receipt is allowed, never required.** `PRODUCT_PAID → PURCHASED` does not
+check for one, and that is a decision rather than an omission
+([0016](10-decisions/0016-receipts-are-evidence.md)): a receipt is evidence for
+a dispute, not a gate, and requiring one would block an honest purchase over a
+lost paper slip while inviting pictures of nothing from people who just want
+the button to work.
+
+**There is no way to delete one.** No endpoint, for anybody, including the
+helper who uploaded it: a receipt is evidence in somebody else's dispute, so a
+wrong one is followed by a right one and both stay. `DELETE /me` keeps receipts
+for the same reason (#66).
+
+**Rate limited to 20 an hour, per signed-in user** (`RATE_LIMITS.receipt`), and
+a refused upload still spends budget — the limiter runs before the handler, as
+it does for messages and photos.
+
+Why the long edge is 2000 here and 1280 for a need's photo, and why a receipt
+may be as long and thin as it likes while a photo may not: a receipt is nothing
+but small print, and a till roll really is that shape
+([0013](10-decisions/0013-need-photos-keep-their-shape.md) is the other half of
+that argument).
 
 ### `GET /me/deals`
 
@@ -1745,6 +1811,13 @@ Who may see a file:
 A file that does not exist and a file you may not see get the same
 `404 NOT_FOUND`, `"File not found"`, so a receipt's id cannot be checked by
 somebody it does not belong to.
+
+**A moderator's read is written to the log** — the file, its purpose, and which
+deal or need it belongs to (#82). Not an `AdminAction`: reading is not a
+decision, and the same reasoning already governs a moderator opening a deal or
+a conversation (#27). The deal's own two people are never logged; it is their
+deal. This covers a need's photo too, which #81 allowed a moderator to see and
+recorded nothing about.
 
 The moderator case on a need's photo exists because `PROHIBITED_ITEM` is one of
 `ReportReason`'s values and a report about a prohibited item is usually a

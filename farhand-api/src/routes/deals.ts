@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { z } from "zod";
 import {
   getAuth,
@@ -6,6 +6,7 @@ import {
   requireAuth,
   requireVerified,
 } from "../middleware/auth.js";
+import { limiters } from "../middleware/rate-limit.js";
 import { currencyCode } from "../schemas/common.js";
 import {
   getDeal,
@@ -15,6 +16,8 @@ import {
   submitQuote,
   transitionDeal,
 } from "../services/deals.js";
+import { MAX_FILE_BYTES } from "../services/files.js";
+import { addReceipt, receiptsForDeal } from "../services/receipts.js";
 import {
   decodeCursor,
   DEFAULT_PAGE_SIZE,
@@ -177,7 +180,51 @@ dealsRouter.get(
     const { id } = idParams.parse(req.params);
     const deal = await getDeal(getAuth(req).user, id);
 
-    res.json({ deal });
+    // Whoever may see the deal may see its receipts: `getDeal` has already
+    // decided who that is, and there is no second rule here (#82).
+    res.json({ deal: { ...deal, receipts: await receiptsForDeal(deal.id) } });
+  },
+);
+
+/* ─────────────────────────── receipts (#82) ─────────────────────────── */
+
+/**
+ * The body of a receipt upload is the file itself, read raw — the same shape
+ * as `PUT /me/avatar` (#80) and `POST /needs/:id/photos` (#81). A receipt may
+ * be a PDF as well as a photograph, which changes what happens to the bytes
+ * later and nothing about how they arrive.
+ */
+const receiptBody = express.raw({
+  type: () => true,
+  limit: MAX_FILE_BYTES * 2,
+});
+
+/** `product` or `shipping`, parsed rather than trusted like every param. */
+const receiptParams = idParams.extend({
+  kind: z.enum(["product", "shipping"]),
+});
+
+/**
+ * AUTH, and limited per user: a photographed receipt is decoded, resized and
+ * re-encoded, the most expensive thing this API does.
+ *
+ * Who may attach one — the helper, and only the helper — is decided in
+ * ../services/receipts.js. There is deliberately no endpoint for removing one.
+ */
+dealsRouter.post(
+  "/deals/:id/receipts/:kind",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  limiters.receiptByUser,
+  receiptBody,
+  async (req, res) => {
+    const { id, kind } = receiptParams.parse(req.params);
+    // With no body at all the raw parser leaves `{}` behind, not a Buffer.
+    const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const receipt = await addReceipt(id, kind, getAuth(req).user, bytes);
+
+    res.status(201).json({ receipt });
   },
 );
 

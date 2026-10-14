@@ -70,6 +70,29 @@ export const MAX_NEED_PHOTO_ASPECT = 3;
  */
 export const MAX_INPUT_PIXELS = 40_000_000;
 
+/**
+ * The longest side a photographed receipt is stored at (#82).
+ *
+ * Larger than a need's photo, and the reason is the opposite of decorative: a
+ * receipt is nothing BUT small print. A till roll photographed at arm's length
+ * loses its line items at 1280, and the one thing anybody will ever want from
+ * this file is to read a number on it.
+ *
+ * No aspect limit here either, unlike NEED_PHOTO_LONG_EDGE: a receipt really
+ * is long and thin, and refusing the shape would refuse the subject.
+ */
+export const RECEIPT_LONG_EDGE = 2000;
+
+/** Below this nothing on a receipt is readable, so it is not a receipt. */
+export const MIN_RECEIPT_SIDE = 300;
+
+/**
+ * How hard a receipt is compressed. Higher than a photo's 80 because the
+ * failure mode is different: a blurred face is still a face, a blurred total
+ * is an argument.
+ */
+export const RECEIPT_QUALITY = 88;
+
 /** A broken upload is the uploader's problem: 422, never 500. */
 function unreadable(): HttpError {
   return HttpError.validationFailed("The image could not be read");
@@ -198,6 +221,68 @@ export async function normaliseNeedPhoto(bytes: Buffer): Promise<Buffer> {
       .toBuffer();
   } catch {
     // A good header with broken picture data fails only here, at decode.
+    throw unreadable();
+  }
+}
+
+/**
+ * Turns a photographed receipt into the image that is stored (#82).
+ *
+ * Everything the other two do for safety, it does too — the bomb limit, upright
+ * before the metadata that says which way up is discarded, re-encoded rather
+ * than passed through, and no metadata at all. The last one matters more here
+ * than anywhere: a receipt is usually photographed where somebody lives, and a
+ * phone writes that position into the file. The person who sees this image is
+ * a stranger they are trading with.
+ *
+ * Bigger and less compressed than a need's photo, and with no limit on how
+ * long and thin it may be. See RECEIPT_LONG_EDGE.
+ *
+ * ONLY FOR IMAGES. A receipt may also be a PDF, which this cannot read and
+ * must never be handed — services/receipts.ts decides, and the reason it
+ * stores a PDF untouched is that rewriting one needs a library this project
+ * does not have, while a PDF from a shop carries no GPS position to strip.
+ */
+export async function normaliseReceipt(bytes: Buffer): Promise<Buffer> {
+  const image = sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS });
+
+  let width: number | undefined;
+  let height: number | undefined;
+
+  try {
+    const metadata = await image.metadata();
+    width = metadata.width;
+    height = metadata.height;
+  } catch {
+    throw unreadable();
+  }
+
+  if (!width || !height) {
+    throw unreadable();
+  }
+
+  if (Math.min(width, height) < MIN_RECEIPT_SIDE) {
+    throw HttpError.validationFailed(
+      `The image must be at least ${String(MIN_RECEIPT_SIDE)}px on its shorter side`,
+    );
+  }
+
+  // No aspect check, and that is the one rule this does not share with
+  // normaliseNeedPhoto: a till roll is genuinely six times longer than it is
+  // wide, and refusing the shape would refuse the subject (#82).
+
+  try {
+    return await image
+      .rotate()
+      .resize({
+        width: RECEIPT_LONG_EDGE,
+        height: RECEIPT_LONG_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: RECEIPT_QUALITY })
+      .toBuffer();
+  } catch {
     throw unreadable();
   }
 }

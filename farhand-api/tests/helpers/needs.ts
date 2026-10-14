@@ -1,4 +1,4 @@
-import type { Need } from "@prisma/client";
+import type { DealStatus, Need } from "@prisma/client";
 import { prisma } from "../../src/db.js";
 
 /**
@@ -40,7 +40,10 @@ export function needBody(
 export async function createDealFor(
   need: Need,
   helperId: string,
-  status: "MATCHED" | "CANCELLED" = "MATCHED",
+  // Any status, since #82: receipts are attached to deals that have got as far
+  // as PRODUCT_PAID, and reaching one through the real transitions would be a
+  // test of #23 rather than of receipts.
+  status: DealStatus = "MATCHED",
 ) {
   const proposal = await prisma.proposal.create({
     data: {

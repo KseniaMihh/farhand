@@ -43,7 +43,7 @@ docs/06-api-contract.md. The first `DealEvent` is written there too, with
 |---|---|---|---|---|
 | `MATCHED` | `QUOTE_AGREED` | Requester | Helper has submitted a quote | Amounts locked onto the deal |
 | `QUOTE_AGREED` | `PRODUCT_PAID` | Requester | — | — |
-| `PRODUCT_PAID` | `PURCHASED` | Helper | — | Receipt upload allowed (V2) |
+| `PRODUCT_PAID` | `PURCHASED` | Helper | — | Receipt upload allowed, never required (#82) |
 | `PURCHASED` | `SHIPPED` | Helper | Tracking number and real postage present | Requester notified to settle the difference |
 | `SHIPPED` | `DELIVERED` | Requester | — | — |
 | `DELIVERED` | `COMPLETED` | Requester, or automatically after 14 days | — | Reviews unlock |
@@ -59,6 +59,16 @@ which extra fields the request must carry. The route validates against it, the
 service enforces it, and a test walks all 81 possible moves to check that the
 fourteen above are allowed and the other sixty-seven are refused. If this
 document and that file ever disagree, one of them is a bug.
+
+**A receipt is allowed at `PURCHASED`, and never required.** The transition
+checks nothing about files, which is a decision rather than a gap
+(`10-decisions/0016-receipts-are-evidence.md`): a receipt is evidence for a
+dispute, not a gate. Requiring one would stop an honest purchase over a lost
+slip of paper, and would collect blurred pictures of nothing from people who
+only want the button to work. The upload is its own endpoint —
+`POST /deals/:id/receipts/:kind`, helper only, three of each kind — and a
+shipping receipt waits for `PURCHASED`, because the postage is paid when the
+parcel is sent. Nothing deletes one.
 
 Three of the rows carry more than a status change, and all three are now built:
 
