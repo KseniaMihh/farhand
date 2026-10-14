@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { publishedWhere } from "./reviews.js";
 import {
   afterCursorOldest,
   type CursorPosition,
@@ -181,8 +182,38 @@ async function assertTargetIsReportable(
       return;
     }
 
+    case "REVIEW": {
+      const review = await prisma.review.findUnique({
+        where: { id: targetId },
+        select: { id: true, authorId: true, targetId: true },
+      });
+      if (!review) throw HttpError.notFound("Target not found");
+
+      if (review.authorId === actor.id) {
+        throw HttpError.forbidden("You cannot report your own review");
+      }
+
+      // It must also be one the reporter could actually read. A review inside
+      // its blind window is its author's alone (#83), and reporting one would
+      // be a way to find out that it exists — so an unreadable target answers
+      // exactly like a missing one, as it does for a draft need above.
+      //
+      // `publishedWhere` rather than a third spelling of the same rule: ask
+      // the database whether this row satisfies the condition every public
+      // reader already uses.
+      const readable = await prisma.review.findFirst({
+        where: {
+          AND: [{ id: review.id }, publishedWhere(review.targetId, new Date())],
+        },
+        select: { id: true },
+      });
+      if (!readable) throw HttpError.notFound("Target not found");
+
+      return;
+    }
+
     default: {
-      // If a fifth target type is added to the schema, TypeScript fails here.
+      // If a sixth target type is added to the schema, TypeScript fails here.
       const unreachable: never = targetType;
       throw new Error(`Unhandled report target: ${String(unreachable)}`);
     }

@@ -55,6 +55,9 @@ the API on every request.
 | Advance a deal | Only the person named for that transition in `04-deal-lifecycle.md` |
 | Write a review | Only a participant of a `COMPLETED` deal, once, about the other side — and only within 14 days of completion, after which everybody can read and nobody can write (#83, decision 0017) |
 | Read a review | Anybody, once it is published: both sides have written, or the 14 days have passed. Before that, only its author, who is also the only person who can still change it |
+| Report a review | Anybody who can read it, except its author. A review still inside its window answers like one that does not exist, since reporting it would be a way to discover it (#125) |
+| Remove a review | `MODERATOR` or above. It keeps its place with its words and stars gone, counts towards nothing, and the action is recorded against its **author** (#125, decision 0018) |
+| Read a removed review's words | Only a moderator, through `GET /admin/reports/:id`. The row is kept as evidence, and evidence its only permitted reader cannot read is not evidence |
 | See a receipt file | Only the two deal participants, plus moderators — and a moderator's read is written to the log, the way a moderator opening a deal or a conversation is (#82) |
 | Attach a receipt to a deal | Only the helper, who is the one who buys. The requester and a moderator get `403`, a stranger `404`; three of each kind, and nothing deletes one (#82) |
 | See an avatar or a need photo | Whoever may see the profile or the need it belongs to (#79). Anyone else gets the same `404` as for a file that does not exist |

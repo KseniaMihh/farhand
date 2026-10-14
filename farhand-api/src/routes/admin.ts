@@ -1,3 +1,4 @@
+import { ReportTarget } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -41,7 +42,8 @@ export const adminRouter: Router = Router();
 
 const idParams = z.object({ id: z.string().min(1) });
 
-const TARGET_TYPES = ["USER", "NEED", "HELP", "MESSAGE"] as const;
+// The schema is the list (#125) — see the note in routes/reports.ts.
+const TARGET_TYPES = ReportTarget;
 const REASONS = [
   "PROHIBITED_ITEM",
   "SCAM",

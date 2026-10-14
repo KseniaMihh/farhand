@@ -61,7 +61,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** What a review looks like in an answer. */
 export interface ReviewView {
   id: string;
-  rating: number;
+  /**
+   * TODO(#125): `null` once a moderator has removed it, along with the
+   * comment. The row keeps its place in the list and says what happened to
+   * it; what it said and what it scored are gone.
+   */
+  rating: number | null;
   comment: string | null;
   createdAt: Date;
   /** The author as a stranger sees them — "Deleted account" if they left. */
@@ -74,6 +79,13 @@ export interface ReviewView {
    * see it in that state — and the only one who can still edit it.
    */
   published: boolean;
+  /**
+   * TODO(#125): true when a moderator has taken it down. It still occupies
+   * its place — a hole that says "removed" is honest, and `06-api-contract.md`
+   * already makes that argument for a removed message — but it counts for
+   * nothing (see `countedWhere`).
+   */
+  removed: boolean;
 }
 
 export interface WriteReviewInput {
@@ -89,16 +101,26 @@ const REVIEW_FACTS = {
   createdAt: true,
   dealId: true,
   authorId: true,
+  // Every reader needs it: one to hide the words, the other to show that they
+  // were hidden (#125).
+  removedAt: true,
   author: { select: { profile: { select: { displayName: true } } } },
 } as const;
 
 type ReviewFacts = Prisma.ReviewGetPayload<{ select: typeof REVIEW_FACTS }>;
 
 function reviewView(review: ReviewFacts, published: boolean): ReviewView {
+  // A removed review loses its words and its stars here, in one place, so
+  // that no caller has to remember — and keeps its place in every list it was
+  // in. `reviewAsEvidence` is the one way to see what it said, and only a
+  // moderator reaches that (#125).
+  const removed = review.removedAt !== null;
+
   return {
     id: review.id,
-    rating: review.rating,
-    comment: review.comment,
+    removed,
+    rating: removed ? null : review.rating,
+    comment: removed ? null : review.comment,
     createdAt: review.createdAt,
     author: {
       id: review.authorId,
@@ -109,6 +131,41 @@ function reviewView(review: ReviewFacts, published: boolean): ReviewView {
     },
     dealId: review.dealId,
     published,
+  };
+}
+
+/**
+ * TODO(#125): the same review as EVIDENCE, for the people allowed to judge it.
+ *
+ * A separate function, and separate on purpose. `reviewView` nulls the words
+ * and the stars of a removed review, which is right for every reader but one:
+ * a moderator deciding whether a takedown was fair, or reading a second report
+ * about the same author, needs exactly what was taken down. The row is kept
+ * "as evidence" (`Message.removedAt`'s wording, and now this column's) — and
+ * evidence the only permitted reader cannot read is the hole #81 left when it
+ * granted access to photo ids that nothing handed out.
+ *
+ * Named rather than a boolean on `reviewView`, so the asymmetry is something
+ * you can see at the call site instead of a `true` to decode. Used by
+ * `getReportWithTarget`, and by nothing else.
+ */
+export function reviewAsEvidence(
+  review: ReviewFacts & { removedAt: Date | null },
+) {
+  return {
+    id: review.id,
+    // The ORIGINAL, whatever `removedAt` says. That is the point of the row.
+    rating: review.rating,
+    comment: review.comment,
+    createdAt: review.createdAt,
+    // So a moderator can see it has already been dealt with, and by the shape
+    // of the answer rather than by remembering.
+    removedAt: review.removedAt,
+    dealId: review.dealId,
+    author: {
+      id: review.authorId,
+      displayName: review.author.profile?.displayName ?? DELETED_DISPLAY_NAME,
+    },
   };
 }
 
@@ -155,14 +212,13 @@ function isPublished(
 }
 
 /**
- * The same rule as a query, for the readers that must not load every row to
- * apply it.
+ * WHAT IS SHOWN: the timing rule as a query, for the readers that must not
+ * load every row to apply it.
  *
- * #84 averages a person's ratings, and an average belongs in the database:
- * `AVG(rating) WHERE published` is one statement, while a JavaScript predicate
- * means fetching every review of theirs to divide by its length. Both forms
- * have to say the same thing, so they live next to each other and
- * tests/reviews/reviews.test.ts holds them together.
+ * Timing only. Whether a moderator has removed a review is a different
+ * question with a different answer, and conflating the two was a mistake
+ * caught in review (#125): a removed review is still SHOWN, in its place, as
+ * a hole that says "removed" — it just does not COUNT. See `countedWhere`.
  *
  * "Both sides have written" is expressible because `targetId` is known: a
  * review ABOUT somebody was written by the other side, so the pair is complete
@@ -187,6 +243,29 @@ export function publishedWhere(
       },
     ],
   };
+}
+
+/**
+ * TODO(#125): WHAT COUNTS: published, and not taken down.
+ *
+ * Two questions, two rules, because they have different answers. A review a
+ * moderator removed keeps its place in the list — a hole that says "removed"
+ * is honest, and the same argument the contract already makes for a removed
+ * message — but it must not drag a rating with it. If a review was abusive or
+ * false enough to take down, its one star is very likely part of the same
+ * abuse, and leaving it in the average would let somebody damage a person's
+ * reputation from behind a review nobody can read.
+ *
+ * #84 averages with THIS one. The profile then says three reviews where the
+ * list shows four, and the fourth explains itself: "removed by a moderator".
+ * A count that disagrees with a visible reason is honest; an unexplained gap
+ * is not.
+ */
+export function countedWhere(
+  targetId: string,
+  now: Date,
+): Prisma.ReviewWhereInput {
+  return { AND: [publishedWhere(targetId, now)], removedAt: null };
 }
 
 /**
@@ -237,6 +316,21 @@ async function dealForReview(actor: User, dealId: string, now: Date) {
 
 /** Every review on a deal, for the published rule and for the answers. */
 async function allOnDeal(dealId: string): Promise<ReviewFacts[]> {
+  // REMOVED REVIEWS STILL COUNT TOWARDS THE PAIR, deliberately (#125). "Both
+  // sides have written" is a fact about the past, and a takedown does not
+  // unmake it. Two reasons, and the second is the one that matters:
+  //
+  //   a review that has been public for three weeks would UNPUBLISH itself
+  //   the moment the other review on that deal came down, which is a worse
+  //   outcome than anything removal was meant to fix;
+  //
+  //   and it would be a trick somebody could run on purpose — write an
+  //   abusive review of the person you expect to review you badly, get it
+  //   removed, and their honest review of you vanishes until the deadline.
+  //
+  // (In practice removal always happens after publication anyway: nobody but
+  // the author can see a review inside the window, so nobody else can report
+  // one.)
   return prisma.review.findMany({
     where: { dealId },
     orderBy: NEWEST_FIRST,

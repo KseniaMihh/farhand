@@ -185,6 +185,13 @@ and only after `COMPLETED`. Ratings are constrained to 1–5 in the database.
 Both rules are enforced there rather than only in code, and #83 proves each
 with a test that writes straight to the table.
 
+`removedAt` is the one column a moderator writes (#125) — the same column, the
+same nullable timestamp and the same reason as `Message.removedAt`: hidden,
+kept as evidence. A removed review still occupies its place in a list with its
+words and rating gone, still completes the pair that published the other side's
+review, and counts towards no average. The three behaviours are deliberate and
+are in decision 0018.
+
 **There is no `publishedAt`, and no job that sets one.** Whether a review is
 visible is a question about rows and the clock — both sides have written, or
 the deal's `COMPLETED` event is more than 14 days old — so it is computed when
