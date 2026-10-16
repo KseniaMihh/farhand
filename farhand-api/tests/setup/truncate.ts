@@ -84,7 +84,38 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(
     `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`,
   );
+
+  await seedProhibited();
 });
+
+/**
+ * Puts the prohibited list back after each truncation (#87).
+ *
+ * THE ONE EXCEPTION to the paragraph above, and the reason it is one: since
+ * #87 nothing can be posted publicly without ticking the current list, so an
+ * empty table does not mean "no list to bother with", it means every need and
+ * every help in the suite is refused. That is not a fixture a test chooses,
+ * like a category; it is a site-wide rule, nearer to "the bucket exists" than
+ * to "there is a category called electronics".
+ *
+ * The wording here is deliberately NOT the production list from
+ * `src/seed.ts` — three short lines, so a test that asserts on the list reads
+ * as a test rather than as a transcription, and so that rewording a real
+ * clause never breaks the suite.
+ *
+ * `tests/prohibited/acknowledgement.test.ts` replaces this list with its own
+ * and deletes it outright, which is what keeps the harness honest: the rule is
+ * tested against lists this file knows nothing about.
+ */
+async function seedProhibited(): Promise<void> {
+  await prisma.prohibitedItem.createMany({ data: PROHIBITED_FIXTURE });
+}
+
+export const PROHIBITED_FIXTURE = [
+  { slug: "weapons", text: "Weapons, ammunition and parts", position: 1 },
+  { slug: "drugs", text: "Drugs of every kind", position: 2 },
+  { slug: "live-animals", text: "Live animals", position: 3 },
+];
 
 // Without this the pool keeps connections open and Vitest hangs at the end
 // waiting for a process that will not exit.

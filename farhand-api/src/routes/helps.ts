@@ -68,6 +68,8 @@ export const createHelpSchema = z.object({
    * what a moderator does (#27) — never something a caller asks for directly.
    */
   status: z.enum(["ACTIVE", "PAUSED"]).default("ACTIVE"),
+  /** The tick, as on a need (#87). Optional here, required in the service. */
+  prohibitedVersion: z.string().trim().min(1).max(64).optional(),
 });
 
 /** Every field optional: a PATCH changes only what it mentions. */

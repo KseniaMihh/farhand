@@ -80,6 +80,17 @@ export const createNeedSchema = z.object({
    */
   status: z.enum(["DRAFT", "OPEN"]).default("OPEN"),
   expiresAt: z.coerce.date().nullable().default(null),
+  /**
+   * The prohibited list the requester ticked, from `GET /prohibited-items`
+   * (#87).
+   *
+   * OPTIONAL HERE AND REQUIRED IN THE SERVICE, which looks backwards and is
+   * not: whether it is needed depends on the `status` being asked for — a
+   * draft needs none — and on what the row's status was before, which this
+   * schema cannot see. A deal transition's extra fields are settled the same
+   * way, for the same reason (docs/04-deal-lifecycle.md).
+   */
+  prohibitedVersion: z.string().trim().min(1).max(64).optional(),
 });
 
 /** Every field optional: a PATCH changes only what it mentions. */

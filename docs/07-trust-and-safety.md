@@ -78,6 +78,28 @@ Enforcement in V1 is a checkbox acknowledgement at posting time, a visible list,
 and reports. There is no automatic detection, and that limitation is documented
 rather than hidden.
 
+**Built in #87**, and three things about how:
+
+- **The list above is the floor, and the live one is a table.** `npm run seed`
+  writes these clauses into `ProhibitedItem` and never rewords what is already
+  there; a clause is changed in the database, without a deployment, the same
+  way the sanctioned-country list is meant to be. This document stays the
+  authority for the wording — if the two disagree, the table is the bug.
+  `GET /prohibited-items` is how anybody reads it, with no account.
+- **The tick is recorded as a fingerprint of the wording**, not as a boolean,
+  so when a clause is reworded afterwards, what somebody actually agreed to is
+  still answerable. A listing carries `prohibitedVersion` and
+  `prohibitedAckAt`.
+- **It is required when a listing becomes public**, which is not always when it
+  is created: a draft or a paused offer needs no tick, and publishing one asks
+  for it then. Without that, "save a draft and publish it" would be a way past
+  the whole mechanism.
+
+The reasoning, and what was rejected, is in
+[decision 0021](10-decisions/0021-a-tick-against-wording.md). What it does
+**not** do is look at the listing: a need for a prohibited item is accepted,
+recorded and left to reports and moderation.
+
 ## Sanctions and export control
 
 A worldwide platform can be misused to move goods into sanctioned jurisdictions.

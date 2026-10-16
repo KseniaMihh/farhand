@@ -86,7 +86,7 @@ async function dealAt(status: DealStatus): Promise<Deal> {
   const created = await request(app)
     .post("/needs")
     .set("Cookie", kadri.cookie)
-    .send(needBody(categoryId));
+    .send(await needBody(categoryId));
   expect(created.status).toBe(201);
   const need = (created.body as { need: Need }).need;
 

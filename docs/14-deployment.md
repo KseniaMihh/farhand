@@ -63,6 +63,21 @@ Easy to forget, and the symptom is puzzling: everything looks healthy,
 and there are none. The script is idempotent, so running it again after any
 deploy that changes the list costs nothing.
 
+**Since #87 the same script also writes the prohibited list**, and forgetting
+it has a louder symptom: posting anything publicly answers `500`, and the log
+says "The prohibited list is empty". That is deliberate — the alternative is
+every posting ticking a list with no lines in it and being recorded as having
+acknowledged it, which looks like success
+([decision 0021](10-decisions/0021-a-tick-against-wording.md)). Run the seed
+after the migration that creates the table, and check it:
+
+```powershell
+curl.exe https://<service>.onrender.com/prohibited-items
+```
+
+A `version` and ten items is right; `"items": []` means the seed has not run.
+Rewording a clause afterwards is done in Neon, not here, and needs no deploy.
+
 ### 2. The service
 
 Sign in to Render with GitHub, then **New → Blueprint**, pick this repository,

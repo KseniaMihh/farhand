@@ -531,7 +531,7 @@ second reason to act on it.
 | Risk | Severity | Position taken |
 |---|---|---|
 | Facilitating shipments to sanctioned jurisdictions | High | Country allowlist in configuration; documented, not silently ignored |
-| Prohibited or illegal items | High | Published list, acknowledgement at posting, reports; no automated detection in V1 |
+| Prohibited or illegal items | High | Published list, acknowledgement at posting, reports; no automated detection in V1. **Built in #87**: the list is a table anybody can edit without a deploy, the tick is recorded as a fingerprint of the exact wording, and it is demanded at the moment a listing becomes public — including when a draft is published, which was the way past it ([decision 0021](10-decisions/0021-a-tick-against-wording.md)). Still no detection: a prohibited listing is accepted and left to reports |
 | Being treated as a payment intermediary | High | Farhand never touches money in V1; this is a design constraint, not an oversight |
 | Customs and VAT disputes between users | Medium | Stated clearly; Farhand never suggests a declared value |
 | Personal data in messages | Medium | Addresses exchanged in chat; recorded as an open privacy question |

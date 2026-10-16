@@ -19,6 +19,7 @@ import { helpsRouter } from "./routes/helps.js";
 import { needsRouter } from "./routes/needs.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { profilesRouter } from "./routes/profiles.js";
+import { prohibitedRouter } from "./routes/prohibited.js";
 import { proposalsRouter } from "./routes/proposals.js";
 import { reportsRouter } from "./routes/reports.js";
 
@@ -95,6 +96,7 @@ export function createApp(): Express {
   app.use(authRouter);
   app.use(profilesRouter);
   app.use(notificationsRouter);
+  app.use(prohibitedRouter);
   app.use(needsRouter);
   app.use(helpsRouter);
   app.use(proposalsRouter);

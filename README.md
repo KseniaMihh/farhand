@@ -178,7 +178,7 @@ cd farhand-api
 npm install
 npx prisma migrate dev
 npx prisma generate
-npm run seed               # the fixed category list; safe to re-run
+npm run seed               # the category list and the prohibited list; safe to re-run
 
 # 4. Check it works
 npm test                   # creates farhand_test on first run
@@ -396,7 +396,7 @@ change, nothing reaches `master` unverified.
 | Create a migration without applying it | `npx prisma migrate dev --create-only --name <name>` | `farhand-api` |
 | Regenerate the Prisma client | `npx prisma generate` | `farhand-api` |
 | Browse data | `npx prisma studio` | `farhand-api` |
-| Seed categories (adds new ones, renames changed ones, never deletes) | `npm run seed` | `farhand-api` |
+| Seed the category list (adds new ones, renames changed ones, never deletes) and the prohibited list (adds what is missing, **never rewords** what is there) | `npm run seed` | `farhand-api` |
 | Complete deals delivered 14 days ago | `npm run job:auto-complete` | `farhand-api` |
 | Run whatever is waiting on the job queue, once | `npm run job:drain` | `farhand-api` |
 | Typecheck | `npm run typecheck` | `farhand-api` |
