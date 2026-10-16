@@ -1922,6 +1922,116 @@ and the complaint that has waited longest is the one that matters most
 The default matters: a moderator opening the queue wants the unresolved ones,
 not every report ever filed. Looking back is something you ask for.
 
+## Prohibited items
+
+Version 2 (#87). The list Farhand will not carry, and the tick that says
+somebody read it. `docs/07-trust-and-safety.md` puts this first among the
+defences against prohibited or illegal items — reports and moderation are what
+happens after something has been posted, and this is the only one that happens
+before.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/prohibited-items` | — | The published list, and the version to tick against |
+
+### `GET /prohibited-items`
+
+Public: no session is read. Somebody deciding whether Farhand is any use to
+them should be able to read what it refuses to carry before they have an
+account, and a client has to fetch the version before it can show the form
+that sends it back. Returns `200`:
+
+```json
+{
+  "version": "3f9ac1b27d40e5aa",
+  "items": [
+    { "slug": "weapons", "text": "Weapons, ammunition and parts" },
+    { "slug": "drugs", "text": "Drugs, including prescription medicines" }
+  ]
+}
+```
+
+No paging: it is a short list and the whole thing is the answer.
+
+**`version` is a fingerprint of the wording, not a number somebody maintains.**
+It is a hash of the published lines — their slugs, their text and their order —
+so it changes by itself when the list is edited, and it cannot be left stale by
+somebody who reworded a line and forgot to bump a counter. `slug` is permanent
+and is what code should match on; `text` is what a person reads and may be
+reworded at any time.
+
+**The list lives in a table, not in the code**, so a clause can be changed
+without a deployment — the same reasoning
+`docs/07-trust-and-safety.md` gives for the sanctioned-country list. A line is
+retired rather than deleted, because acknowledgements already recorded refer to
+the wording it had.
+
+### Acknowledging it
+
+`POST /needs`, `PATCH /needs/:id`, `POST /helps` and `PATCH /helps/:id` take a
+`prohibitedVersion`, and require it **at the moment the listing becomes
+public**:
+
+| What is being asked for | Is the tick required? |
+|---|---|
+| `POST /needs` with `status: "OPEN"` | Yes |
+| `POST /needs` with `status: "DRAFT"` | No — nobody can see a draft |
+| `PATCH /needs/:id` moving `DRAFT` → `OPEN` | **Yes** |
+| `PATCH /needs/:id` editing a need that is already open | No — already ticked |
+| `PATCH /needs/:id` moving `OPEN` → `DRAFT` | No |
+| `POST /helps` with `status: "ACTIVE"` | Yes |
+| `POST /helps` with `status: "PAUSED"` | No |
+| `PATCH /helps/:id` moving `PAUSED` → `ACTIVE` | **Yes** |
+
+The two rows in bold are the point. "Posting requires acknowledging" sounds
+like a rule about `POST`, and it is not: both kinds of listing can be created
+in a state nobody else can see and published later with a `PATCH` whose fields
+are all optional. Saving a draft and then publishing it would otherwise put a
+public listing in front of people having acknowledged nothing — and a client
+would do it without meaning to, because that is simply what publishing a draft
+looks like.
+
+The answers:
+
+| | |
+|---|---|
+| Missing when it is required | `422 VALIDATION_FAILED`, naming `prohibitedVersion` |
+| Not the current version | `409 PROHIBITED_LIST_CHANGED`, with the current list in `details` |
+| The current version | The listing is created or published, and the version is recorded on it with the time |
+
+```json
+{
+  "error": {
+    "code": "PROHIBITED_LIST_CHANGED",
+    "message": "The prohibited list has changed since you read it",
+    "requestId": "…",
+    "details": {
+      "version": "a91fc0d4e7b21188",
+      "items": [{ "slug": "weapons", "text": "…" }]
+    }
+  }
+}
+```
+
+The refusal carries the new list so that a client can show what changed and ask
+again, rather than guessing what it missed. The cost is a rare, annoying
+re-tick when the list is edited while somebody is filling in a form; what it
+buys is a record that always refers to wording the person actually saw.
+
+**What is recorded is a fingerprint, not a boolean**: the listing keeps the
+version it was posted against, so when a clause is reworded afterwards, "what
+did this person agree to" is still answerable. A need's or a help's
+`prohibitedVersion` and `prohibitedAckAt` are null only while it has never been
+public.
+
+**It is a tick against wording, not a promise about the item.** Nothing here
+inspects a listing: a need for a prohibited item is accepted, recorded, and
+left to reports and moderation. There is no automatic detection, and
+`docs/11-risks.md` says so rather than implying otherwise. What the
+acknowledgement does is remove "I didn't know", give a moderator something to
+point at, and put the rules in front of somebody at the one moment they are
+deciding what to post.
+
 ## Notifications
 
 Version 2 (#86). Email that arrives because something happened, rather than

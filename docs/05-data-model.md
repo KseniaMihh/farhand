@@ -235,6 +235,35 @@ rewrite one and a receipt emailed by a shop has no camera position to strip.
 Three of each kind per deal, held by a lock on the deal's row rather than by a
 constraint, for the reason the photo limit is.
 
+## The rules, as data (V2)
+
+**`ProhibitedItem`** — one line of the prohibited list, as it is shown at
+posting time (#87, decision 0021). `slug` is permanent and is what code
+matches on; `text` is what a person reads and may be reworded at any time;
+`position` is the order both of reading and of fingerprinting; `retiredAt`
+drops a line from the list without deleting it.
+
+**A table rather than a constant**, because the list is a rule about the world
+and not a fact about the program: it changes when a law does, and changing it
+must not need a deployment — the same reasoning `07-trust-and-safety.md` gives
+for the sanctioned-country list. `npm run seed` writes the floor from that
+document and never rewords what is already there.
+
+**There is no `version` column**, and that absence is the design. The version
+of the list is a fingerprint computed from the published rows — slug, text and
+order — so it changes by itself when the wording does. A column would be a
+number somebody has to remember to bump after an edit, and the one time they
+forget, every acknowledgement afterwards records agreement to wording nobody
+agreed to.
+
+**`Need.prohibitedVersion` / `Need.prohibitedAckAt`**, and the same two on
+`Help` — the tick, recorded on the thing it was given for. A fingerprint
+rather than a boolean, so that when a clause is reworded, "what did this
+person agree to" is still answerable; a boolean becomes unfalsifiable the
+first time the list changes. Null only while a listing has never been public:
+a draft and a paused offer acknowledge nothing, because nobody can see them,
+and publishing one asks for the tick then (decision 0021).
+
 ## Work the request does not do (V2)
 
 **`Job`** — one row per piece of work that happens after somebody's answer

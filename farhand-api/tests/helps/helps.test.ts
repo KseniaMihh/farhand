@@ -5,6 +5,7 @@ import { prisma } from "../../src/db.js";
 import { MAX_HELP_CATEGORIES } from "../../src/services/helps.js";
 import { signUpAndLogIn, signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import { createCategory } from "../helpers/needs.js";
+import { currentProhibitedVersion } from "../helpers/prohibited.js";
 
 /**
  * Helps: create, edit, delete — issue #17.
@@ -24,12 +25,18 @@ beforeEach(async () => {
   cosmetics = (await createCategory("cosmetics")).id;
 });
 
-function helpBody(overrides: Record<string, unknown> = {}) {
+/**
+ * Async since #87: an active offer has to tick the current prohibited list,
+ * and the version is a fingerprint of what is in the database rather than a
+ * constant. Overrides come last, so a test can send a stale one on purpose.
+ */
+async function helpBody(overrides: Record<string, unknown> = {}) {
   return {
     country: "JP",
     shipsTo: ["EE", "FI"],
     description: "I live in Tokyo and post to the Baltics every other week.",
     categoryIds: [electronics],
+    prohibitedVersion: await currentProhibitedVersion(),
     ...overrides,
   };
 }
@@ -66,7 +73,7 @@ describe("POST /helps — posting an offer", () => {
   it("creates an offer owned by whoever asked, active by default", async () => {
     const user = await helper();
 
-    const response = await post(user.cookie, helpBody());
+    const response = await post(user.cookie, await helpBody());
     const body = response.body as HelpBody;
 
     expect(response.status).toBe(201);
@@ -80,7 +87,7 @@ describe("POST /helps — posting an offer", () => {
 
     const response = await post(
       user.cookie,
-      helpBody({ categoryIds: [electronics, cosmetics] }),
+      await helpBody({ categoryIds: [electronics, cosmetics] }),
     );
     const body = response.body as HelpBody;
 
@@ -95,7 +102,7 @@ describe("POST /helps — posting an offer", () => {
 
     const response = await post(
       user.cookie,
-      helpBody({ country: "jp", shipsTo: ["ee", "EE", "fi"] }),
+      await helpBody({ country: "jp", shipsTo: ["ee", "EE", "fi"] }),
     );
     const body = response.body as HelpBody;
 
@@ -106,7 +113,7 @@ describe("POST /helps — posting an offer", () => {
   it("takes an empty shipsTo to mean anywhere", async () => {
     const user = await helper();
 
-    const response = await post(user.cookie, helpBody({ shipsTo: [] }));
+    const response = await post(user.cookie, await helpBody({ shipsTo: [] }));
     const body = response.body as HelpBody;
 
     // Empty is a real answer, not a missing one: prisma/schema.prisma says so,
@@ -117,7 +124,7 @@ describe("POST /helps — posting an offer", () => {
 
   it("defaults shipsTo to anywhere when it is left out entirely", async () => {
     const user = await helper();
-    const { shipsTo: _omitted, ...withoutShipsTo } = helpBody();
+    const { shipsTo: _omitted, ...withoutShipsTo } = await helpBody();
 
     const response = await post(user.cookie, withoutShipsTo);
 
@@ -130,7 +137,7 @@ describe("POST /helps — posting an offer", () => {
 
     const response = await post(
       user.cookie,
-      helpBody({ categoryIds: ["no-such-category"] }),
+      await helpBody({ categoryIds: ["no-such-category"] }),
     );
 
     expect(response.status).toBe(400);
@@ -140,22 +147,23 @@ describe("POST /helps — posting an offer", () => {
     const user = await helper();
 
     expect(
-      (await post(user.cookie, helpBody({ description: "  " }))).status,
+      (await post(user.cookie, await helpBody({ description: "  " }))).status,
     ).toBe(422);
     expect(
-      (await post(user.cookie, helpBody({ categoryIds: [] }))).status,
+      (await post(user.cookie, await helpBody({ categoryIds: [] }))).status,
     ).toBe(422);
     expect(
-      (await post(user.cookie, helpBody({ country: "Japan" }))).status,
+      (await post(user.cookie, await helpBody({ country: "Japan" }))).status,
     ).toBe(422);
     expect(
-      (await post(user.cookie, helpBody({ shipsTo: ["Estonia"] }))).status,
+      (await post(user.cookie, await helpBody({ shipsTo: ["Estonia"] })))
+        .status,
     ).toBe(422);
     expect(
       (
         await post(
           user.cookie,
-          helpBody({
+          await helpBody({
             categoryIds: Array.from(
               { length: MAX_HELP_CATEGORIES + 1 },
               () => electronics,
@@ -169,7 +177,10 @@ describe("POST /helps — posting an offer", () => {
   it("refuses a status nobody may ask for directly", async () => {
     const user = await helper();
 
-    const response = await post(user.cookie, helpBody({ status: "REMOVED" }));
+    const response = await post(
+      user.cookie,
+      await helpBody({ status: "REMOVED" }),
+    );
 
     expect(response.status).toBe(422);
   });
@@ -177,7 +188,9 @@ describe("POST /helps — posting an offer", () => {
 
 describe("POST /helps — who may post at all", () => {
   it("turns away someone who is not logged in", async () => {
-    const response = await request(app).post("/helps").send(helpBody());
+    const response = await request(app)
+      .post("/helps")
+      .send(await helpBody());
 
     expect(response.status).toBe(401);
   });
@@ -185,7 +198,7 @@ describe("POST /helps — who may post at all", () => {
   it("turns away someone who has not confirmed their email", async () => {
     const unverified = await signUpAndLogIn(app, "new@example.com");
 
-    const response = await post(unverified.cookie, helpBody());
+    const response = await post(unverified.cookie, await helpBody());
 
     expect(response.status).toBe(403);
   });
@@ -197,7 +210,7 @@ describe("POST /helps — who may post at all", () => {
       data: { status: "SUSPENDED" },
     });
 
-    const response = await post(user.cookie, helpBody());
+    const response = await post(user.cookie, await helpBody());
 
     expect(response.status).toBe(403);
   });
@@ -206,7 +219,8 @@ describe("POST /helps — who may post at all", () => {
 describe("PATCH /helps/:id — editing", () => {
   it("lets the owner change the description and the countries", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
 
     const response = await patch(user.cookie, created.help.id, {
       description: "Now posting monthly.",
@@ -222,7 +236,7 @@ describe("PATCH /helps/:id — editing", () => {
   it("replaces the categories rather than adding to them", async () => {
     const user = await helper();
     const created = (
-      await post(user.cookie, helpBody({ categoryIds: [electronics] }))
+      await post(user.cookie, await helpBody({ categoryIds: [electronics] }))
     ).body as HelpBody;
 
     const response = await patch(user.cookie, created.help.id, {
@@ -237,7 +251,7 @@ describe("PATCH /helps/:id — editing", () => {
   it("leaves the categories alone when the field is not mentioned", async () => {
     const user = await helper();
     const created = (
-      await post(user.cookie, helpBody({ categoryIds: [electronics] }))
+      await post(user.cookie, await helpBody({ categoryIds: [electronics] }))
     ).body as HelpBody;
 
     const response = await patch(user.cookie, created.help.id, {
@@ -251,13 +265,17 @@ describe("PATCH /helps/:id — editing", () => {
 
   it("can pause an offer and start it again", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
 
     const paused = await patch(user.cookie, created.help.id, {
       status: "PAUSED",
     });
+    // Starting it again is publishing it again, so it is ticked again (#87) —
+    // the PAUSED twin of publishing a need's draft.
     const resumed = await patch(user.cookie, created.help.id, {
       status: "ACTIVE",
+      prohibitedVersion: await currentProhibitedVersion(),
     });
 
     expect((paused.body as HelpBody).help.status).toBe("PAUSED");
@@ -266,7 +284,8 @@ describe("PATCH /helps/:id — editing", () => {
 
   it("refuses someone else's offer, and changes nothing", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
     const other = await helper("other@example.com");
 
     const response = await patch(other.cookie, created.help.id, {
@@ -292,7 +311,8 @@ describe("PATCH /helps/:id — editing", () => {
 
   it("refuses to edit an offer that has been taken down", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
     await remove(user.cookie, created.help.id);
 
     const response = await patch(user.cookie, created.help.id, {
@@ -304,7 +324,8 @@ describe("PATCH /helps/:id — editing", () => {
 
   it("refuses a category that does not exist", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
 
     const response = await patch(user.cookie, created.help.id, {
       categoryIds: ["no-such-category"],
@@ -317,7 +338,8 @@ describe("PATCH /helps/:id — editing", () => {
 describe("DELETE /helps/:id — taking an offer down", () => {
   it("marks it removed rather than erasing it", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
 
     const response = await remove(user.cookie, created.help.id);
 
@@ -330,7 +352,8 @@ describe("DELETE /helps/:id — taking an offer down", () => {
 
   it("keeps the proposals that point at it", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
     const requester = await signUpVerifiedAndLogIn(app, "anna@example.com");
     const need = await prisma.need.create({
       data: {
@@ -364,7 +387,8 @@ describe("DELETE /helps/:id — taking an offer down", () => {
 
   it("does not mind being asked twice", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
     await remove(user.cookie, created.help.id);
 
     const second = await remove(user.cookie, created.help.id);
@@ -374,7 +398,8 @@ describe("DELETE /helps/:id — taking an offer down", () => {
 
   it("refuses someone else's offer", async () => {
     const user = await helper();
-    const created = (await post(user.cookie, helpBody())).body as HelpBody;
+    const created = (await post(user.cookie, await helpBody()))
+      .body as HelpBody;
     const other = await helper("other@example.com");
 
     const response = await remove(other.cookie, created.help.id);

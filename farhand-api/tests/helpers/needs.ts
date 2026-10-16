@@ -1,5 +1,6 @@
 import type { DealStatus, Need } from "@prisma/client";
 import { prisma } from "../../src/db.js";
+import { currentProhibitedVersion } from "./prohibited.js";
 
 /**
  * Fixtures for need tests: a category to file a need under, and a deal to
@@ -13,8 +14,18 @@ export async function createCategory(slug = "electronics") {
   });
 }
 
-/** A complete, valid request body for POST /needs. Override what matters. */
-export function needBody(
+/**
+ * A complete, valid request body for POST /needs. Override what matters.
+ *
+ * ASYNC SINCE #87, and that is the one awkward thing about this issue: a
+ * public posting has to tick the current prohibited list, and the version is
+ * a fingerprint of the list in the database rather than a constant anybody
+ * can write down. So the body is read from the world, like the category id
+ * above it.
+ *
+ * Overrides come last, so a test can send a stale version on purpose.
+ */
+export async function needBody(
   categoryId: string,
   overrides: Record<string, unknown> = {},
 ) {
@@ -26,6 +37,7 @@ export function needBody(
     deliverCountry: "EE",
     currency: "EUR",
     estimatedPrice: 2400,
+    prohibitedVersion: await currentProhibitedVersion(),
     ...overrides,
   };
 }

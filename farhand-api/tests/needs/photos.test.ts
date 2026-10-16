@@ -101,7 +101,9 @@ async function aNeed(
     .post("/needs")
     .set("Cookie", owner.cookie)
     .send(
-      needBody(categoryId, { status: status === "DRAFT" ? "DRAFT" : "OPEN" }),
+      await needBody(categoryId, {
+        status: status === "DRAFT" ? "DRAFT" : "OPEN",
+      }),
     );
 
   expect(created.status).toBe(201);

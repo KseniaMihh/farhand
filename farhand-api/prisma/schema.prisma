@@ -206,24 +206,30 @@ model Category {
 }
 
 model Need {
-  id             String     @id @default(cuid())
-  requesterId    String
-  requester      User       @relation(fields: [requesterId], references: [id])
-  categoryId     String
-  category       Category   @relation(fields: [categoryId], references: [id])
-  title          String     @db.VarChar(120)
-  description    String     @db.VarChar(2000)
-  productUrl     String?
-  storeName      String?    @db.VarChar(100)
-  buyCountry     String     @db.Char(2) // where the product must be bought
-  deliverCountry String     @db.Char(2) // where it must be shipped
-  currency       String     @db.Char(3) // ISO 4217, e.g. "EUR"
-  estimatedPrice Int // in cents
-  thankYouAmount Int        @default(0) // optional fee for effort, in cents
-  status         NeedStatus @default(OPEN)
-  expiresAt      DateTime?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  requesterId       String
+  requester         User       @relation(fields: [requesterId], references: [id])
+  categoryId        String
+  category          Category   @relation(fields: [categoryId], references: [id])
+  title             String     @db.VarChar(120)
+  description       String     @db.VarChar(2000)
+  productUrl        String?
+  storeName         String?    @db.VarChar(100)
+  buyCountry        String     @db.Char(2) // where the product must be bought
+  deliverCountry    String     @db.Char(2) // where it must be shipped
+  currency          String     @db.Char(3) // ISO 4217, e.g. "EUR"
+  estimatedPrice    Int // in cents
+  thankYouAmount    Int        @default(0) // optional fee for effort, in cents
+  status            NeedStatus @default(OPEN)
+  /// The prohibited list this was posted against (#87): the fingerprint of the
+  /// exact wording the requester ticked, and when. Null while it is a draft —
+  /// nobody can see a draft, so there is nothing to have acknowledged yet, and
+  /// publishing one asks for the tick then.
+  prohibitedVersion String?    @db.VarChar(64)
+  prohibitedAckAt   DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   proposals Proposal[]
   deals     Deal[]
@@ -234,15 +240,18 @@ model Need {
 }
 
 model Help {
-  id          String     @id @default(cuid())
-  helperId    String
-  helper      User       @relation(fields: [helperId], references: [id])
-  country     String     @db.Char(2) // where the helper lives and can buy
-  shipsTo     String[] // ISO codes; empty array = ships anywhere
-  description String     @db.VarChar(1000)
-  status      HelpStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  helperId          String
+  helper            User       @relation(fields: [helperId], references: [id])
+  country           String     @db.Char(2) // where the helper lives and can buy
+  shipsTo           String[] // ISO codes; empty array = ships anywhere
+  description       String     @db.VarChar(1000)
+  status            HelpStatus @default(ACTIVE)
+  /// As on `Need` (#87). Null while the offer is `PAUSED` and unpublished.
+  prohibitedVersion String?    @db.VarChar(64)
+  prohibitedAckAt   DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   categories Category[]
   proposals  Proposal[]
@@ -478,6 +487,38 @@ model File {
 
   @@index([dealId])
   @@index([needId])
+}
+
+/// One line of the prohibited list, as it is shown at posting time (#87).
+///
+/// A TABLE rather than a constant in the code, because the list is a rule
+/// about the world and not a fact about the program: it changes when a law
+/// does, and changing it must not need a deployment
+/// (docs/07-trust-and-safety.md says the same of the sanctioned-country
+/// list). `npm run seed` writes the floor; Neon's editor is where a line gets
+/// reworded.
+///
+/// There is no `version` column, because the version is not a thing anybody
+/// should have to remember to bump: it is a fingerprint computed from the
+/// published rows, and it changes by itself when the wording does
+/// (src/services/prohibited.ts).
+model ProhibitedItem {
+  id        String    @id @default(cuid())
+  /// The permanent identifier. Never change one: acknowledgements already
+  /// recorded refer to the wording this slug had at the time.
+  slug      String    @unique
+  /// What a person reads. Reword it freely — that is the point of the table —
+  /// and the fingerprint changes, so the next poster ticks the new wording.
+  text      String    @db.VarChar(500)
+  /// The order it is shown in, and the order the fingerprint is computed in.
+  position  Int
+  /// Dropped from the list without being deleted: old acknowledgements still
+  /// mean what they meant, and a moderator reading an old need can still see
+  /// what it was posted against.
+  retiredAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([retiredAt, position])
 }
 
 /// Work to be done after the request that asked for it has already answered

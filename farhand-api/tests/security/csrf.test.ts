@@ -6,6 +6,7 @@ import { env } from "../../src/env.js";
 import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
 import { createCategory } from "../helpers/needs.js";
+import { currentProhibitedVersion } from "../helpers/prohibited.js";
 
 /**
  * The origin check on writes — issue #28.
@@ -29,6 +30,7 @@ import { createCategory } from "../helpers/needs.js";
 const app = createApp();
 
 let categoryId = "";
+let prohibitedVersion = "";
 let kadri: TestUser;
 
 beforeEach(async () => {
@@ -39,6 +41,7 @@ beforeEach(async () => {
   env.CSRF_ENABLED = false;
   categoryId = (await createCategory()).id;
   kadri = await signUpVerifiedAndLogIn(app, "kadri@example.com", "Kadri");
+  prohibitedVersion = await currentProhibitedVersion();
   env.CSRF_ENABLED = true;
 });
 
@@ -59,7 +62,10 @@ function post(headers: Record<string, string> = {}) {
   const pending = request(app)
     .post("/needs")
     .set("Cookie", kadri.cookie)
-    .send({ ...NEED, categoryId });
+    // Ticked (#87), so that a refusal here can only ever be the origin rule
+    // this file is about. `prohibitedVersion` is read in `beforeEach`, while
+    // the guard is still switched off.
+    .send({ ...NEED, categoryId, prohibitedVersion });
 
   for (const [name, value] of Object.entries(headers)) {
     void pending.set(name, value);

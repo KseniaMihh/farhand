@@ -3,6 +3,11 @@ import type { Need, NeedStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import {
+  acknowledgementFields,
+  checkAcknowledgement,
+  needsAcknowledgement,
+} from "./prohibited.js";
+import {
   afterCursor,
   NEWEST_FIRST,
   type CursorPosition,
@@ -64,6 +69,12 @@ export interface CreateNeedInput {
   thankYouAmount: number;
   status: Extract<NeedStatus, "DRAFT" | "OPEN">;
   expiresAt: Date | null;
+  /**
+   * The prohibited list this is being posted against (#87). Optional in the
+   * type because a draft needs none; required by the service when the thing
+   * is going public, which is the one place that knows.
+   */
+  prohibitedVersion?: string | undefined;
 }
 
 /**
@@ -164,12 +175,30 @@ export async function createNeed(
     await assertUnderOpenNeedsLimit(actor.id);
   }
 
+  // PULLED OUT OF THE SPREAD, and that is the forgery guard (#87). Everything
+  // else in `input` is copied onto the row as the caller sent it; the version
+  // must not be, or a client could write whatever it liked into the column
+  // that records what it agreed to. What lands there is the version this
+  // service checked, written by `acknowledgementFields`.
+  const { prohibitedVersion, ...fields } = input;
+
   try {
-    return await prisma.need.create({
-      data: {
-        requesterId: actor.id,
-        ...input,
-      },
+    // One transaction, so the list cannot be reworded between the check and
+    // the row: the version recorded is the version that was verified.
+    return await prisma.$transaction(async (tx) => {
+      const acknowledged = needsAcknowledgement(false, fields.status === "OPEN")
+        ? acknowledgementFields(
+            await checkAcknowledgement(prohibitedVersion, tx),
+          )
+        : {};
+
+      return tx.need.create({
+        data: {
+          requesterId: actor.id,
+          ...fields,
+          ...acknowledged,
+        },
+      });
     });
   } catch (error) {
     if (isForeignKeyError(error)) {
@@ -198,10 +227,29 @@ export async function updateNeed(
     await assertUnderOpenNeedsLimit(actor.id);
   }
 
+  const { prohibitedVersion, ...fields } = input;
+
+  // The hole #87 exists to close: `updateNeedSchema` is
+  // `createNeedSchema.partial()`, so the tick that is required on create is
+  // optional here — and a draft was created without one. Publishing is asked
+  // the same question as posting, because it is the same event.
+  const goingPublic = needsAcknowledgement(
+    need.status === "OPEN",
+    (fields.status ?? need.status) === "OPEN",
+  );
+
   try {
-    return await prisma.need.update({
-      where: { id: needId },
-      data: onlyProvided(input),
+    return await prisma.$transaction(async (tx) => {
+      const acknowledged = goingPublic
+        ? acknowledgementFields(
+            await checkAcknowledgement(prohibitedVersion, tx),
+          )
+        : {};
+
+      return tx.need.update({
+        where: { id: needId },
+        data: { ...onlyProvided(fields), ...acknowledged },
+      });
     });
   } catch (error) {
     if (isForeignKeyError(error)) {

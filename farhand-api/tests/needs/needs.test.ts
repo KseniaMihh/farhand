@@ -5,6 +5,7 @@ import { prisma } from "../../src/db.js";
 import { MAX_OPEN_NEEDS } from "../../src/services/needs.js";
 import { signUpAndLogIn, signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import { createCategory, createDealFor, needBody } from "../helpers/needs.js";
+import { currentProhibitedVersion } from "../helpers/prohibited.js";
 
 /**
  * Needs: create, edit, delete — issue #15.
@@ -61,7 +62,7 @@ async function openNeeds(cookie: string, count: number) {
   for (let i = 0; i < count; i++) {
     const response = await post(
       cookie,
-      needBody(categoryId, { title: `Need ${String(i)}` }),
+      await needBody(categoryId, { title: `Need ${String(i)}` }),
     );
     expect(response.status).toBe(201);
   }
@@ -71,7 +72,7 @@ describe("POST /needs — creating", () => {
   it("creates a need, open by default, owned by whoever asked", async () => {
     const user = await anna();
 
-    const response = await post(user.cookie, needBody(categoryId));
+    const response = await post(user.cookie, await needBody(categoryId));
     const body = response.body as NeedBody;
 
     expect(response.status).toBe(201);
@@ -85,7 +86,7 @@ describe("POST /needs — creating", () => {
 
     const response = await post(
       user.cookie,
-      needBody(categoryId, {
+      await needBody(categoryId, {
         buyCountry: "jp",
         currency: "eur",
         estimatedPrice: 2400,
@@ -105,7 +106,7 @@ describe("POST /needs — creating", () => {
 
     const response = await post(
       user.cookie,
-      needBody(categoryId, { status: "DRAFT" }),
+      await needBody(categoryId, { status: "DRAFT" }),
     );
 
     expect((response.body as NeedBody).need.status).toBe("DRAFT");
@@ -114,7 +115,10 @@ describe("POST /needs — creating", () => {
   it("refuses a category that does not exist", async () => {
     const user = await anna();
 
-    const response = await post(user.cookie, needBody("no-such-category-id"));
+    const response = await post(
+      user.cookie,
+      await needBody("no-such-category-id"),
+    );
 
     expect(response.status).toBe(400);
   });
@@ -123,22 +127,36 @@ describe("POST /needs — creating", () => {
     const user = await anna();
 
     expect(
-      (await post(user.cookie, needBody(categoryId, { title: "   " }))).status,
-    ).toBe(422);
-    expect(
-      (await post(user.cookie, needBody(categoryId, { estimatedPrice: 0 })))
+      (await post(user.cookie, await needBody(categoryId, { title: "   " })))
         .status,
     ).toBe(422);
     expect(
-      (await post(user.cookie, needBody(categoryId, { estimatedPrice: 24.5 })))
-        .status,
+      (
+        await post(
+          user.cookie,
+          await needBody(categoryId, { estimatedPrice: 0 }),
+        )
+      ).status,
     ).toBe(422);
     expect(
-      (await post(user.cookie, needBody(categoryId, { buyCountry: "Japan" })))
-        .status,
+      (
+        await post(
+          user.cookie,
+          await needBody(categoryId, { estimatedPrice: 24.5 }),
+        )
+      ).status,
     ).toBe(422);
     expect(
-      (await post(user.cookie, needBody(categoryId, { currency: "€" }))).status,
+      (
+        await post(
+          user.cookie,
+          await needBody(categoryId, { buyCountry: "Japan" }),
+        )
+      ).status,
+    ).toBe(422);
+    expect(
+      (await post(user.cookie, await needBody(categoryId, { currency: "€" })))
+        .status,
     ).toBe(422);
   });
 
@@ -148,7 +166,7 @@ describe("POST /needs — creating", () => {
     // MATCHED is reached by accepting a proposal (#20), never by saying so.
     const response = await post(
       user.cookie,
-      needBody(categoryId, { status: "MATCHED" }),
+      await needBody(categoryId, { status: "MATCHED" }),
     );
 
     expect(response.status).toBe(422);
@@ -159,7 +177,7 @@ describe("POST /needs — who may post at all", () => {
   it("turns away someone who is not logged in", async () => {
     const response = await request(app)
       .post("/needs")
-      .send(needBody(categoryId));
+      .send(await needBody(categoryId));
 
     expect(response.status).toBe(401);
   });
@@ -167,7 +185,7 @@ describe("POST /needs — who may post at all", () => {
   it("turns away someone who has not confirmed their email", async () => {
     const unverified = await signUpAndLogIn(app, "new@example.com");
 
-    const response = await post(unverified.cookie, needBody(categoryId));
+    const response = await post(unverified.cookie, await needBody(categoryId));
 
     // docs/02-roles-and-permissions.md: an unconfirmed user may sign in, but
     // may not post.
@@ -181,7 +199,7 @@ describe("POST /needs — who may post at all", () => {
       data: { status: "SUSPENDED" },
     });
 
-    const response = await post(user.cookie, needBody(categoryId));
+    const response = await post(user.cookie, await needBody(categoryId));
 
     expect(response.status).toBe(403);
   });
@@ -192,7 +210,7 @@ describe("POST /needs — the limit on open needs", () => {
     const user = await anna();
     await openNeeds(user.cookie, MAX_OPEN_NEEDS);
 
-    const response = await post(user.cookie, needBody(categoryId));
+    const response = await post(user.cookie, await needBody(categoryId));
 
     // 409, not 422: the request is fine, the account's state is the problem.
     expect(response.status).toBe(409);
@@ -201,10 +219,10 @@ describe("POST /needs — the limit on open needs", () => {
   it("does not count drafts, which nobody can see", async () => {
     const user = await anna();
     for (let i = 0; i < MAX_OPEN_NEEDS + 3; i++) {
-      await post(user.cookie, needBody(categoryId, { status: "DRAFT" }));
+      await post(user.cookie, await needBody(categoryId, { status: "DRAFT" }));
     }
 
-    const response = await post(user.cookie, needBody(categoryId));
+    const response = await post(user.cookie, await needBody(categoryId));
 
     expect(response.status).toBe(201);
   });
@@ -216,7 +234,9 @@ describe("POST /needs — the limit on open needs", () => {
 
     await remove(user.cookie, first.id);
 
-    expect((await post(user.cookie, needBody(categoryId))).status).toBe(201);
+    expect((await post(user.cookie, await needBody(categoryId))).status).toBe(
+      201,
+    );
   });
 
   it("counts each account separately", async () => {
@@ -224,7 +244,7 @@ describe("POST /needs — the limit on open needs", () => {
     await openNeeds(user.cookie, MAX_OPEN_NEEDS);
     const bob = await signUpVerifiedAndLogIn(app, "bob@example.com", "Bob");
 
-    const response = await post(bob.cookie, needBody(categoryId));
+    const response = await post(bob.cookie, await needBody(categoryId));
 
     expect(response.status).toBe(201);
   });
@@ -233,7 +253,7 @@ describe("POST /needs — the limit on open needs", () => {
 describe("PATCH /needs/:id — editing", () => {
   it("lets the owner change their need", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
 
     const response = await patch(user.cookie, created.need.id, {
@@ -249,7 +269,7 @@ describe("PATCH /needs/:id — editing", () => {
 
   it("refuses someone else's need, and changes nothing", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
     const bob = await signUpVerifiedAndLogIn(app, "bob@example.com", "Bob");
 
@@ -274,7 +294,7 @@ describe("PATCH /needs/:id — editing", () => {
 
   it("refuses once the need is matched, because a deal depends on it", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
     await prisma.need.update({
       where: { id: created.need.id },
@@ -291,11 +311,14 @@ describe("PATCH /needs/:id — editing", () => {
   it("lets a draft be published", async () => {
     const user = await anna();
     const draft = (
-      await post(user.cookie, needBody(categoryId, { status: "DRAFT" }))
+      await post(user.cookie, await needBody(categoryId, { status: "DRAFT" }))
     ).body as NeedBody;
 
+    // The tick comes with the publishing, not with the draft (#87): nobody
+    // can see a draft, so there was nothing to acknowledge until now.
     const response = await patch(user.cookie, draft.need.id, {
       status: "OPEN",
+      prohibitedVersion: await currentProhibitedVersion(),
     });
 
     expect(response.status).toBe(200);
@@ -305,12 +328,16 @@ describe("PATCH /needs/:id — editing", () => {
   it("counts publishing a draft against the limit", async () => {
     const user = await anna();
     const draft = (
-      await post(user.cookie, needBody(categoryId, { status: "DRAFT" }))
+      await post(user.cookie, await needBody(categoryId, { status: "DRAFT" }))
     ).body as NeedBody;
     await openNeeds(user.cookie, MAX_OPEN_NEEDS);
 
     const response = await patch(user.cookie, draft.need.id, {
       status: "OPEN",
+      // Ticked, so the 409 below can only be the limit. Without this the test
+      // would also pass on #87's refusal, which is a different answer to a
+      // different question.
+      prohibitedVersion: await currentProhibitedVersion(),
     });
 
     // Otherwise the limit is trivially avoided: save drafts, publish them all.
@@ -321,7 +348,7 @@ describe("PATCH /needs/:id — editing", () => {
 describe("DELETE /needs/:id — taking a need down", () => {
   it("closes the need rather than erasing it", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
 
     const response = await remove(user.cookie, created.need.id);
@@ -337,7 +364,7 @@ describe("DELETE /needs/:id — taking a need down", () => {
 
   it("does not mind being asked twice", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
     await remove(user.cookie, created.need.id);
 
@@ -348,7 +375,7 @@ describe("DELETE /needs/:id — taking a need down", () => {
 
   it("refuses someone else's need", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
     const bob = await signUpVerifiedAndLogIn(app, "bob@example.com", "Bob");
 
@@ -371,7 +398,7 @@ describe("DELETE /needs/:id — taking a need down", () => {
 
   it("refuses while someone is shopping for it", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
     const need = await prisma.need.findUniqueOrThrow({
       where: { id: created.need.id },
@@ -386,7 +413,7 @@ describe("DELETE /needs/:id — taking a need down", () => {
 
   it("allows it again once that deal is cancelled", async () => {
     const user = await anna();
-    const created = (await post(user.cookie, needBody(categoryId)))
+    const created = (await post(user.cookie, await needBody(categoryId)))
       .body as NeedBody;
     const need = await prisma.need.findUniqueOrThrow({
       where: { id: created.need.id },

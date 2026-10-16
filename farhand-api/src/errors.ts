@@ -16,6 +16,13 @@ export type ErrorCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "CONFLICT"
+  /**
+   * A posting was ticked against a prohibited list that is no longer the
+   * current one (#87). Its own code rather than plain `CONFLICT` because a
+   * client can do something specific about it — show the new list and ask
+   * again — and `details` carries that list.
+   */
+  | "PROHIBITED_LIST_CHANGED"
   | "PAYLOAD_TOO_LARGE"
   | "TOO_MANY_REQUESTS"
   | "INTERNAL";
@@ -82,5 +89,20 @@ export class HttpError extends Error {
 
   static conflict(message: string, details?: unknown): HttpError {
     return new HttpError(409, "CONFLICT", message, details);
+  }
+
+  /**
+   * The prohibited list changed between somebody reading it and posting
+   * against it (#87). A `409`, because the request was right when it was
+   * written and the world moved — and the new list travels with the refusal,
+   * so the next attempt can be an informed one.
+   */
+  static prohibitedListChanged(list: unknown): HttpError {
+    return new HttpError(
+      409,
+      "PROHIBITED_LIST_CHANGED",
+      "The prohibited list has changed since you read it",
+      list,
+    );
   }
 }
