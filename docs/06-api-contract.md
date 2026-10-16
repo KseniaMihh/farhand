@@ -443,12 +443,13 @@ Public: no session is read at all. Returns `200`:
     "countryCode": "EE",
     "bio": "I fly Tallinn–Tokyo twice a year.",
     "memberSince": "2026-03-04T09:12:00.000Z",
-    "avatarUrl": "/files/cm1f…"
+    "avatarUrl": "/files/cm1f…",
+    "reviews": { "count": 3, "average": 4.3 }
   }
 }
 ```
 
-Five fields and an id, chosen against docs/07-trust-and-safety.md, which lists
+Six fields and an id, chosen against docs/07-trust-and-safety.md, which lists
 scraping personal data as a risk and answers it by keeping profiles thin.
 `avatarUrl` is a path on this API, or `null` (#80) — see `PUT /me/avatar`.
 What is deliberately not here:
@@ -459,10 +460,33 @@ What is deliberately not here:
 | `city` | A display name plus a city is often enough to find a real person, and nothing in a deal needs it. Its owner can see and set it; nobody else can read it |
 | `role`, `status` | Moderators are not announced, and a suspension is between the account and us |
 
-No rating summary yet, although the reviews it would summarise now exist
-(#83). The field is absent rather than present and always `null` — a `null`
-nobody can explain is worse than an absence — and #84 is where it arrives.
-What a stranger can read today is the list: `GET /users/:id/reviews`.
+**`reviews` is the summary #65 left a hole for** (#84), and it is always
+there:
+
+| | |
+|---|---|
+| `count` | How many reviews the average is made of. `0` is a real answer |
+| `average` | One decimal, or **`null` when there is nothing to average** |
+
+`null` rather than `0`, because "nobody has reviewed them" and "everybody gave
+them nothing" are different facts and a profile that confuses them libels a
+newcomer. The `count: 0` beside it is what explains the `null` — which is why
+the field is present here, unlike the version of this note that stood while
+there was nothing to summarise at all.
+
+Rounded to one decimal **by the API**, so two clients cannot disagree about
+somebody's reputation, and computed in the database rather than by reading
+every review somebody ever received.
+
+It counts exactly what `GET /users/:id/reviews` lists as readable:
+`countedWhere` — published, and not removed by a moderator. A profile can
+therefore read *"5.0 from 3 reviews"* above a list of four, and the removed one
+in that list is what explains the difference
+([decision 0018](10-decisions/0018-a-removed-review-keeps-its-place.md)).
+
+The individual reviews are **not** embedded here. They are their own paged,
+public endpoint — a profile is kept thin on purpose, and a list that grows
+without bound does not belong inside a record that does not.
 
 The owner of a profile sees exactly what a stranger sees. `GET /auth/me` is
 where somebody reads their own private fields, and there is no third answer in

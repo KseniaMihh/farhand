@@ -268,6 +268,54 @@ export function countedWhere(
   return { AND: [publishedWhere(targetId, now)], removedAt: null };
 }
 
+/** What a profile says about how somebody has been rated (#84). */
+export interface RatingSummary {
+  /** How many reviews the average is made of. Zero is a real answer. */
+  count: number;
+  /**
+   * One decimal, or `null` when there is nothing to average.
+   *
+   * Null rather than zero, because "no reviews" and "everybody gave nought"
+   * are different facts and a profile that confuses them libels a newcomer.
+   */
+  average: number | null;
+}
+
+/**
+ * How somebody has been rated, in one statement.
+ *
+ * `countedWhere`, not `publishedWhere`: a removed review keeps its place in
+ * the list and counts towards nothing (#125, decision 0018). Using the other
+ * rule here is the one mistake this function can make, and it would show as a
+ * number that disagrees with the list underneath it.
+ *
+ * Averaged BY THE DATABASE. The alternative — fetching every review somebody
+ * ever received to divide by its length — is the shape of thing #102 measured
+ * and is why the rule has a query form at all.
+ */
+export async function ratingSummary(
+  targetId: string,
+  now: Date,
+): Promise<RatingSummary> {
+  const summary = await prisma.review.aggregate({
+    where: countedWhere(targetId, now),
+    _count: { _all: true },
+    _avg: { rating: true },
+  });
+
+  const average = summary._avg.rating;
+
+  return {
+    count: summary._count._all,
+    // One decimal, decided here rather than by each client: a rating is a
+    // display figure, and nobody needs the third decimal of somebody's
+    // reputation. `null` when there is nothing to average — Postgres answers
+    // `AVG` over no rows with null, which is exactly the right answer and the
+    // reason this needs no special case.
+    average: average === null ? null : Math.round(average * 10) / 10,
+  };
+}
+
 /**
  * The deal, if this caller may review it at all — and when it completed.
  *
