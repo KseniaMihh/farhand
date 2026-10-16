@@ -265,6 +265,38 @@ the job, moments before the email goes out.
 The one index is on `(doneAt, failedAt, runAfter)`, which is the only query the
 queue makes: the oldest row that is waiting and due.
 
+**`Notification`** — one email somebody did not ask for individually, and the
+record that it was sent (#86, decision 0020). Verification and reset email are
+not here: those answer a request the person just made.
+
+Two timestamps say how it ended, the same shape as `Job`: `sentAt` set means it
+went, `skippedAt` set means it deliberately did not — the account went, or the
+preference changed between the event and the sending. Neither is deleted,
+because "what were we going to tell them, and why didn't we" is a question
+somebody asks exactly once, in anger.
+
+**The unique index on `(userId, kind, subjectId)` is the "one event, one
+email" rule**, held by the database rather than by a check-then-insert that two
+workers can both pass — the same reasoning as #19's one proposal per helper per
+need. `subjectId` is **what happened**: a `DealEvent`, a `Proposal`, a `Quote`
+or an `AdminAction`. Not what it is about, and that distinction is the whole
+design: the same person can legitimately be told the same kind of thing about
+the same deal twice — a moderator who un-disputes a deal makes it the helper's
+turn again — and a deal-keyed index would swallow the second, true email as a
+duplicate. `subjectType` names the table the id points into, so the sender
+never guesses by trying tables in turn.
+
+There is no `body` or `subject` column: the words are composed when the email
+is sent, from the rows as they are then. A stored sentence would be a copy of
+facts that have moved on, and an email saying "waiting for your payment" about
+a deal cancelled an hour ago is worse than a late email.
+
+**`User.emailNotifications`** — the one switch, default true, changed through
+`PATCH /me/notifications`. On the user and not the profile because `DELETE /me`
+blanks a profile (#66), and a preference that forgets itself when somebody
+deletes their account is a preference that emails a deleted account. A
+moderator's decision ignores it (decision 0020).
+
 Nothing deletes finished rows yet. They are a log of what the system did for
 whom, they accumulate slowly, and #114's scheduled sweep is where a cleanup
 goes on the day the count matters.

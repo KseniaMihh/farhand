@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { Deal, DealEvent, Proposal, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { notify } from "./notifications.js";
 import {
   afterCursor,
   type CursorPosition,
@@ -97,14 +98,28 @@ export async function proposeAsHelper(
   // would both pass a look-first check and both write.
   // The constraint: see docs/05-data-model.md
   try {
-    return await prisma.proposal.create({
-      data: {
-        needId,
-        helperId: actor.id,
-        initiatedBy: "HELPER",
-        message: input.message,
-      },
-      include: withNeed,
+    // One transaction for the row and the telling (#86): an email about a
+    // proposal that was not written is a lie, and #85's registration learned
+    // the same about its job.
+    return await prisma.$transaction(async (tx) => {
+      const proposal = await tx.proposal.create({
+        data: {
+          needId,
+          helperId: actor.id,
+          initiatedBy: "HELPER",
+          message: input.message,
+        },
+        include: withNeed,
+      });
+
+      await notify(
+        need.requesterId,
+        "proposal-received",
+        { type: "proposal", id: proposal.id },
+        tx,
+      );
+
+      return proposal;
     });
   } catch (error) {
     if (isDuplicate(error)) {
@@ -160,15 +175,28 @@ export async function proposeAsRequester(
   // requester. The same constraint as above also stops a requester asking a
   // helper who has already proposed on that need — they are already talking.
   try {
-    return await prisma.proposal.create({
-      data: {
-        needId,
-        helperId: help.helperId,
-        helpId: help.id,
-        initiatedBy: "REQUESTER",
-        message: input.message,
-      },
-      include: withNeed,
+    return await prisma.$transaction(async (tx) => {
+      const proposal = await tx.proposal.create({
+        data: {
+          needId,
+          helperId: help.helperId,
+          helpId: help.id,
+          initiatedBy: "REQUESTER",
+          message: input.message,
+        },
+        include: withNeed,
+      });
+
+      // The helper hears, because the approach is theirs to answer — the
+      // mirror of the case above, where the requester hears.
+      await notify(
+        help.helperId,
+        "proposal-received",
+        { type: "proposal", id: proposal.id },
+        tx,
+      );
+
+      return proposal;
     });
   } catch (error) {
     if (isDuplicate(error)) {
@@ -345,6 +373,15 @@ export async function acceptProposal(
           toStatus: "MATCHED",
         },
       });
+
+      // The helper hears that they have a deal. Not the requester, who is
+      // the one pressing accept (#86).
+      await notify(
+        proposal.helperId,
+        "proposal-accepted",
+        { type: "proposal", id: proposalId },
+        tx,
+      );
 
       // Read it back rather than assembling the answer by hand: a copy built
       // from the rows we held a moment ago drifts from what was actually

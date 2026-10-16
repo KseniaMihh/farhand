@@ -288,6 +288,7 @@ Returns `200`:
     "status": "ACTIVE",
     "suspendedUntil": null,
     "emailVerified": false,
+    "emailNotifications": true,
     "profile": {
       "displayName": "Anna",
       "bio": null,
@@ -1920,6 +1921,90 @@ and the complaint that has waited longest is the one that matters most
 
 The default matters: a moderator opening the queue wants the unresolved ones,
 not every report ever filed. Looking back is something you ask for.
+
+## Notifications
+
+Version 2 (#86). Email that arrives because something happened, rather than
+because somebody asked for it — and the switch that stops it.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| PATCH | `/me/notifications` | SESSION | One switch: `emailNotifications` |
+
+### `PATCH /me/notifications`
+
+```json
+{ "emailNotifications": false }
+```
+
+Returns `200` with the setting as it now is:
+
+```json
+{ "emailNotifications": false }
+```
+
+`.strict()`, like every body here: an unknown field is a `422` rather than a
+`200` that did nothing. Asking for the state it is already in is the same
+`200` — the caller asked for a state, and that is the state.
+
+**`SESSION`, not `AUTH`, and that is the decision rather than an oversight.**
+`AUTH` adds `requireVerified` and `requireActive`, which between them refuse an
+unverified account and a suspended one — the two people most likely to want the
+email to stop. "Confirm your email address before you may ask us to stop
+emailing you" is not a sentence this API sends. `DELETE /me` is marked the same
+way for the same reason (#66): what you may do to your own account does not
+depend on the state of it.
+
+**The switch is here and not in the email, deliberately.** Our provider's
+unsubscribe applies to every message it sends on our behalf, verification and
+password resets included, so one click on a notification would lock somebody
+out of their own account recovery
+(`docs/10-decisions/0015-living-with-a-transactional-unsubscribe.md`). Until
+Farhand has a domain of its own and a provider that separates the two streams
+(#93), the only safe place for "no thank you" is inside the product. Every
+notification says so in its last line.
+
+### What sends an email, and what deliberately does not
+
+The rule, and the whole list follows from it: **email when the recipient must
+do something, or has lost the chance to — never as an activity feed.**
+
+| What happened | Who hears |
+|---|---|
+| Somebody offered to help with your need | The requester |
+| A requester approached you about their need | The helper |
+| Your offer was accepted | The helper |
+| A quote arrived | The requester, whose move it is to agree it |
+| The deal moved and the next move is yours | Whoever that is, unless they just moved it themselves |
+| The deal was cancelled | The other side |
+| A dispute was raised | The other side |
+| A moderator resolved a dispute | Both sides, since neither of them did it |
+| The deal completed | Both sides — the fourteen-day review window is news to the person who pressed it too |
+| A moderator acted on your account or your content | The person it was about, **whatever their preference says** |
+
+And the silences, which are decisions and not gaps:
+
+| What happened | Why nothing is sent |
+|---|---|
+| Somebody reviewed you | Reviews are blind until both are in (decision 0017). "Yuki reviewed you" tells you they went first, which is the pressure the blind window removes |
+| A message arrived in a deal | The one most people expect, and the one that turns an inbox into a chat. It needs a digest and a quiet period, which is its own issue |
+| A proposal was declined or withdrawn | Nothing is waiting for the helper, and an email saying "no" invites a reply nobody reads |
+| `PRODUCT_PAID`, `PURCHASED`, `DELIVERED` seen from the side that did not act | Nothing is waiting for them either; the deal page is where that belongs |
+| Anything you did yourself | Nobody needs an email about the button they just pressed |
+| A need expiring | Arguable, and the kind of email that teaches people to ignore us. Not in version 2 |
+
+One event sends **one** email: a `Notification` row records it, keyed on what
+happened — a deal event, a proposal, a moderator's action — and the database
+refuses the second. The record also answers what was sent and when, and says
+when something was deliberately not sent (the account went, or the preference
+changed between the event and the sending). The reasoning is
+`docs/10-decisions/0020-what-is-worth-an-email.md`.
+
+Sending happens in #85's job queue, seconds after the request that caused it,
+so no request waits for a mail provider and no request's timing says who
+exists. **There are no links in these emails**, for #119's reason: `APP_ORIGIN`
+is still the API's own address because there is no frontend (#93), so every
+notification names the need it is about instead.
 
 ## Files
 

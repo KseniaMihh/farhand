@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { notify, tellTheOthers } from "./notifications.js";
 import {
   afterCursor,
   afterCursorOldest,
@@ -90,13 +91,29 @@ export async function submitQuote(
   }
 
   // The deal's own amounts stay null: those are what was AGREED.
-  return prisma.quote.create({
-    data: {
-      dealId,
-      currency: input.currency,
-      productAmount: input.productAmount,
-      shippingEstimate: input.shippingEstimate,
-    },
+  return prisma.$transaction(async (tx) => {
+    const quote = await tx.quote.create({
+      data: {
+        dealId,
+        currency: input.currency,
+        productAmount: input.productAmount,
+        shippingEstimate: input.shippingEstimate,
+      },
+    });
+
+    // The requester's move now: agree the amounts (#86). Without this one a
+    // quoted deal waits on somebody who was never told there was anything to
+    // look at — and a quote is not a status change, so no transition would
+    // ever have told them (docs/04-deal-lifecycle.md, "Quoting, separately
+    // from status").
+    await notify(
+      deal.requesterId,
+      "deal-your-turn",
+      { type: "quote", id: quote.id },
+      tx,
+    );
+
+    return quote;
   });
 }
 
@@ -234,7 +251,7 @@ export async function transitionDeal(
     }
 
     // Every transition writes one event.
-    await tx.dealEvent.create({
+    const event = await tx.dealEvent.create({
       data: {
         dealId,
         actorId: actor.id,
@@ -243,6 +260,10 @@ export async function transitionDeal(
         note: input.note ?? null,
       },
     });
+
+    // And whoever needs to know, hears — in the same transaction, keyed on
+    // the event that just happened (#86).
+    await tellTheOthers(tx, deal, event.id, to, side);
 
     return tx.deal.findUniqueOrThrow({
       where: { id: dealId },
@@ -406,7 +427,7 @@ export async function autoCompleteDeals(now: Date): Promise<number> {
         });
         if (moved.count === 0) return false;
 
-        await tx.dealEvent.create({
+        const event = await tx.dealEvent.create({
           data: {
             dealId: deal.id,
             actorId: null, // null actor = the system acted
@@ -415,6 +436,11 @@ export async function autoCompleteDeals(now: Date): Promise<number> {
             note: `Completed automatically ${String(AUTO_COMPLETE_DAYS)} days after delivery`,
           },
         });
+
+        // Both sides, and nobody to leave out: the system acted, so neither
+        // of them pressed anything, and both have fourteen days to review
+        // (#86). This is the one notification nobody's request causes.
+        await tellTheOthers(tx, deal, event.id, rule.to, "system");
         return true;
       });
       if (done) completed += 1;

@@ -311,6 +311,9 @@ authRouter.get("/auth/me", requireAuth, (req, res) => {
       status: user.status,
       suspendedUntil: user.suspendedUntil,
       emailVerified: user.emailVerifiedAt !== null,
+      // So a client can draw the switch it is about to change, without a
+      // second request (#86).
+      emailNotifications: user.emailNotifications,
       profile: user.profile ? ownProfileView(user.profile) : null,
     },
   });

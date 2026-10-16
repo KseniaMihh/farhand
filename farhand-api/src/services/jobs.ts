@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { logger } from "../logger.js";
 import { mailer } from "../mailer.js";
 import { reportError } from "../observability.js";
+import { sendNotification } from "./notifications.js";
 import {
   createPasswordResetToken,
   createVerificationToken,
@@ -51,11 +52,19 @@ export const IDLE_POLL_MS = 2_000;
  * A string in the database and a union here: adding a kind should not be a
  * migration, but calling `enqueue("verifcation-email")` should not compile.
  */
-export type JobKind = "verification-email" | "password-reset-email";
+export type JobKind =
+  "verification-email" | "password-reset-email" | "notification";
 
 export interface JobPayloads {
   "verification-email": { email: string };
   "password-reset-email": { email: string };
+  /**
+   * #86 carries an id and nothing else, for the same reason the two above
+   * carry an address: the email is composed when it is sent, from the rows as
+   * they are then. A payload written an hour ago describes a world that may
+   * have moved.
+   */
+  notification: { notificationId: string };
 }
 
 /**
@@ -243,6 +252,13 @@ const handlers: {
       const token = await createVerificationToken(prisma, user.id);
       await mailer.sendVerificationEmail(user.email, token);
     }
+  },
+
+  notification: async ({ notificationId }) => {
+    // Everything this decides is in services/notifications.ts: whether the
+    // person still wants it, whether the thing it was about still exists, and
+    // what the words are. All this kind does is own the retrying.
+    await sendNotification(notificationId);
   },
 
   "password-reset-email": async ({ email }) => {
