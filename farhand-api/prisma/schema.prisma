@@ -114,17 +114,22 @@ enum FilePurpose {
 
 // Private account data: never sent to other users.
 model User {
-  id              String        @id @default(cuid())
-  email           String        @unique
-  passwordHash    String
-  emailVerifiedAt DateTime?
-  role            Role          @default(USER)
-  status          AccountStatus @default(ACTIVE)
-  suspendedUntil  DateTime?
-  lastLoginAt     DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  deletedAt       DateTime?
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  passwordHash       String
+  emailVerifiedAt    DateTime?
+  role               Role          @default(USER)
+  status             AccountStatus @default(ACTIVE)
+  suspendedUntil     DateTime?
+  lastLoginAt        DateTime?
+  /// Whether #86's notification email is wanted. On the User and not the
+  /// Profile on purpose: `DELETE /me` blanks a profile (#66), and a setting
+  /// that forgets itself when somebody deletes their account is a setting
+  /// that emails a deleted account.
+  emailNotifications Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
 
   profile           Profile?
   sessions          Session[]
@@ -143,6 +148,7 @@ model User {
   reportsFiled      Report[]            @relation("ReportReporter")
   reportsResolved   Report[]            @relation("ReportResolver")
   files             File[]
+  notifications     Notification[]
 }
 
 // Public data: what other users see.
@@ -409,16 +415,16 @@ model AdminAction {
 
 // Only allowed after a COMPLETED deal; one review per side per deal.
 model Review {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   dealId    String
-  deal      Deal     @relation(fields: [dealId], references: [id])
+  deal      Deal      @relation(fields: [dealId], references: [id])
   authorId  String
-  author    User     @relation("ReviewAuthor", fields: [authorId], references: [id])
+  author    User      @relation("ReviewAuthor", fields: [authorId], references: [id])
   targetId  String
-  target    User     @relation("ReviewTarget", fields: [targetId], references: [id])
+  target    User      @relation("ReviewTarget", fields: [targetId], references: [id])
   rating    Int // 1–5, enforced by CHECK constraint (see SQL below)
-  comment   String?  @db.VarChar(1000)
-  createdAt DateTime @default(now())
+  comment   String?   @db.VarChar(1000)
+  createdAt DateTime  @default(now())
   // Hidden by a moderator, kept for evidence — the same column and the same
   // reason as Message.removedAt (#125). A removed review counts for nothing:
   // not in a profile's average, not in its count, not in any list but a
@@ -502,6 +508,50 @@ model Job {
 
   /// The claim query's index: waiting jobs, oldest due first.
   @@index([doneAt, failedAt, runAfter])
+}
+
+/// One email somebody did not ask for individually (#86), and the record that
+/// it was sent. Verification and reset email are not here: those answer a
+/// request the person just made.
+///
+/// Two timestamps say how it ended, as `Job` does:
+///
+///   waiting     sentAt null, skippedAt null
+///   sent        sentAt set
+///   not sent    skippedAt set — the account went, or the preference changed
+///               between the event and the sending. Kept, not deleted: "what
+///               were we going to tell them, and why didn't we" is a question
+///               somebody asks exactly once, in anger
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  /// Which notification it is. A string rather than an enum, as `Job.kind` is:
+  /// a new kind of notification should not be a migration.
+  kind        String
+  /// WHAT HAPPENED, not what it is about: a `DealEvent` id, a `Proposal` id,
+  /// an `AdminAction` id. Keyed on the event because the same person can
+  /// legitimately be told the same kind of thing about the same deal twice —
+  /// a moderator who un-disputes a deal makes it the helper's turn again, and
+  /// a deal-keyed index would swallow the second email as a duplicate.
+  subjectId   String
+  /// Which table `subjectId` points into: `proposal`, `deal-event`, `quote`
+  /// or `admin-action`. Needed because one kind can be caused by two
+  /// different things — "your turn" is usually a status change, and once per
+  /// deal it is a quote arriving, which is not a status change at all
+  /// (docs/04-deal-lifecycle.md, "Quoting, separately from status"). Without
+  /// this the handler would guess by trying tables in turn.
+  subjectType String
+  sentAt      DateTime?
+  skippedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  /// ONE EVENT, ONE EMAIL — the acceptance criterion, held by the database
+  /// rather than by a check-then-insert that two workers can both pass. The
+  /// same reasoning as #19's one proposal per helper per need.
+  @@unique([userId, kind, subjectId])
+  /// The send query: this person's unsent notifications, oldest first.
+  @@index([userId, sentAt])
 }
 
 // ─────────────────────────────────────────────

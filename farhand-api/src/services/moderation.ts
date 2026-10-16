@@ -10,6 +10,7 @@ import {
 } from "@prisma/client";
 import { ROLE_RANK } from "../middleware/auth.js";
 import { prisma } from "../db.js";
+import { notify } from "./notifications.js";
 import { HttpError } from "../errors.js";
 import { logger } from "../logger.js";
 import { withPhotos } from "./need-photos.js";
@@ -108,7 +109,7 @@ export async function actOnUser(
       await tx.user.update({ where: { id: target.id }, data: userUpdate });
     }
 
-    return tx.adminAction.create({
+    const action = await tx.adminAction.create({
       data: {
         adminId: actor.id,
         targetUserId: target.id,
@@ -117,6 +118,19 @@ export async function actOnUser(
         expiresAt: input.type === "SUSPEND" ? (input.until ?? null) : null,
       },
     });
+
+    // The person it was about hears, whatever their notification preference
+    // says (#86): being told your account was suspended is not marketing,
+    // and somebody who cannot be told cannot appeal. A banned account is
+    // emailed for the same reason — it is the one thing left to say to it.
+    await notify(
+      target.id,
+      "moderation-decision",
+      { type: "admin-action", id: action.id },
+      tx,
+    );
+
+    return action;
   });
 }
 
@@ -200,7 +214,7 @@ export async function removeContent(
       });
     }
 
-    return tx.adminAction.create({
+    const action = await tx.adminAction.create({
       data: {
         adminId: actor.id,
         targetUserId,
@@ -210,6 +224,17 @@ export async function removeContent(
         contentId,
       },
     });
+
+    // Whoever wrote or posted the thing hears that it is gone. A takedown
+    // nobody is told about is a takedown that looks like a bug (#86).
+    await notify(
+      targetUserId,
+      "moderation-decision",
+      { type: "admin-action", id: action.id },
+      tx,
+    );
+
+    return action;
   });
 }
 

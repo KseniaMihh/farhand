@@ -44,7 +44,7 @@ docs/06-api-contract.md. The first `DealEvent` is written there too, with
 | `MATCHED` | `QUOTE_AGREED` | Requester | Helper has submitted a quote | Amounts locked onto the deal |
 | `QUOTE_AGREED` | `PRODUCT_PAID` | Requester | — | — |
 | `PRODUCT_PAID` | `PURCHASED` | Helper | — | Receipt upload allowed, never required (#82) |
-| `PURCHASED` | `SHIPPED` | Helper | Tracking number and real postage present | Requester notified to settle the difference |
+| `PURCHASED` | `SHIPPED` | Helper | Tracking number and real postage present | Requester **emailed** to settle the difference (#86) |
 | `SHIPPED` | `DELIVERED` | Requester | — | — |
 | `DELIVERED` | `COMPLETED` | Requester, or automatically after 14 days | — | Reviews unlock, and their 14-day window starts (#83) |
 | Any state before `SHIPPED` | `CANCELLED` | Either side | Reason required | Need may reopen |
@@ -69,6 +69,16 @@ only want the button to work. The upload is its own endpoint —
 `POST /deals/:id/receipts/:kind`, helper only, three of each kind — and a
 shipping receipt waits for `PURCHASED`, because the postage is paid when the
 parcel is sent. Nothing deletes one.
+
+**Who is told about a move is its own table**, and deliberately not this one:
+`src/services/notifications.ts` holds it, because `transitions.ts` says of
+itself that "an engine that also performed [the side effects] would be two
+things at once". The rule it follows is that an email goes to the person whose
+**move it now is**, and only when that is not the person who just acted —
+which is why half the transitions here send nothing at all. The list, and the
+silences, are in
+[decision 0020](10-decisions/0020-what-is-worth-an-email.md). The `SHIPPED`
+row above is the promise that waited longest for it.
 
 Three of the rows carry more than a status change, and all three are now built:
 

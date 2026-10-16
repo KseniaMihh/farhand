@@ -500,6 +500,32 @@ mail with no unsubscribe header. Decision
 reasoning; `14-deployment.md` holds what to do if somebody is blocked in the
 meantime.
 
+### #86 made this more likely, and bought what it could
+
+Notification email (#86) multiplies the number of messages a person receives,
+and therefore the number of chances to click the button that locks them out.
+Nothing about the hazard changed; the exposure did.
+
+What #86 did about it, short of the domain:
+
+- **The opt-out is inside Farhand** — `PATCH /me/notifications` — and there is
+  **no unsubscribe link of our own** in any notification. Every one of them
+  ends with a line pointing at the setting instead. A person who wants the
+  email to stop has a button that does not endanger their account, which is
+  the most that can be done without a second sending domain.
+- **That endpoint is `SESSION`, not `AUTH`**, so an unverified or suspended
+  account can still turn email off. Requiring a confirmed address before
+  somebody may ask us to stop emailing them is the rule that would push people
+  towards the provider's button.
+- **The list is short on purpose** (decision 0020): email only when the
+  recipient must act. Volume is the thing that turns a tolerated sender into an
+  unsubscribed one, and messages — the chattiest candidate — are deliberately
+  silent.
+
+What it did **not** do: it cannot stop Gmail or Brevo showing their own
+unsubscribe affordance. The trigger above is unchanged, and this is now a
+second reason to act on it.
+
 ## Product and legal risks
 
 | Risk | Severity | Position taken |

@@ -25,7 +25,7 @@ flowchart LR
     neon[("Neon PostgreSQL<br/>rows")]
     b2[("Backblaze B2<br/>private file bytes")]
     sentry["Sentry<br/>5xx errors"]
-    brevo["Brevo<br/>transactional email"]
+    brevo["Brevo<br/>verification, resets,<br/>notifications"]
     cron["GitHub Actions<br/>daily sweep"]
     backstop["GitHub Actions<br/>queue backstop, 6-hourly"]
 
@@ -136,6 +136,14 @@ Render's free plan blocks the SMTP ports and Brevo's free tier needs no card
 (#119, decision 0014). It is reached from the worker, never from a route, and
 it is the one arrow here that can fail without anybody finding out at the time
 — which is why a failure is retried five times and then reported (#29).
+
+Three kinds of message go through it: a verification code, a password reset,
+and since #86 a notification — "somebody offered to help", "your turn", "this
+deal is in dispute". The first two answer a request the person just made; the
+third interrupts them, which is why only the third can be switched off, and why
+its list is short (decision 0020). All three leave from the same account on the
+same free tier, which is the whole reason an unsubscribe is dangerous here:
+one click stops all of it (decision 0015).
 
 **GitHub Actions, twice.** The daily sweep completes deals delivered fourteen
 days ago (#101), and the six-hourly backstop drains any job the in-process
@@ -266,7 +274,8 @@ that trade gets decided, with decision 0012 as the argument against
 | Missing | What happens today | Issue |
 |---|---|---|
 | A domain of its own | `APP_ORIGIN` is the API's own `onrender.com` address, and mail is sent from an address whose domain the provider rewrites, because a free mailbox cannot be DKIM-signed by us (#119, decision 0014). A domain fixes the sender, the link in a verification email, and the placeholder together — and it is half the fix for #121, where an unsubscribe click on a confirmation email locks somebody out for good, since the other half is a provider that only free tiers with a domain will give us (decision 0015) | #93 |
-| Emails anybody asked for | Verification and password resets are delivered since #119, and queued rather than sent in the request since #85. Nothing tells a person that their need was matched or their deal moved — and that is now the easy half: which events email, a `Notification` table, and an opt-out, with the machinery already there | #86 |
+| ~~Emails anybody asked for~~ | **Done (#86.)** A proposal, an acceptance, a quote, your turn, a cancellation, a dispute, a completion and a moderator's decision all email the person who has to act. One event sends one email, held by a unique index on the `Notification` row, and `PATCH /me/notifications` turns the lot off except moderation. The silences — messages above all — are [decision 0020](10-decisions/0020-what-is-worth-an-email.md) | — |
+| Email about a new message | The one a real user would miss first, and the one that needs a quiet period and a digest before it is bearable. Deliberately out of #86 | not yet an issue |
 | A verification LINK rather than a code | The email carries a code, because a link needs a page to land on and an inbox cannot follow a link to `POST /auth/verify-email` | #93 |
 | Anything that notices a schedule stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED`, or jobs sitting with `doneAt` null. #85 added a second schedule and did not change this: the thing that would notice a dead schedule is a schedule | #101 named it, still open |
 | Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |

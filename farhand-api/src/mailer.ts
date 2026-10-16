@@ -151,7 +151,7 @@ export const transport = {
  * back at us must not get a token into the log, into Sentry, or now into
  * `Job.lastError`.
  */
-async function deliver(mail: OutgoingMail, token: string): Promise<void> {
+async function deliver(mail: OutgoingMail, token?: string): Promise<void> {
   if (!env.MAIL_API_KEY || !env.MAIL_FROM) {
     if (env.NODE_ENV === "production") {
       // Loudly, and as a FAILURE: in production there is a provider, so not
@@ -169,7 +169,9 @@ async function deliver(mail: OutgoingMail, token: string): Promise<void> {
     }
 
     logger.info(
-      { to: mail.to, token },
+      // `token` is absent for #86's notifications, which have none: there is
+      // nothing in one that a developer needs to copy out of a log.
+      { to: mail.to, ...(token === undefined ? {} : { token }) },
       `Email (development only — not actually sent): ${mail.subject}`,
     );
     return;
@@ -202,11 +204,17 @@ async function deliver(mail: OutgoingMail, token: string): Promise<void> {
  * against the one thing we do not write: a provider, or a library, that
  * quotes the request back inside its error.
  */
-function redact(error: unknown, token: string): string {
+function redact(error: unknown, token?: string): string {
   const text =
     error instanceof Error
       ? `${error.name}: ${error.message}`
       : "unknown error";
+
+  // NO TOKEN, NOTHING TO REDACT — and this guard is not a formality:
+  // `replaceAll("", "[token]")` inserts the replacement between every
+  // character of the string, which would turn a notification's error message
+  // into gibberish nobody could debug (#86).
+  if (token === undefined || token === "") return text;
 
   return text.replaceAll(token, "[token]");
 }
@@ -271,5 +279,26 @@ export const mailer = {
       },
       token,
     );
+  },
+
+  /**
+   * Sends one notification (#86): something happened in Farhand that this
+   * person has to know about.
+   *
+   * The composing is not here — it is in services/notifications.ts, which
+   * reads the rows as they are at the moment of sending and writes the
+   * sentence. This file's job is the provider, and it ends at the three
+   * fields Brevo takes.
+   *
+   * NO TOKEN, which is why `deliver` takes one optionally. A notification
+   * carries nothing that would let anybody in: it is news, and the worst a
+   * leaked one does is tell somebody a deal moved.
+   */
+  sendNotificationEmail(
+    to: string,
+    subject: string,
+    text: string,
+  ): Promise<void> {
+    return deliver({ to, subject, text });
   },
 };
