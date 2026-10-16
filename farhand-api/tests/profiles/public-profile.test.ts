@@ -64,6 +64,10 @@ describe("GET /users/:id", () => {
       bio: null,
       memberSince: user.createdAt.toISOString(),
       avatarUrl: null,
+      // The rating summary #65 left a hole for, filled by #84. Zero reviews
+      // reads as none rather than as nought out of five — what that means is
+      // tested in tests/reviews/summary.test.ts.
+      reviews: { count: 0, average: null },
     });
   });
 
@@ -79,11 +83,15 @@ describe("GET /users/:id", () => {
    * type checker refuses before a test could. A guarantee the compiler keeps
    * beats one a test checks.
    *
-   * What is still worth proving is here: the answer has exactly these six
+   * What is still worth proving is here: the answer has exactly these seven
    * keys, and its `avatarUrl` comes from the avatar file, so with no file it
    * is null.
+   *
+   * It was six until #84 added the rating summary, and this test is what
+   * noticed — which is the point of listing the keys rather than checking for
+   * the absence of the ones we happen to be worried about today.
    */
-  it("returns those six fields and nothing else", async () => {
+  it("returns those seven fields and nothing else", async () => {
     await prisma.profile.update({
       where: { userId: anna.id },
       data: { city: "Tallinn" },
@@ -98,6 +106,7 @@ describe("GET /users/:id", () => {
       "displayName",
       "id",
       "memberSince",
+      "reviews",
     ]);
     expect((response.body as ProfileBody).user).toMatchObject({
       avatarUrl: null,

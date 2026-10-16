@@ -16,7 +16,7 @@ import {
   ownProfileView,
   updateMyProfile,
 } from "../services/profiles.js";
-import { reviewsAbout } from "../services/reviews.js";
+import { ratingSummary, reviewsAbout } from "../services/reviews.js";
 import {
   decodeCursor,
   DEFAULT_PAGE_SIZE,
@@ -88,7 +88,12 @@ profilesRouter.get("/users/:id", async (req, res) => {
   const { id } = userParams.parse(req.params);
   const user = await getPublicProfile(id);
 
-  res.json({ user });
+  // Composed here rather than inside `getPublicProfile` (#84): the profile
+  // service is what `reviews.ts` already reads `DELETED_DISPLAY_NAME` from, so
+  // importing back would make a cycle — and assembling an answer out of two
+  // services is what the deal and need routes already do with receipts and
+  // photos.
+  res.json({ user: { ...user, reviews: await ratingSummary(id, new Date()) } });
 });
 
 /**
