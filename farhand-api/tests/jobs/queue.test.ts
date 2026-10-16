@@ -35,6 +35,12 @@ import { statementsDuring, tablesRead } from "../helpers/queries.js";
 
 const app = createApp();
 
+/**
+ * The clock these tests run on.
+ *
+ * A fixed instant, and safe to be fixed only because `due()` below pins every
+ * row to it. Nothing here reads the real time.
+ */
 const NOW = new Date("2026-10-16T12:00:00.000Z");
 const later = (ms: number) => new Date(NOW.getTime() + ms);
 
@@ -60,6 +66,26 @@ async function onlyJob(): Promise<Job> {
 /** Registration leaves a verification job behind; clear it to test in peace. */
 async function emptyQueue(): Promise<void> {
   await prisma.job.deleteMany({});
+}
+
+/**
+ * Makes everything on the queue due at `at`, which is `NOW` unless a test
+ * says otherwise.
+ *
+ * NEEDED BY EVERY TEST THAT DRAINS, and the reason is worth the paragraph.
+ * `enqueue` leaves `runAfter` at the DATABASE's `now()`, while these tests
+ * drain at a fixed `NOW` — so a job is only due if the real clock happens to
+ * be behind that constant. The first version of this file left it at that: it
+ * passed all morning here, then failed eleven tests in CI at 12:01 UTC, and
+ * would have failed every run from then on. Worse, three of the tests that
+ * still passed were passing for the wrong reason — "nothing was sent" is true
+ * of a job nobody looked at.
+ *
+ * Pinning the row makes the file say what it means: time in these tests is
+ * `NOW` and whatever a test does to it, never the wall clock.
+ */
+async function due(at: Date = NOW): Promise<void> {
+  await prisma.job.updateMany({ data: { runAfter: at } });
 }
 
 describe("putting work on the queue", () => {
@@ -117,6 +143,7 @@ describe("running what is due", () => {
     await emptyQueue();
     const sent = vi.spyOn(mailer, "sendVerificationEmail");
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     expect(await drain(NOW)).toBe(1);
 
@@ -128,6 +155,7 @@ describe("running what is due", () => {
   it("makes the token itself, which is why the request did not", async () => {
     await emptyQueue();
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     await drain(NOW);
 
@@ -141,6 +169,7 @@ describe("running what is due", () => {
     await emptyQueue();
     const sent = vi.spyOn(mailer, "sendVerificationEmail");
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     await drain(NOW);
     expect(await drain(NOW)).toBe(0);
@@ -161,6 +190,7 @@ describe("running what is due", () => {
     await emptyQueue();
     const sent = vi.spyOn(mailer, "sendVerificationEmail");
     await enqueue("password-reset-email", { email: "nobody@example.com" });
+    await due();
 
     expect(await drain(NOW)).toBe(1);
 
@@ -188,6 +218,7 @@ describe("when a job fails", () => {
     await emptyQueue();
     breakTheMailer();
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     await drain(NOW);
 
@@ -201,6 +232,7 @@ describe("when a job fails", () => {
     await emptyQueue();
     breakTheMailer();
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     await drain(NOW);
     const first = (await onlyJob()).runAfter.getTime() - NOW.getTime();
@@ -222,6 +254,7 @@ describe("when a job fails", () => {
     const reported = vi.spyOn(observability, "reportError");
     const failed = vi.spyOn(logger, "error");
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     let at = NOW;
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -246,7 +279,7 @@ describe("when a job fails", () => {
     breakTheMailer();
     await enqueue("verification-email", { email: "anna@example.com" });
     await prisma.job.updateMany({
-      data: { attempts: MAX_ATTEMPTS, failedAt: NOW },
+      data: { attempts: MAX_ATTEMPTS, failedAt: NOW, runAfter: NOW },
     });
 
     expect(await drain(later(BACKOFF_BASE_MS * 1000))).toBe(0);
@@ -256,7 +289,9 @@ describe("when a job fails", () => {
     await emptyQueue();
     breakTheMailer();
     await enqueue("verification-email", { email: "anna@example.com" });
-    await prisma.job.updateMany({ data: { attempts: MAX_ATTEMPTS - 1 } });
+    await prisma.job.updateMany({
+      data: { attempts: MAX_ATTEMPTS - 1, runAfter: NOW },
+    });
 
     await drain(NOW);
 
@@ -274,6 +309,7 @@ describe("two workers, one job", () => {
   it("steps over a job another worker is holding, rather than queueing behind it", async () => {
     await emptyQueue();
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
     const job = await onlyJob();
 
     // A second worker, mid-claim: its transaction holds the row.
@@ -313,6 +349,7 @@ describe("two workers, one job", () => {
   it("leases a job while it runs, so a second worker cannot send it too", async () => {
     await emptyQueue();
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
     const inFlight: Job[] = [];
     const alsoFound: boolean[] = [];
@@ -407,6 +444,7 @@ describe("the timing gap this issue exists to close", () => {
     // that sent the mail itself and a queue that does nothing.
     expect(sent).not.toHaveBeenCalled();
 
+    await due();
     await drain(NOW);
 
     expect(sent).toHaveBeenCalledTimes(1);
@@ -424,7 +462,8 @@ describe("the timing gap this issue exists to close", () => {
     // A queue that only holds jobs for real accounts is the same oracle one
     // table along.
     expect(await onlyJob()).toMatchObject({ kind: "password-reset-email" });
-    await drain(NOW);
+    await due();
+    expect(await drain(NOW)).toBe(1);
     expect(sent).not.toHaveBeenCalled();
   });
 
@@ -467,8 +506,9 @@ describe("who is eligible is the worker's question", () => {
     });
     const sent = vi.spyOn(mailer, "sendPasswordResetEmail");
     await enqueue("password-reset-email", { email: "anna@example.com" });
+    await due();
 
-    await drain(NOW);
+    expect(await drain(NOW)).toBe(1);
 
     expect(sent).not.toHaveBeenCalled();
     expect((await onlyJob()).doneAt).not.toBeNull();
@@ -482,9 +522,14 @@ describe("who is eligible is the worker's question", () => {
     });
     const sent = vi.spyOn(mailer, "sendVerificationEmail");
     await enqueue("verification-email", { email: "anna@example.com" });
+    await due();
 
-    await drain(NOW);
+    // The job RAN — `toBe(1)` — and decided there was nothing to send. Without
+    // that number this test also passes when the drain found nothing at all,
+    // which is how it survived the clock bug above.
+    expect(await drain(NOW)).toBe(1);
 
     expect(sent).not.toHaveBeenCalled();
+    expect((await onlyJob()).doneAt).not.toBeNull();
   });
 });

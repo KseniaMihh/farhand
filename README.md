@@ -316,6 +316,18 @@ database name ends in `_test`, so a mistyped connection string stops the suite
 instead of emptying your development data. `tests/isolation.test.ts` tests the
 harness itself: one test writes a row, the next asserts it is gone.
 
+**A test that uses a fixed instant must pin everything to it.** Rows written
+by the database carry *its* `now()`, not the constant at the top of your file,
+and the two agree only by luck. #85's queue tests drained at a literal
+`2026-10-16T12:00:00Z` while `Job.runAfter` defaulted to the real clock: they
+passed all morning, failed eleven tests in CI at 12:01 UTC, and would have
+failed every run after that. Three more were passing for the wrong reason —
+"nothing was sent" is also true of a job nobody looked at. The fix is a helper
+that sets every row's timestamp to the test's own clock (`due()` in
+`tests/jobs/queue.test.ts`), so the file never reads the time of day. Use a
+real `new Date()` only where the thing under test is "now", as
+`tests/helpers/jobs.ts` does when it stands in for a worker.
+
 | File | What it does |
 | --- | --- |
 | `vitest.config.ts` | Loads `.env.test` over the shell environment; pins the suite to one worker |
