@@ -423,6 +423,20 @@ success (decision 0019).
   `failedAt` set mean somebody never got their email, and the only fix is to
   look at why and queue it again.
 
+## Before the first real person arrives
+
+Everything above is about getting a change to production. One thing is about
+whether production actually works, and it is not a deploy step: the
+[pre-launch smoke test](16-pre-launch-smoke-test.md), one walk through the
+whole product by hand with two test aliases — need, photo, proposal, deal,
+receipt, completion, reviews, a moderator's decision, and a notification both
+arriving and deliberately not arriving.
+
+It exists because the test suite cannot reach any of the things that have
+actually been wrong here: the bucket's privacy, the mail key, the proxy hop
+count, the worker being awake, a schedule that never fired. It is run once,
+before #93 opens the API to anybody who is not the author.
+
 ## When it goes wrong
 
 | | Where |

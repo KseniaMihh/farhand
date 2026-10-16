@@ -20,6 +20,7 @@ Read in this order when new to the project.
 | [13-workflow.md](13-workflow.md) | Starting or finishing a work session |
 | [14-deployment.md](14-deployment.md) | Putting a change in front of real people, or working out why one did not arrive |
 | [15-architecture.md](15-architecture.md) | You want the whole system on one page: the boxes, the arrows, and a request followed through them |
+| [16-pre-launch-smoke-test.md](16-pre-launch-smoke-test.md) | Before the first real person can reach Farhand. One walk through the whole product, on production, by hand |
 
 ## Rules for these documents
 
