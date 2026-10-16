@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 import { withoutRequestId } from "../helpers/http.js";
 import { prisma } from "../../src/db.js";
 import { mailer } from "../../src/mailer.js";
@@ -36,6 +37,7 @@ function login(password: string) {
 async function requestResetToken(email = EMAIL): Promise<string> {
   const send = vi.spyOn(mailer, "sendPasswordResetEmail");
   await forgot(email);
+  await runQueuedJobs();
   const token = send.mock.calls.at(-1)?.[1];
   if (!token) throw new Error("forgot-password did not send a reset email");
   return token;
@@ -47,6 +49,7 @@ describe("POST /auth/forgot-password", () => {
     const send = vi.spyOn(mailer, "sendPasswordResetEmail");
 
     const response = await forgot(EMAIL);
+    await runQueuedJobs();
 
     expect(response.status).toBe(200);
     expect(send).toHaveBeenCalledTimes(1);
@@ -73,9 +76,11 @@ describe("POST /auth/forgot-password", () => {
   it("answers an unknown email exactly like a known one, and sends nothing", async () => {
     await signUpAndLogIn(app, EMAIL);
     const known = await forgot(EMAIL);
+    await runQueuedJobs();
     const send = vi.spyOn(mailer, "sendPasswordResetEmail");
 
     const unknown = await forgot("nobody@example.com");
+    await runQueuedJobs();
 
     // Pinned so two identically broken answers cannot pass the comparison.
     expect(known.status).toBe(200);
@@ -89,6 +94,7 @@ describe("POST /auth/forgot-password", () => {
   it("sends nothing to a banned or deleted account, and still answers the same", async () => {
     const anna = await signUpAndLogIn(app, EMAIL);
     const known = await forgot(EMAIL);
+    await runQueuedJobs();
     expect(known.status).toBe(200);
 
     for (const status of ["BANNED", "DELETED"] as const) {
@@ -96,6 +102,7 @@ describe("POST /auth/forgot-password", () => {
       const send = vi.spyOn(mailer, "sendPasswordResetEmail");
 
       const response = await forgot(EMAIL);
+      await runQueuedJobs();
 
       expect(withoutRequestId(response.body)).toEqual(
         withoutRequestId(known.body),
@@ -110,6 +117,7 @@ describe("POST /auth/forgot-password", () => {
     const send = vi.spyOn(mailer, "sendPasswordResetEmail");
 
     await forgot("  Anna@Example.COM ");
+    await runQueuedJobs();
 
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -125,6 +133,7 @@ describe("POST /auth/forgot-password", () => {
 
   it("rejects a request without a valid email as a validation error", async () => {
     const response = await forgot("not-an-email");
+    await runQueuedJobs();
 
     expect(response.status).toBe(422);
   });
@@ -228,6 +237,8 @@ describe("POST /auth/reset-password — rejected tokens", () => {
     // Registration emails a verification token; it must not change a password.
     const send = vi.spyOn(mailer, "sendVerificationEmail");
     await signUpAndLogIn(app, EMAIL);
+    // Registering enqueues; the worker is what sends (#85).
+    await runQueuedJobs();
     const verificationToken = send.mock.calls.at(-1)?.[1] ?? "";
 
     const response = await reset(verificationToken);

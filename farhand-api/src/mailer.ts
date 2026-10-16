@@ -1,6 +1,5 @@
 import { env } from "./env.js";
 import { logger } from "./logger.js";
-import { reportError } from "./observability.js";
 import { EMAIL_VERIFICATION_TTL_MS, PASSWORD_RESET_TTL_MS } from "./tokens.js";
 
 /**
@@ -132,23 +131,41 @@ export const transport = {
  * before they are trusted in Render, and the test suite — which configures
  * nothing — keeps exactly the behaviour it had.
  *
- * NEVER THROWS. A provider that is down, slow or rate-limiting must not turn
- * somebody's registration into a 500: `POST /auth/register` awaits this inside
- * a try that forgives only a duplicate address, so anything thrown here would
- * reach the caller. The account exists either way, and the way back is
- * `POST /auth/resend-verification` (#41).
+ * THROWS WHEN IT COULD NOT SEND, since #85 — and that is a reversal of what
+ * #119 decided, for a reason #119 did not have. Then, the caller was a route:
+ * a provider having a bad minute must not turn somebody's registration into a
+ * 500, so a failure was logged, reported and swallowed.
+ *
+ * Now the only caller is the queue. Swallowing there is worse than useless: a
+ * job that failed would be marked done, the email would never arrive, and
+ * nobody would ever know — and every retry in services/jobs.ts would be
+ * unreachable code, which is to say untested code that only looks tested.
+ *
+ * So the failure goes back to the queue, which is the thing that can do
+ * something about it: try again in a minute, then five, then twenty-five, and
+ * report once at the end rather than once per attempt. The guarantee #119
+ * wanted — nobody's request fails because somebody else's server did — is now
+ * provided by the request not sending anything at all.
+ *
+ * What does NOT change is the redaction: a provider that quotes the message
+ * back at us must not get a token into the log, into Sentry, or now into
+ * `Job.lastError`.
  */
 async function deliver(mail: OutgoingMail, token: string): Promise<void> {
   if (!env.MAIL_API_KEY || !env.MAIL_FROM) {
     if (env.NODE_ENV === "production") {
-      // Loudly, so nobody mistakes this for working — and without the token,
-      // which in a production log is a working credential in a place far more
-      // people can read than can read the database.
+      // Loudly, and as a FAILURE: in production there is a provider, so not
+      // having one means this process cannot do the job — which is true of
+      // the Actions backstop, where the key deliberately does not live
+      // (.github/workflows/drain-queue.yml). Returning quietly would mark the
+      // job done and lose the email. The token is not logged: in a production
+      // log it is a working credential, in a place far more people can read
+      // than can read the database.
       logger.warn(
         { to: mail.to, subject: mail.subject },
         "No mail provider configured: email not sent",
       );
-      return;
+      throw new Error("No mail provider configured");
     }
 
     logger.info(
@@ -165,10 +182,16 @@ async function deliver(mail: OutgoingMail, token: string): Promise<void> {
     const because = redact(error, token);
 
     logger.error({ to: mail.to, because }, "Could not send email");
-    // Visible rather than swallowed (#29). A new Error rather than the
-    // original: what Sentry stores is its message, and `redact` is the only
-    // thing standing between that store and a token.
-    reportError(new Error(`Could not send email: ${because}`), {});
+    // A NEW error rather than the original, carrying the redacted message:
+    // what the queue writes into `Job.lastError` is this string, and `redact`
+    // is the only thing standing between that column and a token (#119).
+    //
+    // And deliberately no `cause`, which lint would otherwise insist on: the
+    // cause is the very object being redacted, and attaching it would put the
+    // provider's own words — possibly quoting the token back at us — into
+    // every error report that walks the chain.
+    // eslint-disable-next-line preserve-caught-error -- the cause is the secret
+    throw new Error(`Could not send email: ${because}`);
   }
 }
 

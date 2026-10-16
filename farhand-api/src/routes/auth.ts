@@ -2,12 +2,11 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import {
-  createPasswordResetToken,
-  createVerificationToken,
-  hashToken,
-} from "../tokens.js";
-import { mailer } from "../mailer.js";
+// Making tokens moved to the queue's handlers with #85: it is the worker that
+// decides whether there is anybody to email, so it is the worker that makes
+// the token for them.
+import { hashToken } from "../tokens.js";
+import { enqueue } from "../services/jobs.js";
 import { HttpError } from "../errors.js";
 import {
   hashPassword,
@@ -117,8 +116,11 @@ authRouter.post(
 
     try {
       // One transaction: a User without a Profile is a half-made account that
-      // every later query would have to defend against. Both rows, or neither.
-      const rawToken = await prisma.$transaction(async (tx) => {
+      // every later query would have to defend against. Both rows, or neither
+      // — and the job that emails them belongs in it for the same reason
+      // (#85). A queued email for an account that never committed is a job
+      // that would fail five times and then be reported as a problem.
+      await prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
           data: { email: data.email, passwordHash },
         });
@@ -131,12 +133,8 @@ authRouter.post(
           },
         });
 
-        return createVerificationToken(tx, user.id);
+        await enqueue("verification-email", { email: data.email }, tx);
       });
-
-      // Outside the transaction, after commit — mail can't be un-sent, but
-      // a row that never committed can simply not exist.
-      await mailer.sendVerificationEmail(data.email, rawToken);
     } catch (error) {
       if (!isDuplicateKey(error)) throw error;
       // Duplicate path: no token, no email — the real owner already has one.
@@ -382,15 +380,10 @@ authRouter.post(
   async (req, res) => {
     const { email } = forgotPasswordSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({ where: { email } });
-
-    // Unverified users DO get a link — clicking it proves they own the
-    // address, same as verification does. BANNED/DELETED users do not: there
-    // is nothing useful a reset link could do for an account they can't use.
-    if (user && user.status !== "BANNED" && user.status !== "DELETED") {
-      const rawToken = await createPasswordResetToken(prisma, user.id);
-      await mailer.sendPasswordResetEmail(user.email, rawToken);
-    }
+    // One insert, whoever asked. Who is eligible — a real account, not banned
+    // or deleted — is the worker's question, because the worker is not being
+    // timed (#85). This is the line the contract used to apologise for.
+    await enqueue("password-reset-email", { email });
 
     // Same reply either way — this is the point, same as registration's
     // identical response.
@@ -494,22 +487,11 @@ authRouter.post(
   async (req, res) => {
     const { email } = resendVerificationSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({ where: { email } });
-
-    // Send only when there is a real, unverified, not-banned-or-deleted
-    // account — otherwise nothing happens, and the answer looks the same.
-    //
-    // With no user, user?.emailVerifiedAt is undefined, and undefined === null
-    // is false — so this also means "and the user exists". Careful if it is ever
-    // changed to !== null: undefined !== null is true, and the meaning flips.
-    if (
-      user?.emailVerifiedAt === null &&
-      user.status !== "BANNED" &&
-      user.status !== "DELETED"
-    ) {
-      const rawToken = await createVerificationToken(prisma, user.id);
-      await mailer.sendVerificationEmail(user.email, rawToken);
-    }
+    // The same one insert as forgot-password, for the same reason: deciding
+    // who needs an email is work, and work the request does is work a
+    // stranger can time (#85). The rule that used to live here — a real,
+    // unverified, not-banned-or-deleted account — is now in the handler.
+    await enqueue("verification-email", { email });
 
     res.status(200).json({
       message: "If an account needs verifying, a new code is on its way.",

@@ -474,6 +474,36 @@ model File {
   @@index([needId])
 }
 
+/// Work to be done after the request that asked for it has already answered
+/// (#85). Rows rather than a library's own schema, so the data model stays
+/// described by this file (docs/README.md, rule 1).
+///
+/// Three states, told by timestamps rather than an enum — the same shape as
+/// `Message.removedAt` and `Review.removedAt`:
+///
+///   waiting   doneAt null, failedAt null
+///   done      doneAt set
+///   given up  failedAt set, after MAX_ATTEMPTS tries. Visible, not deleted
+model Job {
+  id        String    @id @default(cuid())
+  /// Which handler runs it. A string rather than an enum: a new kind of work
+  /// should not be a migration.
+  kind      String
+  /// Everything the handler needs, and nothing secret: a verification token is
+  /// made by the worker, not carried here (#119's rule about tokens at rest).
+  payload   Json
+  /// When it may next be tried. Backoff moves this forward.
+  runAfter  DateTime  @default(now())
+  attempts  Int       @default(0)
+  lastError String?   @db.VarChar(1000)
+  doneAt    DateTime?
+  failedAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  /// The claim query's index: waiting jobs, oldest due first.
+  @@index([doneAt, failedAt, runAfter])
+}
+
 // ─────────────────────────────────────────────
 // Raw SQL — things Prisma can't express.
 // Add these to a migration by hand (prisma migrate dev --create-only).

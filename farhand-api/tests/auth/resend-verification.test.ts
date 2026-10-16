@@ -4,6 +4,7 @@ import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
 import { mailer } from "../../src/mailer.js";
 import { signUpAndLogIn } from "../helpers/auth.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 
 /**
  * POST /auth/resend-verification — issue #41.
@@ -33,6 +34,9 @@ function verify(token: string) {
 async function annaWithMailSpy() {
   const send = vi.spyOn(mailer, "sendVerificationEmail");
   const anna = await signUpAndLogIn(app, EMAIL);
+  // Registering queues the email rather than sending it (#85), so the spy is
+  // empty until the worker has had its turn.
+  await runQueuedJobs();
   return { anna, send };
 }
 
@@ -48,6 +52,7 @@ describe("POST /auth/resend-verification — a link is sent", () => {
     const { send } = await annaWithMailSpy();
 
     const response = await resend(EMAIL);
+    await runQueuedJobs();
 
     expect(response.status).toBe(200);
     // One email at registration, one from the resend.
@@ -61,6 +66,7 @@ describe("POST /auth/resend-verification — a link is sent", () => {
     const registrationToken = lastToken(send);
 
     await resend(EMAIL);
+    await runQueuedJobs();
 
     expect((await verify(registrationToken)).status).toBe(422);
     expect((await verify(lastToken(send))).status).toBe(200);
@@ -69,8 +75,10 @@ describe("POST /auth/resend-verification — a link is sent", () => {
   it("keeps only the newest link working when asked more than once", async () => {
     const { send } = await annaWithMailSpy();
     await resend(EMAIL);
+    await runQueuedJobs();
     const older = lastToken(send);
     await resend(EMAIL);
+    await runQueuedJobs();
     const newer = lastToken(send);
 
     expect((await verify(older)).status).toBe(422);
@@ -85,6 +93,7 @@ describe("POST /auth/resend-verification — a link is sent", () => {
     });
 
     await resend(EMAIL);
+    await runQueuedJobs();
 
     expect(send).toHaveBeenCalledTimes(2);
   });
@@ -93,6 +102,7 @@ describe("POST /auth/resend-verification — a link is sent", () => {
     const { send } = await annaWithMailSpy();
 
     await resend("  Anna@Example.COM ");
+    await runQueuedJobs();
 
     expect(send).toHaveBeenCalledTimes(2);
   });
@@ -102,10 +112,12 @@ describe("POST /auth/resend-verification — nothing is sent, and nobody can tel
   it("answers an unknown email exactly like a real one", async () => {
     await annaWithMailSpy();
     const real = await resend(EMAIL);
+    await runQueuedJobs();
     const send = vi.spyOn(mailer, "sendVerificationEmail");
     send.mockClear();
 
     const unknown = await resend("nobody@example.com");
+    await runQueuedJobs();
 
     // Pinned so two identically broken answers cannot pass the comparison.
     expect(real.status).toBe(200);
@@ -117,6 +129,7 @@ describe("POST /auth/resend-verification — nothing is sent, and nobody can tel
   it("sends nothing to an address that is already verified, and answers the same", async () => {
     const { anna, send } = await annaWithMailSpy();
     const real = await resend(EMAIL);
+    await runQueuedJobs();
     expect(real.status).toBe(200);
     await prisma.user.update({
       where: { id: anna.id },
@@ -126,6 +139,7 @@ describe("POST /auth/resend-verification — nothing is sent, and nobody can tel
     const tokensBefore = await prisma.verificationToken.count();
 
     const response = await resend(EMAIL);
+    await runQueuedJobs();
 
     expect(response.body).toEqual(real.body);
     expect(send).not.toHaveBeenCalled();
@@ -135,6 +149,7 @@ describe("POST /auth/resend-verification — nothing is sent, and nobody can tel
   it("sends nothing to a banned or deleted account, and answers the same", async () => {
     const { anna, send } = await annaWithMailSpy();
     const real = await resend(EMAIL);
+    await runQueuedJobs();
     expect(real.status).toBe(200);
 
     for (const status of ["BANNED", "DELETED"] as const) {
@@ -142,6 +157,7 @@ describe("POST /auth/resend-verification — nothing is sent, and nobody can tel
       send.mockClear();
 
       const response = await resend(EMAIL);
+      await runQueuedJobs();
 
       expect(response.body).toEqual(real.body);
       expect(send).not.toHaveBeenCalled();
@@ -150,6 +166,7 @@ describe("POST /auth/resend-verification — nothing is sent, and nobody can tel
 
   it("rejects a request without a valid email as a validation error", async () => {
     const response = await resend("not-an-email");
+    await runQueuedJobs();
 
     expect(response.status).toBe(422);
   });

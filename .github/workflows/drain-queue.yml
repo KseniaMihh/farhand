@@ -1,0 +1,99 @@
+# The job queue's backstop (#85).
+#
+# NOT the normal path, and the cadence says so. A job is normally picked up
+# about two seconds after it is queued, by the worker inside the API process
+# (farhand-api/src/worker.ts) — Render's free plan has no background worker to
+# run it in, and nothing here is paid.
+#
+# This exists for the case where that process is not running: asleep,
+# crash-looping, or mid-deploy. It is what makes "nothing is lost" independent
+# of one process being healthy.
+#
+# WHY SO RARELY. Four times a day is about 120 runs a month, a minute or so
+# each, against the 2,000 free minutes a private repository gets — and CI on
+# pull requests is the real spender of those. Every five minutes would cost
+# more than four times the whole budget for a job that, by construction,
+# almost never has anything to do: a job is queued BY a request, and a request
+# means the service is awake, and an awake service drains its own queue in
+# seconds.
+#
+# So this is not about latency. It is about a queue that cannot silently stop
+# draining. If Actions minutes ever get tight, this is the first thing to
+# switch off.
+
+name: Drain the job queue
+
+on:
+  schedule:
+    # Every six hours, off the hour. GitHub runs everybody's :00 crons at once
+    # and the ones queued then are the ones that get delayed or dropped.
+    - cron: "23 */6 * * *"
+
+  # So it can be run by hand after an outage, without waiting six hours.
+  workflow_dispatch:
+
+# Two drainers at once would be harmless — claiming is FOR UPDATE SKIP LOCKED,
+# so they take different jobs rather than the same one twice. This is here so
+# that a slow run and the next one cannot pile up unnoticed.
+concurrency:
+  group: drain-queue
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    name: Run anything the API has not
+    runs-on: ubuntu-latest
+
+    # The direct connection string, like the sweep and the migration step: a
+    # short-lived batch process opens one connection, works and exits, so
+    # Neon's pooler would add a hop for nothing.
+    #
+    # On the job rather than the step, because `prisma generate` needs it too —
+    # prisma.config.ts resolves it with Prisma's env() helper, which throws
+    # when it is missing. That is what broke every scheduled sweep until #114.
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    defaults:
+      run:
+        working-directory: farhand-api
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: farhand-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The job needs a generated Prisma client, which `npm ci` does not build.
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      - name: Drain
+        # A run with nothing to do logs `done: 0` and succeeds. The script
+        # exits 1 only if the queue itself could not be read, which fails this
+        # step and emails whoever owns the repository.
+        #
+        # A job that FAILS does not fail this step: it is retried, and after
+        # five attempts it is reported through Sentry (#29) rather than here.
+        run: npm run job:drain
+        env:
+          # Turns off pino's pretty-printing, which starts a worker thread to
+          # format logs nobody is reading here (#70). On this step and not on
+          # the job: under NODE_ENV=production `npm ci` skips devDependencies,
+          # and tsx — which runs this — is one (#114).
+          NODE_ENV: production
+
+      # Mail is not configured here, deliberately: MAIL_API_KEY lives in
+      # Render, not in Actions secrets. A drain that runs here therefore logs
+      # what it would have sent rather than sending it (src/mailer.ts), which
+      # is the wrong outcome for a verification code — and the reason this is
+      # a backstop that proves the queue is moving, not a second worker.
+      #
+      # TODO(#86): if notifications ever need this path to really send, the
+      # key goes in an Actions secret and this comment goes with it.

@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "job:auto-complete": "tsx src/jobs/auto-complete.ts",
+    "job:drain": "tsx src/jobs/drain.ts",
     "test:store-empty": "tsx tests/assert-store-empty.ts",
     "store:fill": "tsx tests/fill-store.ts"
   },

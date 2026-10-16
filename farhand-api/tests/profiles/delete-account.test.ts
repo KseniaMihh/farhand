@@ -10,6 +10,7 @@ import {
   signUpVerifiedAndLogIn,
   type TestUser,
 } from "../helpers/auth.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 import { withoutRequestId } from "../helpers/http.js";
 import { createCategory } from "../helpers/needs.js";
 import { breakInsideTransaction } from "../helpers/transactions.js";
@@ -284,6 +285,8 @@ describe("DELETE /me", () => {
       await request(app)
         .post("/auth/forgot-password")
         .send({ email: "anna@example.com" });
+      // The request queues; the token is made by the worker (#85).
+      await runQueuedJobs();
       expect(
         await prisma.verificationToken.count({ where: { userId: anna.id } }),
       ).toBeGreaterThan(0);
