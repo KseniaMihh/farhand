@@ -6,6 +6,7 @@ import { env } from "../../src/env.js";
 import { logger } from "../../src/logger.js";
 import { mailer, SEND_TIMEOUT_MS, transport } from "../../src/mailer.js";
 import * as observability from "../../src/observability.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 import {
   EMAIL_VERIFICATION_TTL_MS,
   PASSWORD_RESET_TTL_MS,
@@ -27,6 +28,13 @@ import {
  * The second is the fake provider. It is not a test of an SDK, because there
  * is no SDK: the provider is one `fetch` to one URL, which is the whole reason
  * it can be checked this way.
+ *
+ * SINCE #85, three of these say the opposite of what they said when they were
+ * written, and the describe blocks below explain why one at a time: #119's
+ * mailer swallowed a failure because a route was waiting on it, and the queue
+ * that waits on it now has to be told. What did not reverse is the redaction —
+ * a token belongs in an inbox and nowhere else, and there is one more place it
+ * must not reach than there used to be.
  */
 
 const app = createApp();
@@ -334,16 +342,27 @@ describe("when mail is not configured", () => {
     expect(fetchStub).not.toHaveBeenCalled();
   });
 
-  it("says nothing was sent in production, and never the token", async () => {
+  it("refuses to pretend in production, and still never logs the token", async () => {
     notConfigured();
     env.NODE_ENV = "production";
     const warned = vi.spyOn(logger, "warn");
     const written = vi.spyOn(logger, "info");
     const failed = vi.spyOn(logger, "error");
 
-    await mailer.sendVerificationEmail(TO, TOKEN);
-    await mailer.sendPasswordResetEmail(TO, TOKEN);
+    // THROWS, where #119 returned quietly. The caller used to be a route and
+    // is now the queue (#85), where a quiet return would mark the job `doneAt`
+    // and lose the email for good. This is also the state the GitHub Actions
+    // backstop runs in — MAIL_API_KEY lives in Render, not in Actions secrets
+    // — so "not configured" has to mean "I cannot do this job", leaving the
+    // row for a process that can.
+    await expect(mailer.sendVerificationEmail(TO, TOKEN)).rejects.toThrow(
+      /no mail provider/i,
+    );
+    await expect(mailer.sendPasswordResetEmail(TO, TOKEN)).rejects.toThrow(
+      /no mail provider/i,
+    );
 
+    // Loudly as well as unsuccessfully: somebody has to be able to see it.
     expect(warned).toHaveBeenCalledTimes(2);
     expect(everythingLogged(warned)).toContain(TO);
     // The rule this file inherited and must not lose: a token in a production
@@ -354,36 +373,59 @@ describe("when mail is not configured", () => {
 });
 
 describe("when the provider is unwell", () => {
-  it("does not make it the caller's problem", async () => {
+  it("hands the failure back, for the queue to do something about", async () => {
     configured();
     vi.spyOn(transport, "send").mockRejectedValue(new Error("502 from Brevo"));
 
-    await expect(
-      mailer.sendVerificationEmail(TO, TOKEN),
-    ).resolves.toBeUndefined();
+    // The REVERSE of what #119 asserted here, and the caller is the reason.
+    // Then a route awaited this, and a provider having a bad minute must not
+    // turn somebody's registration into a 500, so the failure was swallowed.
+    // Now the only caller is the queue, and swallowing would tell it the email
+    // went out: the job marked done, the message gone, and every retry in
+    // services/jobs.ts left as code that can never run.
+    await expect(mailer.sendVerificationEmail(TO, TOKEN)).rejects.toThrow(
+      /could not send email/i,
+    );
   });
 
-  it("reports the failure, with no token in it", async () => {
+  it("puts no token in what it throws, or in what it logs", async () => {
     configured();
     vi.spyOn(transport, "send").mockRejectedValue(
       new Error(`502 while sending ${TOKEN}`),
     );
-    const reported = vi.spyOn(observability, "reportError");
     const failed = vi.spyOn(logger, "error");
 
-    await mailer.sendVerificationEmail(TO, TOKEN);
+    const because = await mailer
+      .sendVerificationEmail(TO, TOKEN)
+      .then(() => "it did not throw")
+      .catch((error: unknown) =>
+        error instanceof Error ? error.message : String(error),
+      );
 
-    // Visible, not swallowed: #29's reporting hears about it.
-    expect(reported).toHaveBeenCalledTimes(1);
-    expect(failed).toHaveBeenCalledTimes(1);
     // Even when the provider's own error quotes the message back at us, what
-    // we store and send onward must not.
-    expect(everythingLogged(reported, failed)).not.toContain(TOKEN);
+    // we log must not — and nor must what we throw, because since #85 that
+    // string is what lands in `Job.lastError` and goes on to #29's reporting.
+    // `redact` is the whole distance between a database column and a working
+    // credential.
+    expect(because).not.toContain(TOKEN);
+    expect(because).toContain("[token]");
+    expect(failed).toHaveBeenCalledTimes(1);
+    expect(everythingLogged(failed)).not.toContain(TOKEN);
   });
 
-  it("still answers 201 to the registration that caused it", async () => {
+  it("owes the email rather than losing it, and reports nothing yet", async () => {
     configured();
-    vi.spyOn(transport, "send").mockRejectedValue(new Error("503"));
+    // Rejecting with the MESSAGE ITSELF, not with the TOKEN constant the
+    // tests above use: the token in play here is the one the handler just
+    // generated for this account, and nothing in the test knows it. An error
+    // quoting the request back is exactly what Brevo does when it complains,
+    // and it is the only way a token could reach `Job.lastError`.
+    let composed = "";
+    vi.spyOn(transport, "send").mockImplementation((mail) => {
+      composed = mail.text;
+      return Promise.reject(new Error(`502 while sending ${mail.text}`));
+    });
+    const reported = vi.spyOn(observability, "reportError");
 
     const response = await request(app).post("/auth/register").send({
       email: "sam@example.com",
@@ -392,15 +434,34 @@ describe("when the provider is unwell", () => {
       countryCode: "EE",
     });
 
-    // The route awaits the mailer inside a try that only forgives a duplicate
-    // email, so anything else it threw would be a 500 — which is why the
-    // guarantee lives in the mailer and not in the route.
+    // Still a 201, and now for a sturdier reason than #119's: the route sends
+    // nothing, so there is nothing for a provider to spoil. The account is
+    // really there either way — a third party being unwell must not undo work
+    // that was already committed.
     expect(response.status).toBe(201);
-    // And the account is really there: a third party being unwell must not
-    // undo work that was already committed.
     expect(
       await prisma.user.findUnique({ where: { email: "sam@example.com" } }),
     ).not.toBeNull();
+
+    await runQueuedJobs();
+
+    // One attempt spent, four to go, the row still waiting: the email is owed,
+    // not lost. #119 reported at once and moved on; reporting now happens once
+    // in `recordFailure`, when the attempts run out, so a provider blip does
+    // not become five Sentry issues.
+    const job = await prisma.job.findFirstOrThrow();
+    expect(job).toMatchObject({ attempts: 1, doneAt: null, failedAt: null });
+    expect(reported).not.toHaveBeenCalled();
+
+    // And the column that now holds the provider's words holds no token. The
+    // real one, read back out of the email it was put in: 43 characters of
+    // base64url on a line of their own (src/tokens.ts).
+    const raw = composed
+      .split("\n")
+      .find((line) => /^[\w-]{43}$/.test(line.trim()));
+    expect(raw).toBeDefined();
+    expect(job.lastError).not.toContain(raw);
+    expect(job.lastError).toContain("[token]");
   });
 });
 
@@ -417,6 +478,8 @@ describe("the whole way through", () => {
     });
 
     expect(response.status).toBe(201);
+    // The request queues; the worker reaches Brevo (#85).
+    await runQueuedJobs();
     expect(seen).toHaveLength(1);
     expect(seen[0]?.body.to).toEqual([{ email: "kadri@example.com" }]);
     // Nothing in this chain was mocked except Brevo itself: route, service,
@@ -441,12 +504,14 @@ describe("the whole way through", () => {
     expect((await request(app).post("/auth/register").send(body)).status).toBe(
       201,
     );
+    await runQueuedJobs();
     expect(seen).toHaveLength(1);
     seen.length = 0;
 
     expect((await request(app).post("/auth/register").send(body)).status).toBe(
       201,
     );
+    await runQueuedJobs();
 
     // The identical answer is the anti-enumeration rule from #9; the silence
     // is the other half of it. An email saying "somebody tried to register

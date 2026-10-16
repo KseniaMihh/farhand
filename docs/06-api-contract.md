@@ -154,7 +154,10 @@ this path too, so the two cases take roughly the same time.
 A body that fails the rules above returns `422` with `details` naming each
 field. The new account is unverified — `emailVerifiedAt` stays null until the
 address is confirmed with `POST /auth/verify-email`. A new account is emailed
-a verification token; a repeat registration is not.
+a verification token; a repeat registration is not. The email is queued inside
+the same transaction as the account and sent a moment later by the worker
+(#85), so a provider having a bad minute delays somebody's code instead of
+losing it — and a registration that rolls back takes its job with it.
 
 ### `POST /auth/verify-email`
 
@@ -218,7 +221,9 @@ not banned or deleted — suspended users get one. Unknown and already verified
 addresses get the same answer and no email, so the endpoint reveals neither who
 has an account nor whose is verified. The new code retires every older one.
 
-The same known few-millisecond gap as `forgot-password`, with the same v2 fix.
+And as at `forgot-password`, the deciding happens in the job rather than in the
+request (#85), so the few-millisecond gap that used to give the answer away is
+gone: every address costs one insert.
 
 ### `POST /auth/login`
 
@@ -334,17 +339,26 @@ same body whether or not the email has an account:
 { "message": "If an account exists for that email, a reset code is on its way." }
 ```
 
-If the account exists and is not banned or deleted, a reset token is emailed —
-printed to the log instead when no mail provider is configured, which is every
-environment but production (#119). Unverified accounts get one too. Asking
-again retires every earlier unused code, so only the newest one works. Codes
-expire after one hour — much shorter than a verification code, because a reset
-code can take over the account.
+The request writes one row on the queue and answers. Nothing is looked up, so
+there is nothing to be slower about: whatever the address, this route does the
+same work and takes the same time. A worker picks the job up about two seconds
+later (#85, [decision
+0019](10-decisions/0019-a-job-table-of-our-own.md)) and decides there what the
+route used to decide: if the account exists and is not banned or deleted, a
+reset token is emailed — printed to the log instead when no mail provider is
+configured, which is every environment but production (#119). Unverified
+accounts get one too. Asking again retires every earlier unused code, so only
+the newest one works. Codes expire after one hour — much shorter than a
+verification code, because a reset code can take over the account.
 
-Known and deliberate: a real account costs one extra database write, so it
-answers a few milliseconds slower than an unknown email. The complete fix is to
-hand every request to the v2 background job queue and let the worker decide
-whether there is anyone to email.
+**This is what closed a timing leak**, and the paragraph that used to be here
+admitted it: a real account cost one extra database write, so the identical
+sentence arrived a few milliseconds later than it did for an address nobody
+has. A stranger timing the route could read what it refuses to say. The email
+is now a couple of seconds late and the answer tells nobody anything, which is
+the trade this route exists to make. The same applies to `POST
+/auth/register` and `POST /auth/resend-verification`, which queue their mail
+the same way.
 
 ### `POST /auth/reset-password`
 

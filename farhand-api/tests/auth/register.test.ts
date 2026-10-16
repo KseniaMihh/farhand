@@ -4,6 +4,7 @@ import { createApp } from "../../src/app.js";
 import { prisma } from "../../src/db.js";
 import { mailer } from "../../src/mailer.js";
 import { EMAIL_VERIFICATION_TTL_MS } from "../../src/tokens.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 
 /**
  * POST /auth/register — issue #9.
@@ -35,6 +36,7 @@ function register(body: Record<string, unknown>) {
 describe("POST /auth/register — success", () => {
   it("creates the account", async () => {
     const response = await register(validPayload());
+    await runQueuedJobs();
 
     expect(response.status).toBe(201);
 
@@ -46,6 +48,7 @@ describe("POST /auth/register — success", () => {
 
   it("creates the profile in the same request", async () => {
     await register(validPayload());
+    await runQueuedJobs();
 
     const user = await prisma.user.findUnique({
       where: { email: "anna@example.com" },
@@ -61,6 +64,7 @@ describe("POST /auth/register — success", () => {
   it("stores the password as an argon2id hash, never as plaintext", async () => {
     const payload = validPayload();
     await register(payload);
+    await runQueuedJobs();
 
     const user = await prisma.user.findUnique({
       where: { email: "anna@example.com" },
@@ -75,6 +79,7 @@ describe("POST /auth/register — success", () => {
 
   it("leaves the account unverified", async () => {
     await register(validPayload());
+    await runQueuedJobs();
 
     const user = await prisma.user.findUnique({
       where: { email: "anna@example.com" },
@@ -86,6 +91,7 @@ describe("POST /auth/register — success", () => {
 
   it("normalises the email, so one address cannot become two accounts", async () => {
     await register(validPayload({ email: "  Anna@Example.COM  " }));
+    await runQueuedJobs();
 
     const user = await prisma.user.findUnique({
       where: { email: "anna@example.com" },
@@ -100,6 +106,7 @@ describe("POST /auth/register — verification token (#10)", () => {
     const send = vi.spyOn(mailer, "sendVerificationEmail");
 
     await register(validPayload({ email: "  Anna@Example.COM " }));
+    await runQueuedJobs();
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0]).toBe("anna@example.com");
@@ -108,6 +115,7 @@ describe("POST /auth/register — verification token (#10)", () => {
   it("stores only a hash of the token, never the token itself", async () => {
     const send = vi.spyOn(mailer, "sendVerificationEmail");
     await register(validPayload());
+    await runQueuedJobs();
     const rawToken = send.mock.calls[0]?.[1] ?? "";
 
     const rows = await prisma.verificationToken.findMany();
@@ -121,6 +129,7 @@ describe("POST /auth/register — verification token (#10)", () => {
   it("issues an unused email-verification token that expires in a day", async () => {
     const before = Date.now();
     await register(validPayload());
+    await runQueuedJobs();
 
     const row = await prisma.verificationToken.findFirstOrThrow();
 
@@ -145,11 +154,14 @@ describe("POST /auth/register — a duplicate email is indistinguishable", () =>
    */
   beforeEach(async () => {
     await register(validPayload());
+    await runQueuedJobs();
   });
 
   it("answers a repeat registration exactly as it answered the first", async () => {
     const first = await register(validPayload({ email: "bob@example.com" }));
+    await runQueuedJobs();
     const repeat = await register(validPayload({ email: "bob@example.com" }));
+    await runQueuedJobs();
 
     // Pinned so this test cannot pass by both responses being identically
     // broken — two matching 500s would satisfy the comparison below.
@@ -182,6 +194,7 @@ describe("POST /auth/register — a duplicate email is indistinguishable", () =>
     const send = vi.spyOn(mailer, "sendVerificationEmail");
 
     await register(validPayload());
+    await runQueuedJobs();
 
     expect(send).not.toHaveBeenCalled();
     // Only the token from the first registration, in beforeEach.
@@ -199,6 +212,7 @@ describe("POST /auth/register — validation", () => {
 
   it("rejects a password that is too short", async () => {
     const response = await register(validPayload({ password: "short" }));
+    await runQueuedJobs();
 
     expect(response.status).toBe(VALIDATION_STATUS);
     expect(await prisma.user.count()).toBe(0);
@@ -206,6 +220,7 @@ describe("POST /auth/register — validation", () => {
 
   it("rejects a country that is not a two-letter code", async () => {
     const response = await register(validPayload({ countryCode: "Estonia" }));
+    await runQueuedJobs();
 
     expect(response.status).toBe(VALIDATION_STATUS);
     expect(await prisma.user.count()).toBe(0);
@@ -214,6 +229,7 @@ describe("POST /auth/register — validation", () => {
   it("rejects a country code that is two characters but not letters", async () => {
     // A length check alone lets "12" and "!!" through into a Char(2) column.
     const response = await register(validPayload({ countryCode: "12" }));
+    await runQueuedJobs();
 
     expect(response.status).toBe(VALIDATION_STATUS);
     expect(await prisma.user.count()).toBe(0);
@@ -221,6 +237,7 @@ describe("POST /auth/register — validation", () => {
 
   it("rejects an address that is not an email", async () => {
     const response = await register(validPayload({ email: "not-an-email" }));
+    await runQueuedJobs();
 
     expect(response.status).toBe(VALIDATION_STATUS);
     expect(await prisma.user.count()).toBe(0);
@@ -238,6 +255,7 @@ describe("POST /auth/register — validation", () => {
 
   it("names the field that failed", async () => {
     const response = await register(validPayload({ countryCode: "Estonia" }));
+    await runQueuedJobs();
     const body = response.body as {
       error: { code: string; details?: { field: string }[] };
     };

@@ -1,4 +1,5 @@
 import { createApp } from "./app.js";
+import { startWorker, stopWorker } from "./worker.js";
 import { prisma, pingDatabase } from "./db.js";
 import { env, isProduction } from "./env.js";
 import { initErrorReporting } from "./observability.js";
@@ -47,6 +48,12 @@ async function main(): Promise<void> {
     );
   });
 
+  // The queue runs inside the web service because Render's free plan has no
+  // background worker to run it in (#85). Started HERE rather than in
+  // createApp, so that building an app — which every test does — never starts
+  // one.
+  startWorker();
+
   /**
    * Graceful shutdown.
    *
@@ -78,6 +85,11 @@ async function main(): Promise<void> {
           else resolve();
         });
       });
+      // Before the pool closes, or the job in hand loses its database
+      // half-way through. A job cut short is not lost either way — its row is
+      // still there, and the next process claims it (#85) — but finishing
+      // tidily costs a second and saves a retry.
+      await stopWorker();
       await prisma.$disconnect();
       logger.info("Shutdown complete");
       process.exit(0);

@@ -11,6 +11,7 @@ How Farhand runs somewhere other than a laptop, and how a change gets there.
 | Uploaded files | Backblaze B2, a private bucket, EU | 10 GB free with no card, and it speaks S3, so it is five settings rather than code ([decision 0011](10-decisions/0011-backblaze-b2-for-files.md)) |
 | Secrets | Render's environment settings, and GitHub Actions secrets | Never in the repository, never in an image layer |
 | Deploys | GitHub Actions, on merge to `master` | The same checks that guard a pull request guard a release |
+| Background work | A loop inside the web service, plus two GitHub Actions schedules | The free plan has no background worker, and email that nobody is waiting for should not be sent by somebody's request ([decision 0019](10-decisions/0019-a-job-table-of-our-own.md)) |
 | Monitoring | Render's health check, plus an external uptime monitor | One decides whether a release is healthy; only the other can tell you the platform is down |
 
 Two vendors rather than one is a deliberate trade, made first with Fly and kept
@@ -365,8 +366,62 @@ Worth being honest about, because this is the part that was not built.
   else.
 
 Nothing watches for that, deliberately: a dead man's switch would mean another
-vendor for one job. #85 brings a real job queue, and that is the issue to
-decide it in rather than here.
+vendor for one job. #85 brought the job queue below, and it did not change this
+answer: a queue that drains itself still cannot notice a *schedule* that has
+stopped firing, because the thing that would notice is the schedule.
+
+## The job queue
+
+Email is not sent by the request that causes it. The request writes a row on
+the `Job` table and answers; something else sends it (#85,
+[decision 0019](10-decisions/0019-a-job-table-of-our-own.md)). In production
+that "something else" is two things.
+
+**The worker inside the web service.** `src/server.ts` starts a loop after it
+opens the port — it polls every two seconds when idle — so a job is normally
+sent about two seconds after it is queued. It runs *in* the API process
+because Render's free plan has no background worker to run it in; one is $7 a
+month, and nothing here is paid. The cost of sharing is the 0.1 CPU in the
+table below, and sending an email is a `fetch` and a wait, not work.
+
+This is also where [cold starts](#cold-starts) matter: a sleeping service
+drains nothing. In practice the monitor's check every five minutes keeps it
+awake, and a job only exists because a request arrived, which means the
+service was awake a moment ago.
+
+**The backstop in GitHub Actions.** `.github/workflows/drain-queue.yml` runs
+`npm run job:drain` every six hours — the same `drain()` the worker calls,
+once, then exits. It is not there for latency. It is there so that a queue
+cannot *silently* stop draining while the service is asleep, crash-looping or
+mid-deploy. Every six hours rather than every five minutes because 120 runs a
+month is about 150 of the 2,000 free minutes a private repository gets, and CI
+on pull requests is the real spender of those. If minutes ever get tight, this
+is the first thing to switch off.
+
+**Mail is deliberately not configured there.** `MAIL_API_KEY` lives in Render,
+not in Actions secrets, so a drain in Actions *fails* the mail jobs rather than
+consuming them — they wait for the process that can really send. That is why
+"no mail provider configured" is an error in production rather than a quiet
+success (decision 0019).
+
+### How you would find out it stopped draining
+
+- **A job that keeps failing** is retried five times — a minute, five,
+  twenty-five — and then reported once through Sentry (#29), with the
+  provider's words in `Job.lastError` and never a token in them.
+- **A run of the backstop that cannot read the queue at all** exits 1, fails
+  the step and emails the repository owner. A run with nothing to do logs
+  `done: 0` and succeeds.
+- **The query that answers "is anything stuck"**, in Neon:
+
+  ```sql
+  SELECT kind, attempts, "lastError", "runAfter"
+  FROM "Job" WHERE "doneAt" IS NULL ORDER BY "createdAt" LIMIT 20;
+  ```
+
+  Rows with `attempts` climbing mean a provider is unwell; rows with
+  `failedAt` set mean somebody never got their email, and the only fix is to
+  look at why and queue it again.
 
 ## When it goes wrong
 
@@ -521,6 +576,7 @@ measured here, and each one has already decided something:
 | Sleeps after 15 idle minutes | The cold start above — and it wipes the rate-limit counters, which is a reminder that they are not durable state |
 | 0.1 CPU, 512 MB | Why argon2id hashing and avatar re-encoding are the two expensive things the API does, and why both are limited per user |
 | **Outbound SMTP is blocked** (ports 25, 465, 587) | Email cannot be sent by connecting to a mail server. This is what chose Brevo's HTTP API in #119 — one `fetch`, no SMTP library in the project at all (decision 0014) |
+| **No background workers** ($7 a month for one) | Why the job queue runs inside the web service rather than beside it, with an Actions cron as its backstop (decision 0019) |
 
 ## What is not here
 

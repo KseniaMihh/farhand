@@ -19,20 +19,27 @@ flowchart LR
     subgraph render ["Render, free plan"]
         edge["HTTPS proxy"]
         api["farhand-api<br/>Express, one instance"]
+        worker["Job worker<br/>same process, every 2s"]
     end
 
     neon[("Neon PostgreSQL<br/>rows")]
     b2[("Backblaze B2<br/>private file bytes")]
     sentry["Sentry<br/>5xx errors"]
+    brevo["Brevo<br/>transactional email"]
     cron["GitHub Actions<br/>daily sweep"]
+    backstop["GitHub Actions<br/>queue backstop, 6-hourly"]
 
     browser -->|"HTTPS + session cookie"| edge
     edge -->|"proxies"| api
     api -->|"reads, writes"| neon
     api -->|"stores bytes, signs links"| b2
     api -.->|"reports, does not wait"| sentry
+    api -.->|"queues a job, does not wait"| worker
+    worker -->|"claims, runs, marks done"| neon
+    worker -->|"sends the email"| brevo
     browser -->|"signed link, 5 minutes"| b2
     cron -->|"completes delivered deals"| neon
+    backstop -->|"drains what the worker did not"| neon
 ```
 
 How to read it. **Solid arrows** are synchronous: whoever sends waits for the
@@ -46,10 +53,17 @@ bytes from B2 directly**, never through the API. The API only decides who may
 see a file and hands out a link that works for five minutes (`#79`).
 
 The second odd one is the sweep: **GitHub Actions reaches the database without
-going through the API at all** (#101). It is the only writer that is not a
-request, which is why it is drawn outside Render — it runs on somebody else's
-machine, on a clock, and uses Neon's direct connection string rather than the
-pooled one the API uses.
+going through the API at all** (#101). It is no longer the only writer that is
+not a request — the worker and the queue backstop are the others — which is why
+it is drawn outside Render: it runs on somebody else's machine, on a clock, and
+uses Neon's direct connection string rather than the pooled one the API uses.
+
+The third is the dotted arrow from the API to the worker, which is **inside the
+same process** and is still drawn as not waiting. That is the whole point of
+it: since #85 the request writes a row and answers, and the email leaves a
+couple of seconds later from a loop that nobody is timing (decision 0019).
+There is no second service because the free plan has no background worker to
+put one in.
 
 ## Why each box exists
 
@@ -102,6 +116,35 @@ is local arithmetic, so it costs no request to B2. The price is two round trips
 per image on a cold page — reduced but not removed by #102, which gave the
 endpoint its own rate limit, let the browser keep the redirect for a minute,
 and cut the permission check from four database statements to two.
+
+**The job worker.** Work that nobody is waiting for, done where nobody is
+timing it (#85). The request writes a row on the `Job` table — one insert,
+whatever the payload says — and a loop in the same process claims it about two
+seconds later and does it. Drawn inside Render because it *is* the API
+process: the free plan has no background worker, and one costs $7 a month.
+
+It is in the same process and still not in the request, and both halves matter.
+Not in the request, because `POST /auth/forgot-password` doing more work for a
+real account than an unknown one tells a stranger which is which, however
+carefully the answer is worded. In the same process, because the alternative at
+this price is no worker at all. What that costs is shared CPU on a 0.1-CPU
+instance, and sending an email is a `fetch` and a wait rather than work
+(decision 0019).
+
+**Brevo.** Delivers the email, over its HTTP API rather than SMTP, because
+Render's free plan blocks the SMTP ports and Brevo's free tier needs no card
+(#119, decision 0014). It is reached from the worker, never from a route, and
+it is the one arrow here that can fail without anybody finding out at the time
+— which is why a failure is retried five times and then reported (#29).
+
+**GitHub Actions, twice.** The daily sweep completes deals delivered fourteen
+days ago (#101), and the six-hourly backstop drains any job the in-process
+worker did not (#85). Both reach Neon directly, on somebody else's clock.
+Neither is the normal path: the sweep is the only way its job ever happens,
+while the backstop exists so that a queue cannot *silently* stop draining
+while the service is asleep, crash-looping or mid-deploy. It deliberately
+cannot send email — the mail key lives in Render, not in Actions secrets — so a
+mail job it picks up fails and waits for the process that can.
 
 ## Following a request
 
@@ -223,9 +266,9 @@ that trade gets decided, with decision 0012 as the argument against
 | Missing | What happens today | Issue |
 |---|---|---|
 | A domain of its own | `APP_ORIGIN` is the API's own `onrender.com` address, and mail is sent from an address whose domain the provider rewrites, because a free mailbox cannot be DKIM-signed by us (#119, decision 0014). A domain fixes the sender, the link in a verification email, and the placeholder together — and it is half the fix for #121, where an unsubscribe click on a confirmation email locks somebody out for good, since the other half is a provider that only free tiers with a domain will give us (decision 0015) | #93 |
-| Emails anybody asked for | Verification and password resets are delivered since #119. Nothing tells a person that their need was matched or their deal moved — that is which-events-email, a `Notification` table, and an opt-out | #86 |
+| Emails anybody asked for | Verification and password resets are delivered since #119, and queued rather than sent in the request since #85. Nothing tells a person that their need was matched or their deal moved — and that is now the easy half: which events email, a `Notification` table, and an opt-out, with the machinery already there | #86 |
 | A verification LINK rather than a code | The email carries a code, because a link needs a page to land on and an inbox cannot follow a link to `POST /auth/verify-email` | #93 |
-| Anything that notices the sweep stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED` | #101 named it, #85 may do more |
+| Anything that notices a schedule stopping | A failing run emails; a schedule GitHub disables after 60 idle days does not. The symptom would be deals stuck at `DELIVERED`, or jobs sitting with `doneAt` null. #85 added a second schedule and did not change this: the thing that would notice a dead schedule is a schedule | #101 named it, still open |
 | Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |
 | A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
 | Signed links inside list responses | A page of N images is N requests to the API. #102 made each one cheaper and took it out of the browsing budget. #81 added the list response that carries images — `GET /needs` gives each card a `coverPhoto` — but as a **path**, so the N requests are still there. Whether a list should hand out signed links instead is #93's to decide, and decision 0012 holds the argument against it: a signed link dies in five minutes and anything that stored the answer dies with it | #93 |

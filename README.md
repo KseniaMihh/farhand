@@ -386,6 +386,7 @@ change, nothing reaches `master` unverified.
 | Browse data | `npx prisma studio` | `farhand-api` |
 | Seed categories (adds new ones, renames changed ones, never deletes) | `npm run seed` | `farhand-api` |
 | Complete deals delivered 14 days ago | `npm run job:auto-complete` | `farhand-api` |
+| Run whatever is waiting on the job queue, once | `npm run job:drain` | `farhand-api` |
 | Typecheck | `npm run typecheck` | `farhand-api` |
 | Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |
 | Format (or only check) | `npm run format` / `npm run format:check` | `farhand-api` |

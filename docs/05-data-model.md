@@ -235,6 +235,40 @@ rewrite one and a receipt emailed by a shop has no camera position to strip.
 Three of each kind per deal, held by a lock on the deal's row rather than by a
 constraint, for the reason the photo limit is.
 
+## Work the request does not do (V2)
+
+**`Job`** — one row per piece of work that happens after somebody's answer
+(#85, decision 0019). `kind` is a string, `payload` is JSON, and the three
+columns that make it a queue are `runAfter`, `attempts` and `lastError`.
+
+**The state is three timestamps, not a status column.** `doneAt` and `failedAt`
+both null means waiting; one of them set says how it ended. The same shape and
+the same reason as `Message.removedAt` and `Review.removedAt`: the row records
+*when* something happened, and "when did this stop" is a question a timestamp
+answers and an enum does not.
+
+**`runAfter` is both the schedule and the lease.** A job is due when `runAfter`
+has passed, and claiming one — `FOR UPDATE SKIP LOCKED`, the same locking the
+photo and receipt limits use — increments `attempts` and pushes `runAfter`
+forward before releasing the lock. So a worker that dies mid-job holds nothing
+at all: the row is simply not due again for a while, and then it is. That is
+why there is no "claimed by" column and no heartbeat.
+
+**The payload is the question, not the answer.** A mail job carries an email
+address and nothing else — no user id, no token. The request writes the row
+without looking anything up, so it costs the same whether the address has an
+account or not, and the job asks when it runs. That is what closed the timing
+leak in `POST /auth/forgot-password` (`06-api-contract.md`), and it is also why
+a token never sits in a database column waiting to be sent: it is created by
+the job, moments before the email goes out.
+
+The one index is on `(doneAt, failedAt, runAfter)`, which is the only query the
+queue makes: the oldest row that is waiting and due.
+
+Nothing deletes finished rows yet. They are a log of what the system did for
+whom, they accumulate slowly, and #114's scheduled sweep is where a cleanup
+goes on the day the count matters.
+
 ## Cross-cutting decisions
 
 | Decision | Reason |

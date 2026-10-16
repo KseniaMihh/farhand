@@ -2,6 +2,7 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
 import { withoutRequestId } from "../helpers/http.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 import { prisma } from "../../src/db.js";
 import { mailer } from "../../src/mailer.js";
 import { hashToken } from "../../src/tokens.js";
@@ -34,6 +35,9 @@ async function registerAndCaptureToken(): Promise<string> {
     displayName: "Anna",
     countryCode: "EE",
   });
+
+  // Registering queues the email; the worker sends it (#85).
+  await runQueuedJobs();
 
   const token = send.mock.calls.at(-1)?.[1];
   if (!token) throw new Error("Registration did not send a verification email");
