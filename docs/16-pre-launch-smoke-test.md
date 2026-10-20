@@ -48,6 +48,13 @@ for it, not carry on.
       `master`.
 - [ ] `GET /health/ready` returns `200` with a database latency in single-digit
       milliseconds.
+- [ ] **`GET /prohibited-items` returns ten items**, not
+      `{"version":"e3b0c44298fc1c14","items":[]}`. That fingerprint is the hash
+      of an empty list, and it means the seed has not been run on this database
+      — in which case nothing can be posted publicly at all (#87). It is first
+      because everything from step 4 onwards depends on it, and because it has
+      already happened once: the table arrived with #87's migration and sat
+      empty until somebody noticed.
 
 ### 2 · Register both accounts, and really receive the email
 
@@ -71,9 +78,20 @@ accepted it.
 If jobs are only completing every six hours, the in-process worker is not
 running and the GitHub Actions backstop is carrying the queue on its own.
 
-### 4 · A need, with a photograph
+### 4 · A need, with a photograph — and the tick that lets it be posted
 
-- [ ] A posts a need: `POST /needs` → `201`.
+- [ ] A posts a need **with no `prohibitedVersion`** → `422`, naming the
+      field. A client that simply omits it must not get past (#87).
+- [ ] A posts a need with `prohibitedVersion` from step 1 → `201`.
+- [ ] A saves a second need as `status: "DRAFT"` with no tick → `201`, because
+      nobody can see a draft.
+- [ ] A publishes that draft with `PATCH /needs/:id` and `status: "OPEN"`,
+      still with no tick → **`422`**. This is the one the issue was named for:
+      saving a draft and publishing it was the way past the whole mechanism.
+- [ ] The same PATCH with the tick → `200`.
+- [ ] In Neon: `SELECT "prohibitedVersion", "prohibitedAckAt" FROM "Need";` —
+      the published ones carry the fingerprint from step 1, and the draft
+      carries nulls.
 - [ ] A uploads a photo: `POST /needs/:id/photos` → `201`.
 - [ ] `GET /files/:id` redirects, and the image really loads in a browser.
 - [ ] **The same URL with the query string removed is refused** by Backblaze
