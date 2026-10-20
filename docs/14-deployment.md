@@ -334,7 +334,16 @@ instead. Same order, different place.
 
 ## The daily sweep
 
-One thing runs on a schedule rather than on a request: the sweep that
+Two things run on a schedule rather than on a request, in one workflow and
+one run. Since #89 the second destroys the payload of any data export that
+has had its seven days; it runs with `if: always()`, because a copy of
+somebody's personal history that should have been deleted has nothing to do
+with whether a deal completed. One schedule rather than two on purpose: both
+are "a clock has passed, tidy up", they want the same cadence, and a second
+schedule is a second thing that can silently stop firing — which is what #114
+found had happened to this one.
+
+The first of them is the sweep that
 completes a deal fourteen days after delivery (#25). Without it a delivered
 deal nobody confirms stays `DELIVERED` for ever, and `04-deal-lifecycle.md`
 describes a rule the running system does not apply — which is exactly what

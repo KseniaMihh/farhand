@@ -173,10 +173,19 @@ The project is built from Estonia, so GDPR applies even to a portfolio version.
   people relying on each other; somebody who has taken a payment must not be
   able to disappear by pressing a button. Erasure is deferred, not denied —
   settle or cancel, and it goes through.
-- **A banned account cannot delete itself**, because it cannot sign in at all.
-  Version 1 has no way for such a person to ask, which is a real gap and is
-  recorded as one in `11-risks.md`.
-- Data export on request is a V2 feature.
+- **A banned account cannot delete itself**, because it cannot sign in at all
+  — so since #88 a **moderator** erases it on the owner's behalf
+  (`DELETE /admin/users/:id`, banned accounts only, audited, and the same
+  anonymisation as #66). How somebody asks: by replying to the email that told
+  them about the ban (#86). What is left is a deadlock when such an account
+  has a deal still running, recorded in `11-risks.md` as #134.
+- **Data export on request is built** (#89): `POST /me/exports` asks,
+  `GET /me/exports/:id` hands over the JSON once the queue has built it, and
+  it expires after seven days. It carries the person's own rows, the rows
+  about them, and — where a conversation had two sides — the words that were
+  sent to them, never the other person's address or private fields. It says
+  in words what it leaves out and why
+  ([decision 0023](10-decisions/0023-an-export-is-one-persons-copy.md)).
 - Delivery addresses are exchanged in messages in V1. This is a deliberate
   simplification with a privacy cost, recorded as an open question.
 
