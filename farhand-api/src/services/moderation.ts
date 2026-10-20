@@ -265,6 +265,81 @@ export async function resolveReport(
   });
 }
 
+/* ────────── what a moderator is shown of a reported person (#95) ────────── */
+
+/**
+ * A reported person, as the moderator judging the report sees them.
+ *
+ * **The search's shape, minus the email**, said in the type itself rather than
+ * in a comment: `GET /admin/users` is the one endpoint in the API that returns
+ * an address, because it is the one that records who looked
+ * (docs/06-api-contract.md). A report carrying one would be an unlogged second
+ * door beside the logged one, which is half of what #95 found.
+ *
+ * `bio` is the one addition, and it is here because it is evidence. The bio is
+ * the only prose a person writes about themselves, so a `HARASSMENT` or
+ * `SEXUAL_CONTENT` report about a *person* rather than a listing is usually a
+ * report about that paragraph — and once the account is banned,
+ * `GET /users/:id` answers `404` (#65), so there is nowhere else left to read
+ * it. The same argument as #81's photos: evidence the only permitted reader
+ * cannot reach is not evidence.
+ *
+ * Deliberately absent, beyond the email: `city` (a display name plus a city is
+ * often enough to find a real person, and no report is judged by it) and
+ * `lastLoginAt`.
+ */
+export interface ReportedUser extends Omit<UserSummary, "email"> {
+  bio: string | null;
+}
+
+/**
+ * The reported person, or null if the account has gone.
+ *
+ * Named columns in the query AND named fields on the way out — the two halves
+ * of `getPublicProfile`'s promise (src/services/profiles.ts). The `select` is
+ * what makes the secret unloadable, so there is nothing in `user` left to
+ * leak; naming the fields again is the half that still holds the day somebody
+ * widens the select.
+ *
+ * No status filter, unlike every public view: a banned or deleted account is
+ * exactly what a moderator checking a report needs to see, the same reasoning
+ * as `searchUsers` above.
+ */
+async function reportedUser(userId: string): Promise<ReportedUser | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      role: true,
+      status: true,
+      suspendedUntil: true,
+      emailVerifiedAt: true,
+      createdAt: true,
+      profile: {
+        select: { displayName: true, countryCode: true, bio: true },
+      },
+    },
+  });
+
+  if (!user) return null;
+
+  // A profile cannot be missing (#10 creates both rows together) and is
+  // blanked rather than deleted when somebody leaves (#66), so these nulls are
+  // for the row that should not exist. Half a person is still better than a
+  // 500 on a report somebody has to be able to close.
+  return {
+    id: user.id,
+    displayName: user.profile?.displayName ?? null,
+    bio: user.profile?.bio ?? null,
+    countryCode: user.profile?.countryCode ?? null,
+    role: user.role,
+    status: user.status,
+    suspendedUntil: user.suspendedUntil,
+    emailVerified: user.emailVerifiedAt !== null,
+    createdAt: user.createdAt,
+  };
+}
+
 /**
  * One report, with the thing it is about.
  */
@@ -280,10 +355,11 @@ export async function getReportWithTarget(
   const target = await (async (): Promise<unknown> => {
     switch (report.targetType) {
       case "USER":
-        return prisma.user.findUnique({
-          where: { id: report.targetId },
-          include: { profile: true },
-        });
+        // A shape, never the row (#95). The row carries `passwordHash`, and
+        // `res.json(found)` in routes/admin.ts sends whatever it is handed —
+        // there is no serialiser in between, by design, so the narrowing has
+        // to happen here: see ReportedUser above.
+        return reportedUser(report.targetId);
       case "NEED": {
         const need = await prisma.need.findUnique({
           where: { id: report.targetId },

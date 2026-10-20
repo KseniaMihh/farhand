@@ -6,7 +6,7 @@ import { prisma } from "../../src/db.js";
 import { REVIEW_WINDOW_DAYS } from "../../src/services/reviews.js";
 import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
-import { withoutRequestId } from "../helpers/http.js";
+import { keysWithin, withoutRequestId } from "../helpers/http.js";
 import { createCategory, createDealFor, needBody } from "../helpers/needs.js";
 
 /**
@@ -429,6 +429,50 @@ describe("a moderator can read what was taken down", () => {
       .set("Cookie", yuki.cookie);
 
     expect(response.status).toBe(403);
+  });
+
+  /**
+   * The fifth target type, pinned the way the other four are
+   * (tests/admin/moderation.test.ts, #95). This one has two people in it — the
+   * author and the person reviewed — so it is the target most likely to grow a
+   * column that belongs to somebody.
+   *
+   * No credentials, which is the assertion that matters: the reviewed person
+   * arrives through a `select` of their id and their profile, so the `User`
+   * row #95 was spreading is not loaded here at all. Their `profile` row IS
+   * spread, `city` and all, and that is deliberate rather than overlooked — a
+   * moderator may know more than a stranger, and the email, the one thing
+   * promised nowhere, is not in it.
+   */
+  it("pins every key a reported review contains", async () => {
+    const review = await publishedReview();
+    await report(review.id, yuki);
+    const reported = await prisma.report.findFirstOrThrow();
+
+    const response = await request(app)
+      .get(`/admin/reports/${reported.id}`)
+      .set("Cookie", mo.cookie);
+    const body = response.body as { target: unknown };
+
+    expect(keysWithin(body.target)).toEqual([
+      "author",
+      "avatarFileId",
+      "bio",
+      "city",
+      "comment",
+      "countryCode",
+      "createdAt",
+      "dealId",
+      "displayName",
+      "id",
+      "profile",
+      "rating",
+      "removedAt",
+      "target",
+      "userId",
+    ]);
+    expect(JSON.stringify(body.target)).not.toContain("passwordHash");
+    expect(JSON.stringify(body.target)).not.toContain(yuki.email);
   });
 });
 

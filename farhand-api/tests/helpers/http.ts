@@ -20,3 +20,36 @@ export function withoutRequestId(body: unknown): unknown {
 
   return { ...rest, error: sameness };
 }
+
+/**
+ * Every key name anywhere in a response, deduplicated and sorted.
+ *
+ * For pinning the shape of a reply that is a database row rather than a
+ * hand-written view (#95): a moderator's report target. `Need`, `Help` and
+ * `Message` hold no secrets today, and the one that did — `User.passwordHash`
+ * — reached a moderator because nothing anywhere said what that response
+ * contained. A column added to any of those tables now fails the test that
+ * calls this instead of quietly arriving in somebody's reply.
+ *
+ * Every depth, because a message target brings its conversation, its proposal
+ * and the need behind it. Names collapse across levels, which costs nothing:
+ * the question is which columns can appear at all.
+ */
+export function keysWithin(value: unknown): string[] {
+  const found = new Set<string>();
+
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+    for (const [key, child] of Object.entries(node)) {
+      found.add(key);
+      walk(child);
+    }
+  };
+
+  walk(value);
+  return [...found].sort();
+}
