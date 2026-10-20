@@ -270,6 +270,8 @@ export async function resolveReport(
 /**
  * A reported person, as the moderator judging the report sees them.
  *
+ * Why it is a shape at all: docs/10-decisions/0024-a-moderators-view-of-a-person.md
+ *
  * **The search's shape, minus the email**, said in the type itself rather than
  * in a comment: `GET /admin/users` is the one endpoint in the API that returns
  * an address, because it is the one that records who looked
