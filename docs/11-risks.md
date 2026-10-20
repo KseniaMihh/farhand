@@ -547,7 +547,7 @@ second reason to act on it.
 | Losing momentum after the exciting part | Small, finishable steps; commit daily; the CI badge is visible |
 | Documentation going stale | The schema is authoritative; a doc that contradicts it gets fixed in the same commit. For the endpoint tables in `06-api-contract.md` this is no longer a promise: `tests/contract/endpoints.test.ts` fails if they and the routes disagree (#69). It happened — version 1 was called finished with five endpoints documented and never built |
 | Over-relying on AI-generated code | Core logic in steps 1–3 is written by hand first, reviewed afterwards |
-| A banned person cannot ask for their data to be erased | `DELETE /me` needs a session, and a ban stops sign-in, so the one group most likely to want erasure cannot reach it. Version 1 has no support inbox to ask through. The fix is a moderator-side deletion or a real contact route, and both are version 2 (#66) |
+| A banned account with a live deal cannot be erased by anybody | **Closed the first half, opened the second (#88).** A moderator can now erase a banned account — `DELETE /admin/users/:id`, audited, the same anonymisation as #66 — and the asking happens by replying to the ban email #86 sends. What is left is a deadlock: that erasure is refused while a deal is still running, a banned person cannot move a deal, and a moderator may only move one out of `DISPUTED` (`04-deal-lifecycle.md`). So a banned account with a deal at `PRODUCT_PAID` can be impossible to erase until the other side cancels. The fix is a moderator's power to end such a deal, which is a change to the transition table and a decision about who is owed the money already paid — **#134**, not a line inside a deletion routine |
 
 ## Open questions
 

@@ -76,6 +76,11 @@ enum AdminActionType {
   BAN
   REACTIVATE
   REMOVE_CONTENT
+  /// A moderator erased a banned account on its owner's behalf (#88). The one
+  /// action here that cannot be undone, and the only record that it happened:
+  /// the account it refers to has been anonymised, so `targetUser` leads to a
+  /// row that no longer says who it was.
+  ERASE_ACCOUNT
 }
 
 enum ReportTarget {

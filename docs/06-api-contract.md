@@ -1693,6 +1693,7 @@ it inside the window — and the only one who can still change it.
 | GET | `/admin/users` | MOD | Find an account by email or display name, filter by status, paged |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
 | POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, offer, message or review |
+| DELETE | `/admin/users/:id` | MOD | Erase a **banned** account on its owner's behalf; reason required |
 
 Everything under `/admin` requires `MODERATOR` or above, and the prefix is not
 decoration: keeping those routes together is what makes a missing guard obvious
@@ -1866,6 +1867,51 @@ The `AdminAction` records **both** halves: `targetUserId` is whose account it
 was about — the need's requester, the offer's helper, the message's sender, the
 review's **author** — and `contentType`/`contentId` are what was actually taken
 down. A log that cannot answer "what did you remove?" is not an audit log.
+
+### `DELETE /admin/users/:id`
+
+```json
+{ "reason": "Erasure requested by email, 18 October" }
+```
+
+Returns `204`. The body is required, and the reason is the only place the
+request will ever be recorded — the account it refers to is about to stop
+saying who it was.
+
+**Why this exists.** `DELETE /me` needs a session and a ban stops sign-in, so
+the people most likely to want erasure were exactly the ones who could not ask
+for it, and there is no support inbox (#88, and a risk `11-risks.md` carried
+from #66 until this closed it). How somebody asks, in practice: since #86 a
+ban is emailed to the person it is about, and that email ends by inviting a
+reply.
+
+**Banned accounts only.** An `ACTIVE` or `SUSPENDED` account is `409` naming
+`DELETE /me`, because anybody who can sign in can erase themselves —
+`DELETE /me` is marked `SESSION` for exactly that reason (#66). The power is
+deliberately no bigger than the hole: a moderator who could erase any account
+at all is a larger thing than this was for.
+
+| | |
+|---|---|
+| Not banned | `409`, and the message names `DELETE /me` |
+| Already erased | `204`, and **no second audit entry** — nothing happened |
+| Themselves, or an equal or higher role | `403`, the rule a ban already follows, and a stronger case: a ban can be lifted |
+| A deal still running | `409`, naming how many. The same refusal as `DELETE /me`, for the same reason |
+| Unknown id | `404` |
+
+**It is the same erasure as `DELETE /me`**, not a second one: anonymised and
+kept, the profile blanked, sessions and tokens deleted, listings closed,
+photos deleted and **receipts kept** (#66, decision 0016). The two paths share
+one function for that reason, and a test runs both and compares what they
+leave behind.
+
+**It writes an `AdminAction` of type `ERASE_ACCOUNT`** (#27). Unlike reading a
+file, this is a decision — and it is the one decision whose subject cannot be
+asked about afterwards, because the row it points at no longer names anybody.
+
+**No email is sent.** There is nowhere to send one: the address is anonymised
+in the same breath, and #86's queue would skip a notification to a deleted
+account anyway.
 
 ### `GET /admin/reports/:id`
 
