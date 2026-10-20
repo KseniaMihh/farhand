@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { logger } from "../logger.js";
 import { mailer } from "../mailer.js";
 import { reportError } from "../observability.js";
+import { fulfilExport } from "./exports.js";
 import { sendNotification } from "./notifications.js";
 import {
   createPasswordResetToken,
@@ -53,7 +54,10 @@ export const IDLE_POLL_MS = 2_000;
  * migration, but calling `enqueue("verifcation-email")` should not compile.
  */
 export type JobKind =
-  "verification-email" | "password-reset-email" | "notification";
+  | "verification-email"
+  | "password-reset-email"
+  | "notification"
+  | "data-export";
 
 export interface JobPayloads {
   "verification-email": { email: string };
@@ -65,6 +69,8 @@ export interface JobPayloads {
    * have moved.
    */
   notification: { notificationId: string };
+  /** #89, and an id for the same reason: the rows are read when it runs. */
+  "data-export": { exportId: string };
 }
 
 /**
@@ -252,6 +258,12 @@ const handlers: {
       const token = await createVerificationToken(prisma, user.id);
       await mailer.sendVerificationEmail(user.email, token);
     }
+  },
+
+  "data-export": async ({ exportId }) => {
+    // A dozen queries over somebody's whole history, which is exactly the
+    // kind of work that has no business inside a request (#89).
+    await fulfilExport(exportId);
   },
 
   notification: async ({ notificationId }) => {

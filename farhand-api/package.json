@@ -23,6 +23,7 @@
     "test:watch": "vitest",
     "job:auto-complete": "tsx src/jobs/auto-complete.ts",
     "job:drain": "tsx src/jobs/drain.ts",
+    "job:sweep-exports": "tsx src/jobs/sweep-exports.ts",
     "test:store-empty": "tsx tests/assert-store-empty.ts",
     "store:fill": "tsx tests/fill-store.ts"
   },

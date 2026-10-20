@@ -13,6 +13,7 @@ import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { dealsRouter } from "./routes/deals.js";
+import { exportsRouter } from "./routes/exports.js";
 import { filesRouter } from "./routes/files.js";
 import { healthRouter } from "./routes/health.js";
 import { helpsRouter } from "./routes/helps.js";
@@ -97,6 +98,7 @@ export function createApp(): Express {
   app.use(profilesRouter);
   app.use(notificationsRouter);
   app.use(prohibitedRouter);
+  app.use(exportsRouter);
   app.use(needsRouter);
   app.use(helpsRouter);
   app.use(proposalsRouter);

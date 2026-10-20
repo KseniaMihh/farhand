@@ -28,7 +28,8 @@ says **Not built** and names the issue that will build it.
 - Success: `200`, `201` for creation, `204` for no content.
 - Client error: `400` malformed request, `401` not signed in, `403` signed in
   but not allowed, `404` not found or not visible to you, `409` conflict with
-  current state, `413` body too large, `422` validation failed, `429` rate
+  current state, `410` gone — it was here and it is not, and asking again is
+  the fix (#89) — `413` body too large, `422` validation failed, `429` rate
   limited.
 - `400` and `422` are different failures. `400` means the request itself could
   not be read — unparseable JSON. `422` means it was read perfectly and the
@@ -1967,6 +1968,83 @@ and the complaint that has waited longest is the one that matters most
 
 The default matters: a moderator opening the queue wants the unresolved ones,
 not every report ever filed. Looking back is something you ask for.
+
+## Your data
+
+Version 2 (#89). `docs/07-trust-and-safety.md` has promised this since version
+1, and it is the other half of `DELETE /me`: erasure answers "forget me",
+portability answers "give me a copy first".
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/me/exports` | SESSION | Asks for a copy. `202`, built in the background |
+| GET | `/me/exports/:id` | SESSION | The JSON, once it is ready. `409` while building, `410` once expired |
+
+### `POST /me/exports`
+
+No body. Returns `202`:
+
+```json
+{ "id": "cm1…", "status": "PENDING", "requestedAt": "2026-10-20T11:00:00.000Z" }
+```
+
+`202`, not `200`: the answer is "asked for", not "here it is". Reading
+somebody's whole history is a dozen queries, so it happens in the job queue
+(#85) rather than inside the request — a request that takes a second is a
+request people press twice.
+
+**One at a time.** A second request while the first is still being built is
+`409`, or a loop of requests is a loop of full-history queries nobody asked
+for. A pending request stops blocking after an hour, because a job that gave
+up after its five attempts would otherwise lock somebody out of their own data
+for good.
+
+`SESSION`, not `AUTH`, and the same reasoning as `DELETE /me`: what you may do
+about your own data does not depend on the state of your account. An
+unverified or suspended person is still entitled to a copy — and because the
+export is handed to a session rather than emailed, nothing is sent to an
+address nobody has proved they own.
+
+### `GET /me/exports/:id`
+
+Returns `200` with the export as JSON, and
+`Content-Disposition: attachment; filename="farhand-export-<id>.json"` so a
+browser saves it rather than painting somebody's whole history onto a screen.
+
+| | |
+|---|---|
+| Still being built | `409` — ask again in a moment |
+| Expired (seven days after it was ready) | `410 GONE` — ask again from the start |
+| Somebody else's, or unknown | `404`. An export you may not read is one you may not know exists |
+
+Ownership is checked on the **row**, not on the path, and a moderator cannot
+read one either: moderators read a deal, a conversation or a receipt when they
+have to judge something, and nobody needs to read a person's whole history.
+
+### What is in it, and what is not
+
+The sections are one per table — `account`, `profile`, `needs`, `helps`,
+`proposals`, `deals` (with their events and quotes), `conversations` (with
+their messages), `reviewsWritten`, `reviewsReceived`, `files`, `moderation`,
+`reportsFiled`, `notifications`, `sessions` — plus a `notIncluded` section
+that says in words what was left out and why.
+
+**Everything in Farhand is two people's data**, so the rule is
+([decision 0023](10-decisions/0023-an-export-is-one-persons-copy.md)):
+
+| | |
+|---|---|
+| Their own rows | In full |
+| Rows about them | In full — a review they received, a moderator's decision about their account |
+| The other person | Their public display name, and their words **where those words were sent to this person**: a message you received is in your possession the way a received email is. Never their address, never their private profile fields, never a row from a conversation you were not in |
+| Secrets | Never. No password hash, and no session or token hashes — a hash of a live credential is still a credential's fingerprint, and this is a file people forward |
+| Moderator identities | Not included. A decision about the account is there with its reason; which moderator took it is not, because they were acting in a role |
+| File bytes | Not included. Photographs and receipts are listed by type, size and date; the images came from the person's own device |
+
+**It expires after seven days**, and the payload is destroyed by the daily
+sweep (`npm run job:sweep-exports`, scheduled beside the deal sweep). The row
+stays, because "an export was made, and when" is itself something somebody may
+ask about — and it is two timestamps rather than a copy of their life.
 
 ## Prohibited items
 

@@ -23,6 +23,13 @@ export type ErrorCode =
    * again — and `details` carries that list.
    */
   | "PROHIBITED_LIST_CHANGED"
+  /**
+   * It was here and it is gone, and asking again is the fix (#89). A `404`
+   * would say the wrong thing about a data export that expired on purpose:
+   * that it never existed, when in fact it was built, downloaded or not, and
+   * destroyed on a clock.
+   */
+  | "GONE"
   | "PAYLOAD_TOO_LARGE"
   | "TOO_MANY_REQUESTS"
   | "INTERNAL";
@@ -79,6 +86,14 @@ export class HttpError extends Error {
 
   static notFound(message = "Resource not found"): HttpError {
     return new HttpError(404, "NOT_FOUND", message);
+  }
+
+  /**
+   * It existed, it does not now, and that was the plan (#89). Distinct from
+   * `404` because the answer tells a caller to ask again rather than to stop.
+   */
+  static gone(message: string): HttpError {
+    return new HttpError(410, "GONE", message);
   }
 
   static tooManyRequests(

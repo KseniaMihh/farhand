@@ -94,3 +94,17 @@ jobs:
           # and break this one (#114). (prisma is a devDependency too, but
           # survives: @prisma/client brings it in as a peer.)
           NODE_ENV: production
+
+      # A SECOND SWEEP IN THE SAME RUN, not a second schedule (#89). Both are
+      # "a clock has passed, tidy up", they want the same cadence, and a
+      # schedule of its own would be a second thing that can silently stop
+      # firing — which is exactly what #114 found had happened to this one.
+      #
+      # It runs even if the step above failed: a data export that should have
+      # been destroyed is personal data sitting in a database, and a deal that
+      # did not complete has nothing to do with it.
+      - name: Sweep expired data exports
+        if: always()
+        run: npm run job:sweep-exports
+        env:
+          NODE_ENV: production

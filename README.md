@@ -398,6 +398,7 @@ change, nothing reaches `master` unverified.
 | Browse data | `npx prisma studio` | `farhand-api` |
 | Seed the category list (adds new ones, renames changed ones, never deletes) and the prohibited list (adds what is missing, **never rewords** what is there) | `npm run seed` | `farhand-api` |
 | Complete deals delivered 14 days ago | `npm run job:auto-complete` | `farhand-api` |
+| Destroy data exports older than 7 days | `npm run job:sweep-exports` | `farhand-api` |
 | Run whatever is waiting on the job queue, once | `npm run job:drain` | `farhand-api` |
 | Typecheck | `npm run typecheck` | `farhand-api` |
 | Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |

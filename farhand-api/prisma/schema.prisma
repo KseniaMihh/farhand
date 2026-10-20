@@ -154,6 +154,7 @@ model User {
   reportsResolved   Report[]            @relation("ReportResolver")
   files             File[]
   notifications     Notification[]
+  dataExports       DataExport[]
 }
 
 // Public data: what other users see.
@@ -524,6 +525,42 @@ model ProhibitedItem {
   createdAt DateTime  @default(now())
 
   @@index([retiredAt, position])
+}
+
+/// One request for a copy of everything held about somebody (#89), and the
+/// copy itself until it expires.
+///
+/// Three states, told by timestamps and by whether the payload is there —
+/// the same shape as `Job` and `Notification`:
+///
+///   asked for   readyAt null
+///   ready       readyAt set, payload present
+///   expired     expiresAt passed, payload null again
+///
+/// THE PAYLOAD LIVES HERE rather than in the bucket, which is the one place
+/// this project keeps bytes in the database on purpose (decision 0011 says
+/// file bytes belong in object storage). An export is kilobytes of the rows
+/// next to it, it is personal data that has to be destroyed on a clock, and
+/// clearing a column cannot leave bytes behind in a bucket that the database
+/// has forgotten — the failure #79 had to design around.
+model DataExport {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  /// The JSON a person downloads. Null while it is being built, and null
+  /// again once it has expired.
+  payload   Json?
+  readyAt   DateTime?
+  /// When the payload is destroyed: `readyAt` plus seven days. The row stays
+  /// afterwards, because "an export was made, and when" is itself something
+  /// somebody may ask about.
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  /// "Is one already being built for this person", and the newest first.
+  @@index([userId, createdAt])
+  /// The sweep's query: payloads that are past their date.
+  @@index([expiresAt])
 }
 
 /// Work to be done after the request that asked for it has already answered

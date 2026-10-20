@@ -264,6 +264,29 @@ first time the list changes. Null only while a listing has never been public:
 a draft and a paused offer acknowledge nothing, because nobody can see them,
 and publishing one asks for the tick then (decision 0021).
 
+## Taking a copy, and giving it back (V2)
+
+**`DataExport`** — one request for everything held about somebody, and the
+copy itself until it expires (#89, decision 0023). Three states told by
+timestamps and by whether the payload is there, the same shape as `Job` and
+`Notification`: `readyAt` null means it is being built, `readyAt` set with a
+payload means it can be downloaded, and `expiresAt` in the past with the
+payload gone means it has been swept.
+
+**The payload is a `Json` column, and this is the one place bytes live in the
+database on purpose.** Decision 0011 says file bytes belong in object storage;
+an export is different in three ways. It is kilobytes of the rows sitting next
+to it. It is personal data that has to be destroyed on a clock, and clearing a
+column cannot leave bytes behind in a bucket the database has forgotten —
+which is the failure #79 had to design its two-step write around. And it is
+never served to a browser as an image, so none of the signed-link machinery
+would be reused.
+
+**The row outlives the payload.** Seven days after it is ready the daily sweep
+nulls the payload and leaves `createdAt` and `readyAt`, because "an export was
+made, and when" is itself something a person may ask about — and two
+timestamps are not a copy of somebody's life.
+
 ## Work the request does not do (V2)
 
 **`Job`** — one row per piece of work that happens after somebody's answer
