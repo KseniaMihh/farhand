@@ -13,6 +13,7 @@ import { prisma } from "../db.js";
 import { notify } from "./notifications.js";
 import { HttpError } from "../errors.js";
 import { logger } from "../logger.js";
+import { filePath } from "./files.js";
 import { withPhotos } from "./need-photos.js";
 import { reviewAsEvidence } from "./reviews.js";
 import {
@@ -286,12 +287,22 @@ export async function resolveReport(
  * it. The same argument as #81's photos: evidence the only permitted reader
  * cannot reach is not evidence.
  *
+ * `avatarUrl` is the second addition, and the second half of #139: a report
+ * about a person is how an obscene or impersonating picture is reported, and
+ * the rule for it is docs/10-decisions/0025-a-moderator-sees-what-a-ban-hides.md:
+ * the file rule now admits a moderator to a banned account's avatar
+ * (src/services/files.ts). This is the only place that hands them the id — a
+ * rule that admits somebody to an address nothing gives them is dead code
+ * (#81). A path rather than a signed link, like every other image in the API:
+ * `GET /files/:id` decides afresh who may follow it (decision 0012).
+ *
  * Deliberately absent, beyond the email: `city` (a display name plus a city is
  * often enough to find a real person, and no report is judged by it) and
  * `lastLoginAt`.
  */
 export interface ReportedUser extends Omit<UserSummary, "email"> {
   bio: string | null;
+  avatarUrl: string | null;
 }
 
 /**
@@ -318,7 +329,12 @@ async function reportedUser(userId: string): Promise<ReportedUser | null> {
       emailVerifiedAt: true,
       createdAt: true,
       profile: {
-        select: { displayName: true, countryCode: true, bio: true },
+        select: {
+          displayName: true,
+          countryCode: true,
+          bio: true,
+          avatarFileId: true,
+        },
       },
     },
   });
@@ -334,6 +350,7 @@ async function reportedUser(userId: string): Promise<ReportedUser | null> {
     displayName: user.profile?.displayName ?? null,
     bio: user.profile?.bio ?? null,
     countryCode: user.profile?.countryCode ?? null,
+    avatarUrl: filePath(user.profile?.avatarFileId ?? null),
     role: user.role,
     status: user.status,
     suspendedUntil: user.suspendedUntil,

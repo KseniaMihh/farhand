@@ -62,6 +62,7 @@ the API on every request.
 | Attach a receipt to a deal | Only the helper, who is the one who buys. The requester and a moderator get `403`, a stranger `404`; three of each kind, and nothing deletes one (#82) |
 | See an avatar or a need photo | Whoever may see the profile or the need it belongs to (#79). Anyone else gets the same `404` as for a file that does not exist |
 | See a need photo as a moderator | Whatever the need's status, including `REMOVED` (#81). Removing a need would otherwise hide the picture it was removed for, and `PROHIBITED_ITEM` reports are usually about the picture |
+| See an avatar as a moderator | Whatever became of the account, including `BANNED` (#139, decision 0025). The same argument one step on: banning somebody would otherwise hide the profile picture they were banned for. The read is logged, unless the account is live and the picture public |
 | Set or remove an avatar | Only your own. `PUT /me/avatar` has no id in it, so there is no somebody else to name (#80) |
 | Add or remove a need's photo | Only the need's requester, and only while it is `DRAFT` or `OPEN` — the same rule as editing its words, because a photo is part of what the need says (#81) |
 | Any moderation action | `MODERATOR` or `ADMIN` only, and always recorded |

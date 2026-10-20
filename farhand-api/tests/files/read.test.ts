@@ -197,6 +197,56 @@ describe("an avatar", () => {
     const file = await fileFixture({ ownerId: kadri.id, purpose: "AVATAR" });
 
     await expectHiddenFrom(file.id, stranger);
+    await expectHiddenFrom(file.id);
+  });
+
+  /**
+   * #81's gap, in the one purpose #81 did not look at (#139).
+   *
+   * A report about a person is how an obscene or impersonating picture is
+   * reported — `ReportTarget` has `USER` and `ReportReason` has
+   * `SEXUAL_CONTENT` — and a ban is what a moderator does about it. Without
+   * this, acting on the report destroyed the evidence for it: the picture
+   * became unreadable by everybody, so a second moderator reviewing that
+   * decision later had nothing to look at.
+   *
+   * The same two halves as #81: this rule, and a path to follow. The id comes
+   * from `GET /admin/reports/:id`, which carries the reported person's
+   * `avatarUrl` for exactly this reason (tests/admin/moderation.test.ts).
+   */
+  it("is visible to a moderator once its owner is banned, and to nobody else", async () => {
+    await prisma.user.update({
+      where: { id: kadri.id },
+      data: { status: "BANNED" },
+    });
+    const file = await fileFixture({ ownerId: kadri.id, purpose: "AVATAR" });
+
+    await expectVisibleTo(file.id, moderator);
+    // One more case, not a wider rule — the line that must still hold.
+    await expectHiddenFrom(file.id, stranger);
+    await expectHiddenFrom(file.id);
+  });
+
+  /**
+   * The rule does not depend on guessing which statuses can still own an
+   * avatar. `DELETED` is in this list for that reason rather than because the
+   * case can arise: #66's erasure deletes an avatar's row and its bytes
+   * (`removeAccountFiles`, tests/files/account-deletion.test.ts), so a deleted
+   * account has no avatar to argue about.
+   */
+  it("is a moderator's to see whatever became of the account", async () => {
+    const file = await fileFixture({ ownerId: kadri.id, purpose: "AVATAR" });
+
+    for (const status of [
+      "ACTIVE",
+      "SUSPENDED",
+      "BANNED",
+      "DELETED",
+    ] as const) {
+      await prisma.user.update({ where: { id: kadri.id }, data: { status } });
+
+      await expectVisibleTo(file.id, moderator);
+    }
   });
 });
 

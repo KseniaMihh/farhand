@@ -748,6 +748,7 @@ describe("GET /admin/reports/:id — seeing what was reported", () => {
     const target = (response.body as { target: object }).target;
 
     expect(Object.keys(target).sort()).toEqual([
+      "avatarUrl",
       "bio",
       "countryCode",
       "createdAt",
@@ -763,11 +764,63 @@ describe("GET /admin/reports/:id — seeing what was reported", () => {
       displayName: "Yuki",
       bio: null,
       countryCode: "EE",
+      avatarUrl: null,
       role: "USER",
       status: "ACTIVE",
       suspendedUntil: null,
       emailVerified: true,
     });
+  });
+
+  /**
+   * The second half of #139, and the half #81 named: a rule that admits a
+   * moderator to an address nothing gives them is dead code.
+   *
+   * A path, not a signed link (decision 0012) — `GET /files/:id` decides
+   * afresh who may follow it, which is what makes it safe to put in a reply
+   * that is read by one person and may be quoted to another.
+   */
+  it("hands a moderator the path to a reported person's avatar", async () => {
+    const avatar = await fileFixture({ ownerId: yuki.id, purpose: "AVATAR" });
+    await prisma.profile.update({
+      where: { userId: yuki.id },
+      data: { avatarFileId: avatar.id },
+    });
+    const report = await reportOn("USER", yuki.id);
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+
+    expect(
+      (response.body as { target: { avatarUrl: string } }).target.avatarUrl,
+    ).toBe(`/files/${avatar.id}`);
+  });
+
+  /**
+   * Both halves together, the way #81's photo test runs them: before the
+   * decision and after it. The second is the one that used to fail, and it is
+   * the one that matters — a resolved report is read again by somebody else,
+   * and banning the account used to hide the picture it was banned for.
+   */
+  it("lets a moderator open that avatar after the ban, and nobody else", async () => {
+    const avatar = await fileFixture({ ownerId: yuki.id, purpose: "AVATAR" });
+    await prisma.profile.update({
+      where: { userId: yuki.id },
+      data: { avatarFileId: avatar.id },
+    });
+    await reportOn("USER", yuki.id);
+
+    const open = (viewer: TestUser) =>
+      request(app).get(`/files/${avatar.id}`).set("Cookie", viewer.cookie);
+
+    expect((await open(mo)).status).toBe(302);
+    expect(
+      (await act(mo, yuki.id, { type: "BAN", reason: "That picture" })).status,
+    ).toBe(201);
+
+    expect((await open(mo)).status).toBe(302);
+    expect((await open(marek)).status).toBe(404);
   });
 
   /**
