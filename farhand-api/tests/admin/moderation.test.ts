@@ -810,6 +810,22 @@ describe("GET /admin/reports/:id — seeing what was reported", () => {
     });
   });
 
+  it("copes with a person whose account row has gone", async () => {
+    const report = await reportOn("USER", yuki.id);
+    await prisma.user.delete({ where: { id: yuki.id } });
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+
+    // `Report.targetId` is a plain column with no foreign key behind it (#26),
+    // so a report can outlive the thing it points at. The same `null` as a
+    // deleted need, for the same reason: the queue must not jam on a row
+    // nobody can close.
+    expect(response.status).toBe(200);
+    expect((response.body as { target: unknown }).target).toBeNull();
+  });
+
   /**
    * The other three targets are still whole rows, and that is a choice rather
    * than the rest of the bug: a moderator judging a need wants everything
