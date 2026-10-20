@@ -737,6 +737,56 @@ describe("reading one", () => {
       expect.objectContaining({ fileId: photo.id, purpose: "NEED_PHOTO" }),
     ]);
   });
+
+  it("writes a line for a banned person's avatar, which #139 added", async () => {
+    await prisma.user.update({
+      where: { id: kadri.id },
+      data: { status: "BANNED" },
+    });
+    const avatar = await fileFixture({
+      ownerId: kadri.id,
+      purpose: "AVATAR",
+    });
+    const written = vi.spyOn(logger, "info");
+
+    expect(
+      (
+        await request(app)
+          .get(`/files/${avatar.id}`)
+          .set("Cookie", moderator.cookie)
+      ).status,
+    ).toBe(302);
+
+    // The third file a moderator can reach that its own people cannot, and
+    // the same reasoning: the access is theirs because of what they are, so
+    // it leaves a trace.
+    expect(moderatorReads(written)).toEqual([
+      expect.objectContaining({ fileId: avatar.id, purpose: "AVATAR" }),
+    ]);
+  });
+
+  it("writes nothing when anybody reads a live account's avatar", async () => {
+    const avatar = await fileFixture({
+      ownerId: kadri.id,
+      purpose: "AVATAR",
+    });
+    const written = vi.spyOn(logger, "info");
+
+    for (const viewer of [kadri, yuki, moderator]) {
+      expect(
+        (
+          await request(app)
+            .get(`/files/${avatar.id}`)
+            .set("Cookie", viewer.cookie)
+        ).status,
+      ).toBe(302);
+    }
+
+    // An avatar is public while the account is live, so a moderator reading
+    // one is a person looking at a picture, not a power being used. Logging
+    // it would fill the log with nothing and bury the lines that matter.
+    expect(moderatorReads(written)).toEqual([]);
+  });
 });
 
 describe("nothing deletes a receipt", () => {

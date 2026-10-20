@@ -1939,6 +1939,7 @@ above, without the email address:
     "displayName": "Yuki",
     "bio": null,
     "countryCode": "JP",
+    "avatarUrl": "/files/cm1f…",
     "role": "USER",
     "status": "ACTIVE",
     "suspendedUntil": null,
@@ -1956,12 +1957,19 @@ that records who looked, and a report carrying an address would be an unlogged
 second door beside the logged one. A moderator who needs to reach the account
 searches for the display name this view gives them, and that search is logged.
 
-`bio` is here, and it is the one field this shape adds to the search's: it is
-the only prose a person writes about themselves, so a `HARASSMENT` or
+`bio` is here, and it is one of two fields this shape adds to the search's: it
+is the only prose a person writes about themselves, so a `HARASSMENT` or
 `SEXUAL_CONTENT` report about a **person** rather than a listing is usually a
 report about that paragraph — and `GET /users/:id` answers `404` once the
 account is banned, so there is nowhere else left to read it. `city` is not here,
 for the reason it is in no other reply either, and neither is `lastLoginAt`.
+
+`avatarUrl` is the other, added by #139, and for the same reason one step
+further on: the other thing a report about a person is usually about is the
+picture. A path on this API, `null` when there is none, and the only place a
+moderator is ever handed an avatar's id — the matching permission is in
+[Files](#files), where a banned account's avatar is a moderator's to open and
+nobody else's.
 
 **A banned or deleted account is still shown.** Like the search, and unlike
 every public view: a resolved report is read again by somebody else later, and
@@ -2330,7 +2338,7 @@ Who may see a file:
 
 | Purpose | Visible to |
 |---|---|
-| `AVATAR` | Anyone, while the owner's profile is visible — the rule of `GET /users/:id`, so not once they are banned |
+| `AVATAR` | Anyone, while the owner's profile is visible — the rule of `GET /users/:id`, so not once they are banned — **and moderators, whatever became of the account (#139)** |
 | `NEED_PHOTO` | Whoever may see the need: anyone while it is `OPEN` or `MATCHED`, its owner always — and moderators, whatever its status (#81) |
 | `PRODUCT_RECEIPT`, `SHIPPING_RECEIPT` | The two people in the deal, and moderators |
 
@@ -2352,6 +2360,19 @@ it was removed for — from the people who have to review that decision later.
 The ids come from `GET /admin/reports/:id`, which carries a reported need's
 photos; nothing else shows a moderator a photo id, so the two halves only work
 together.
+
+**An avatar is the same case, and #139 closed it late.** `ReportTarget` has
+`USER` and `ReportReason` has `SEXUAL_CONTENT`, so a report about a profile
+picture is a thing this API accepts — and a ban is what a moderator does about
+one. Until #139 the ban hid the picture from everybody, the moderator who had
+just acted included, so nothing was left to review the decision against. The
+rule is now the same shape as the other two: everybody while the account is
+live, and otherwise a moderator. Its two halves work together the same way too
+— the id comes from the reported person's `avatarUrl` in
+`GET /admin/reports/:id`, and nothing else hands a moderator an avatar's id.
+
+A moderator reading a **live** account's avatar is not logged: it is a public
+picture, and a log full of those would bury the lines that mean something.
 
 The API does not ask the store whether the bytes still exist before
 redirecting — that would be a request to the store on every image shown. If

@@ -281,9 +281,23 @@ async function isVisibleTo(
         select: { status: true },
       });
 
-      return owner?.status === "ACTIVE" || owner?.status === "SUSPENDED"
-        ? "yes"
-        : "no";
+      if (owner?.status === "ACTIVE" || owner?.status === "SUSPENDED") {
+        return "yes";
+      }
+
+      // A moderator too, since #139 — the same fallback as a need's photo
+      // below and a receipt beneath that. #81 closed this hole for a reported
+      // need and left it open for a reported person: a ban is what a
+      // moderator does about an obscene or impersonating picture, and it used
+      // to hide the picture from the only people entitled to look at it,
+      // including whoever reviews that decision afterwards.
+      //
+      // It can only ever add a case the public has already been refused, so
+      // the shape stays "everybody, or else a moderator" rather than a list
+      // of statuses that has to be kept in step with the one above
+      // (docs/02-roles-and-permissions.md, and the argument in
+      // docs/10-decisions/0025-a-moderator-sees-what-a-ban-hides.md).
+      return isModerator(viewer) ? "moderator" : "no";
     }
 
     case "NEED_PHOTO": {
