@@ -7,7 +7,11 @@ and this file needs updating.
 ## Accounts
 
 **`User`** — private account data: email, password hash, role, status. Never
-returned to other users.
+returned to other users, and **never returned as a row**: the split below
+keeps an email out of a profile, but only a named shape keeps it out of an
+endpoint. A moderator's two views of a person are `UserSummary` (#67) and
+`ReportedUser` (#95, decision 0024); nothing else in the API answers with
+columns of this table.
 
 **`Profile`** — what a person writes about themselves: display name, country,
 bio, city, avatar. Split from `User` so that returning a profile can never

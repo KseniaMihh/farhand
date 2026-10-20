@@ -7,6 +7,7 @@ import { logger } from "../../src/logger.js";
 import { PASSWORD, signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
 import { fileFixture } from "../helpers/files.js";
+import { keysWithin } from "../helpers/http.js";
 import { createCategory } from "../helpers/needs.js";
 import { breakInsideTransaction } from "../helpers/transactions.js";
 
@@ -676,6 +677,260 @@ describe("GET /admin/reports/:id — seeing what was reported", () => {
       .set("Cookie", marek.cookie);
 
     expect(response.status).toBe(403);
+  });
+
+  /* ───────────── what a report shows of a person (#95) ───────────── */
+
+  /**
+   * The bug this issue is named for. `getReportWithTarget` loaded the whole
+   * `User` row and the route answered `res.json(found)` with no serialiser in
+   * between, so a report about a person handed the moderator that person's
+   * `passwordHash` — and their email address, beside the one endpoint
+   * docs/06-api-contract.md calls the only one that returns one.
+   *
+   * Nothing caught it, and the near miss is worth recording: the identical
+   * assertion already existed in tests/admin/user-search.test.ts, for the
+   * search. The test above, "shows a reported message, an offer and a person",
+   * asked only that the target was not null — which the whole row satisfied
+   * perfectly.
+   */
+  it("never hands over a reported person's password hash", async () => {
+    const report = await reportOn("USER", yuki.id);
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+
+    expect(response.status).toBe(200);
+
+    // The whole reply, not just `target`: a hash anywhere in this response is
+    // the bug, wherever a later change might put it.
+    const sent = JSON.stringify(response.body);
+    expect(sent).not.toContain("passwordHash");
+
+    // And the value, not only the column name — a renamed column would walk
+    // straight past the line above.
+    const row = await prisma.user.findUniqueOrThrow({
+      where: { id: yuki.id },
+      select: { passwordHash: true },
+    });
+    expect(sent).not.toContain(row.passwordHash);
+  });
+
+  /**
+   * The second half of the same leak, and a decision rather than an oversight:
+   * `GET /admin/users` stays the only endpoint in the API that returns an
+   * email address, because it is the one that records who looked
+   * (docs/06-api-contract.md). A report carrying one would be an unlogged
+   * second door beside it.
+   */
+  it("never hands over a reported person's email address", async () => {
+    const report = await reportOn("USER", yuki.id);
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+
+    expect(JSON.stringify(response.body)).not.toContain(yuki.email);
+  });
+
+  /**
+   * Named fields, and the exact set of them. The point is not the list — it is
+   * that adding to it has to be a decision somebody takes on purpose, which is
+   * exactly what spreading the row took away.
+   */
+  it("shows a reported person as the search's shape, without the email", async () => {
+    const report = await reportOn("USER", yuki.id);
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+    const target = (response.body as { target: object }).target;
+
+    expect(Object.keys(target).sort()).toEqual([
+      "bio",
+      "countryCode",
+      "createdAt",
+      "displayName",
+      "emailVerified",
+      "id",
+      "role",
+      "status",
+      "suspendedUntil",
+    ]);
+    expect(target).toMatchObject({
+      id: yuki.id,
+      displayName: "Yuki",
+      bio: null,
+      countryCode: "EE",
+      role: "USER",
+      status: "ACTIVE",
+      suspendedUntil: null,
+      emailVerified: true,
+    });
+  });
+
+  /**
+   * What a moderator actually needs it for. #81's lesson, in the one place it
+   * was never tested: the evidence has to outlive the decision, because a
+   * resolved report is reviewed by somebody else later — and `GET /users/:id`
+   * answers `404` for a banned account (#65), so this view is the only one
+   * left that can show who the report was about.
+   */
+  it("still shows a person after they have been banned", async () => {
+    const report = await reportOn("USER", yuki.id);
+    const banned = await act(mo, yuki.id, { type: "BAN", reason: "Scam" });
+    expect(banned.status).toBe(201);
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+    const target = (response.body as { target: { status: string } }).target;
+
+    expect(response.status).toBe(200);
+    expect(target.status).toBe("BANNED");
+  });
+
+  it("shows a person whose profile has gone", async () => {
+    const report = await reportOn("USER", yuki.id);
+    await prisma.profile.delete({ where: { userId: yuki.id } });
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+
+    // Half a person, not a 500: a report about an account that has since been
+    // taken apart still has to be closable, which is the same reason a missing
+    // target is `null` rather than an error.
+    expect(response.status).toBe(200);
+    expect((response.body as { target: object }).target).toMatchObject({
+      id: yuki.id,
+      displayName: null,
+      countryCode: null,
+    });
+  });
+
+  it("copes with a person whose account row has gone", async () => {
+    const report = await reportOn("USER", yuki.id);
+    await prisma.user.delete({ where: { id: yuki.id } });
+
+    const response = await request(app)
+      .get(`/admin/reports/${report.id}`)
+      .set("Cookie", mo.cookie);
+
+    // `Report.targetId` is a plain column with no foreign key behind it (#26),
+    // so a report can outlive the thing it points at. The same `null` as a
+    // deleted need, for the same reason: the queue must not jam on a row
+    // nobody can close.
+    expect(response.status).toBe(200);
+    expect((response.body as { target: unknown }).target).toBeNull();
+  });
+
+  /**
+   * The other three targets are still whole rows, and that is a choice rather
+   * than the rest of the bug: a moderator judging a need wants everything
+   * about it, and `Need`, `Help` and `Message` hold no secrets today. The risk
+   * is tomorrow's column.
+   *
+   * So the shapes are pinned — every key at every depth of the reply. A column
+   * added to any of these tables fails this test instead of quietly arriving
+   * in a moderator's response, and whoever adds it decides then whether it
+   * belongs here. That is the tripwire #95 did not have.
+   */
+  it("pins every key a need, an offer and a message target contains", async () => {
+    const { message } = await conversation();
+    const need = await makeNeed();
+    const help = await makeHelp();
+
+    async function keysOf(
+      targetType: string,
+      targetId: string,
+      reporter?: TestUser,
+    ) {
+      const report = await reportOn(targetType, targetId, reporter);
+      const response = await request(app)
+        .get(`/admin/reports/${report.id}`)
+        .set("Cookie", mo.cookie);
+      expect(response.status).toBe(200);
+
+      return keysWithin((response.body as { target: unknown }).target);
+    }
+
+    expect(await keysOf("NEED", need.id)).toEqual([
+      "buyCountry",
+      "categoryId",
+      "createdAt",
+      "currency",
+      "deliverCountry",
+      "description",
+      "estimatedPrice",
+      "expiresAt",
+      "id",
+      "photos",
+      "productUrl",
+      "prohibitedAckAt",
+      "prohibitedVersion",
+      "requesterId",
+      "status",
+      "storeName",
+      "thankYouAmount",
+      "title",
+      "updatedAt",
+    ]);
+
+    expect(await keysOf("HELP", help.id)).toEqual([
+      "country",
+      "createdAt",
+      "description",
+      "helperId",
+      "id",
+      "prohibitedAckAt",
+      "prohibitedVersion",
+      "shipsTo",
+      "status",
+      "updatedAt",
+    ]);
+
+    // A message brings its conversation, its proposal and the need behind it,
+    // so a line can be read in context. Three more rows, three more tables
+    // that can gain a column.
+    expect(await keysOf("MESSAGE", message.id, kadri)).toEqual([
+      "body",
+      "buyCountry",
+      "categoryId",
+      "conversation",
+      "conversationId",
+      "createdAt",
+      "currency",
+      "deliverCountry",
+      "description",
+      "estimatedPrice",
+      "expiresAt",
+      "helpId",
+      "helperId",
+      "helperLastReadAt",
+      "id",
+      "initiatedBy",
+      "lastMessageAt",
+      "message",
+      "need",
+      "needId",
+      "productUrl",
+      "prohibitedAckAt",
+      "prohibitedVersion",
+      "proposal",
+      "proposalId",
+      "removedAt",
+      "requesterId",
+      "requesterLastReadAt",
+      "respondedAt",
+      "senderId",
+      "status",
+      "storeName",
+      "thankYouAmount",
+      "title",
+      "updatedAt",
+    ]);
   });
 });
 

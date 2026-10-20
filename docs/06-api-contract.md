@@ -1805,6 +1805,12 @@ display name and a country and nothing that identifies a person off Farhand
 to reach that account, so the exception exists, and it is worth knowing that
 it is the only one. The password hash is never returned.
 
+**It stayed the only one by being checked.** `GET /admin/reports/:id` returned
+the whole `User` row for a report about a person until #95, which made it a
+second endpoint answering with an address — and with the hash this paragraph
+says is never returned. A report's target is now a shape; the search is the one
+door, and it is the one that logs who went through it.
+
 **Deleted and banned accounts are included.** They answer `404` from every
 public endpoint, and they are exactly what a moderator checking whether a ban
 was fair needs to find.
@@ -1916,12 +1922,50 @@ account anyway.
 
 ### `GET /admin/reports/:id`
 
-One report with the thing it is about: the need, the offer, the message, or the
-user and their profile. #26's queue held a type and an id and nothing else, so
+One report with the thing it is about: the need, the offer, the message, the
+review, or the person. #26's queue held a type and an id and nothing else, so
 a moderator could see that something was reported but not what.
 
 A target that has since been deleted comes back as `null` rather than an error,
 or the queue would jam on a row nobody could close.
+
+A reported **person** comes back as named fields — a row of `GET /admin/users`
+above, without the email address:
+
+```json
+{
+  "target": {
+    "id": "cm1…",
+    "displayName": "Yuki",
+    "bio": null,
+    "countryCode": "JP",
+    "role": "USER",
+    "status": "ACTIVE",
+    "suspendedUntil": null,
+    "emailVerified": true,
+    "createdAt": "2026-03-04T09:12:00.000Z"
+  }
+}
+```
+
+**No password hash, and no email address** (#95). Until #95 this target was the
+`User` row itself, which carried both. The hash was a bug. The address is a
+decision, written down in [decision 0024](10-decisions/0024-a-moderators-view-of-a-person.md):
+the search stays the **only** endpoint that returns one, because it is the one
+that records who looked, and a report carrying an address would be an unlogged
+second door beside the logged one. A moderator who needs to reach the account
+searches for the display name this view gives them, and that search is logged.
+
+`bio` is here, and it is the one field this shape adds to the search's: it is
+the only prose a person writes about themselves, so a `HARASSMENT` or
+`SEXUAL_CONTENT` report about a **person** rather than a listing is usually a
+report about that paragraph — and `GET /users/:id` answers `404` once the
+account is banned, so there is nowhere else left to read it. `city` is not here,
+for the reason it is in no other reply either, and neither is `lastLoginAt`.
+
+**A banned or deleted account is still shown.** Like the search, and unlike
+every public view: a resolved report is read again by somebody else later, and
+a report whose subject has become invisible cannot be checked.
 
 A reported **need** comes with its `photos`, the same field `GET /needs/:id`
 gives (#81). It is the only place a moderator is handed a photo id, and the
