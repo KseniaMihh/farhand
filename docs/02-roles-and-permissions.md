@@ -17,7 +17,7 @@ helper" as a property of a person.
 |---|---|---|
 | Guest | Not signed in | Browse public needs and helps, view public profiles, register |
 | `USER` | Registered, email confirmed | Everything a guest can, plus post needs and helps, send and answer proposals, message, act on their own deals, review, report, edit their own account |
-| `MODERATOR` | Appointed | Everything a user can, plus view reports, find an account by email or display name, read any deal and any reported conversation, hide content, warn, suspend, ban, reactivate |
+| `MODERATOR` | Appointed | Everything a user can, plus view reports, find an account by email or display name, read any deal and any reported conversation, hide content, warn, suspend, ban, reactivate, and erase a banned account that asked to be forgotten (#88) |
 | `ADMIN` | Appointed | Everything a moderator can, plus change roles and view any account's details |
 
 ## Account status
@@ -42,7 +42,7 @@ the API on every request.
 | Action | Rule |
 |---|---|
 | Edit a profile | Only its owner. `PATCH /me/profile` takes no id, so there is no other profile it could name (#65) |
-| Delete an account | Only its owner, and only with the password as well as the session. No moderator route deletes an account — banning is the moderator's tool, and it is reversible (#66) |
+| Delete an account | Its owner, with the password as well as the session (#66) — **or a moderator, for a banned account only** (#88). A ban is the moderator's reversible tool and stays that; erasure is the irreversible one, and it exists because a banned account cannot reach `DELETE /me` to ask for itself. An `ACTIVE` or `SUSPENDED` account is refused with `409`: anybody who can sign in closes their own account. Recorded as `ERASE_ACCOUNT` in the audit log, and it is the same anonymisation either way — one function, two doors (decision 0022) |
 | Read a profile | Anyone, but only the public fields. A banned or deleted account answers exactly like an id that never existed |
 | Edit or delete a need | Only its requester, and only while status is `DRAFT` or `OPEN`. Deleting closes it (`CLOSED`); the row stays |
 | Edit or delete a help | Only its helper, and not once it is `REMOVED`. Deleting marks it `REMOVED`; the row stays |

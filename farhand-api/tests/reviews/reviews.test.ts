@@ -7,7 +7,7 @@ import {
   MAX_COMMENT_LENGTH,
   REVIEW_WINDOW_DAYS,
 } from "../../src/services/reviews.js";
-import { DELETED_DISPLAY_NAME } from "../../src/services/profiles.js";
+import { DELETED_DISPLAY_NAME } from "../../src/services/erasure.js";
 import { PASSWORD, signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
 import { withoutRequestId } from "../helpers/http.js";

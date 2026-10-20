@@ -3,7 +3,7 @@ import type { Review, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import { sideOf } from "./deals.js";
-import { DELETED_DISPLAY_NAME } from "./profiles.js";
+import { DELETED_DISPLAY_NAME } from "./erasure.js";
 import {
   afterCursor,
   type CursorPosition,

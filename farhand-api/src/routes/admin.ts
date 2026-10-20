@@ -15,6 +15,7 @@ import {
   resolveReport,
   searchUsers,
 } from "../services/moderation.js";
+import { eraseAccountAsModerator } from "../services/erasure.js";
 import { listReportQueue } from "../services/reports.js";
 import {
   decodeCursor,
@@ -173,6 +174,34 @@ adminRouter.post(
     const action = await removeContent(getAuth(req).user, type, id, reason);
 
     res.status(201).json({ action });
+  },
+);
+
+/**
+ * MOD — erasing a banned account on its owner's behalf (#88).
+ *
+ * `DELETE` and its own path rather than another `type` on
+ * `/admin/users/:id/actions`, deliberately: that endpoint writes warnings and
+ * suspensions, all of which can be undone, and this cannot. An irreversible
+ * act should not be one mistyped string away from a reversible one.
+ *
+ * A reason is required, as it is for every other action here, and it is the
+ * only place the request will ever be recorded — the account it refers to is
+ * about to stop saying who it was.
+ */
+adminRouter.delete(
+  "/admin/users/:id",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  requireRole("MODERATOR"),
+  async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const { reason } = removalSchema.parse(req.body);
+    await eraseAccountAsModerator(getAuth(req).user, id, reason);
+
+    // 204, like `DELETE /me`: there is nothing left to describe.
+    res.status(204).end();
   },
 );
 
