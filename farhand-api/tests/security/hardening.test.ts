@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/env.js";
 import { logger } from "../../src/logger.js";
+import { TRUSTED_PROXY_HOPS } from "../../src/middleware/caller-address.js";
 import { errorHandler } from "../../src/middleware/error-handler.js";
 import { RATE_LIMITS } from "../../src/middleware/rate-limit.js";
 
@@ -117,7 +118,7 @@ describe("a ceiling for one address", () => {
     // A fresh app, so this test's budget is its own: the limiter's counters
     // live in memory and outlive a single test file.
     const inner = express();
-    inner.set("trust proxy", 1);
+    inner.set("trust proxy", TRUSTED_PROXY_HOPS);
     inner.use(pinoHttp({ logger }));
     const { limiters } = await import("../../src/middleware/rate-limit.js");
     inner.use(limiters.globalByIp);

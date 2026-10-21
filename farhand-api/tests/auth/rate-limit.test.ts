@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/env.js";
 import { logger } from "../../src/logger.js";
+import { TRUSTED_PROXY_HOPS } from "../../src/middleware/caller-address.js";
 import { errorHandler } from "../../src/middleware/error-handler.js";
 import { createRateLimiter } from "../../src/middleware/rate-limit.js";
 import { PASSWORD, signUpAndLogIn } from "../helpers/auth.js";
@@ -60,7 +61,7 @@ describe("the limiter itself", () => {
   /** One route behind one limiter, so the counting is all that is tested. */
   function limited(limiter: RequestHandler) {
     const inner = express();
-    inner.set("trust proxy", 1);
+    inner.set("trust proxy", TRUSTED_PROXY_HOPS);
     inner.use(pinoHttp({ logger }));
     inner.use(express.json());
     inner.post("/thing", limiter, (_req, res) => {
@@ -285,13 +286,19 @@ describe("the real endpoints are limited", () => {
 
   /**
    * The other half of the test above, and the one that pins
-   * `app.set("trust proxy", 1)` in src/app.ts.
+   * `app.set("trust proxy", TRUSTED_PROXY_HOPS)` in src/app.ts.
    *
    * Every request in the suite arrives from the same machine, so the
    * addresses here are the ones in `X-Forwarded-For` — which Express only
    * believes because of that setting. Delete it and every caller in the world
    * shares one budget: 20 login attempts per 15 minutes for the whole of
    * Farhand (docs/15-architecture.md).
+   *
+   * What it does NOT pin is the number, and #145 is why that matters: one
+   * entry in the header reads back correctly under any count, because Express
+   * clamps a count to the chain it is given. The counting itself is pinned in
+   * tests/security/caller-address.test.ts, against chains as long as
+   * production's.
    *
    * Before this test, nothing said so. Removing the setting left the suite
    * green except for one unrelated test whose login fixture got a 429 — a

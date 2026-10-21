@@ -3,6 +3,7 @@ import { pinoHttp } from "pino-http";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../../src/db.js";
+import { TRUSTED_PROXY_HOPS } from "../../src/middleware/caller-address.js";
 import { env } from "../../src/env.js";
 import { logger } from "../../src/logger.js";
 import { errorHandler } from "../../src/middleware/error-handler.js";
@@ -77,7 +78,7 @@ async function anInstance(): Promise<express.Express> {
     await import("../../src/middleware/error-handler.js");
 
   const app = express();
-  app.set("trust proxy", 1);
+  app.set("trust proxy", TRUSTED_PROXY_HOPS);
   app.use(pinoHttp({ logger }));
   app.use(express.json());
   app.post("/thing", limiters.loginByIp, (_req, res) => {
@@ -94,7 +95,7 @@ async function anInstance(): Promise<express.Express> {
  */
 function thisInstance(): express.Express {
   const app = express();
-  app.set("trust proxy", 1);
+  app.set("trust proxy", TRUSTED_PROXY_HOPS);
   app.use(pinoHttp({ logger }));
   app.use(express.json());
   app.post(
@@ -163,7 +164,7 @@ describe("one budget, however many machines", () => {
 
   it("gives each limiter its own budget for the same address", async () => {
     const app = express();
-    app.set("trust proxy", 1);
+    app.set("trust proxy", TRUSTED_PROXY_HOPS);
     app.use(pinoHttp({ logger }));
     app.use(express.json());
     app.post(
@@ -238,7 +239,7 @@ describe("one budget, however many machines", () => {
   it("does not push the deadline back when it refuses a request", async () => {
     const ip = nextIp();
     const app = express();
-    app.set("trust proxy", 1);
+    app.set("trust proxy", TRUSTED_PROXY_HOPS);
     app.use(pinoHttp({ logger }));
     app.use(express.json());
     app.post(
