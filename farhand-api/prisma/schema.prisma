@@ -40,6 +40,12 @@ enum NeedStatus {
   REMOVED // removed by moderator
 }
 
+/// Which list a saved search stands over (#90).
+enum SearchKind {
+  NEED
+  HELP
+}
+
 enum HelpStatus {
   ACTIVE
   PAUSED
@@ -155,6 +161,7 @@ model User {
   files             File[]
   notifications     Notification[]
   dataExports       DataExport[]
+  savedSearches     SavedSearch[]
 }
 
 // Public data: what other users see.
@@ -204,11 +211,64 @@ model VerificationToken {
 // ─────────────────────────────────────────────
 
 model Category {
-  id    String @id @default(cuid())
-  slug  String @unique // e.g. "cosmetics", "electronics"
-  name  String
-  needs Need[]
-  helps Help[] // implicit many-to-many
+  id            String        @id @default(cuid())
+  slug          String        @unique // e.g. "cosmetics", "electronics"
+  name          String
+  needs         Need[]
+  helps         Help[] // implicit many-to-many
+  savedSearches SavedSearch[]
+}
+
+/// A standing query somebody asked to be told about (#90).
+///
+/// ONE TABLE FOR BOTH LISTS, told apart by `kind`, and the filters are
+/// COLUMNS rather than a JSON blob. The reason is the matching: when a
+/// listing goes public the question is "which saved searches match this
+/// row", which is one SQL query against named columns and a scan plus a
+/// JavaScript test against a blob. A column also cannot hold a filter that
+/// no browse endpoint has.
+///
+/// The two country columns are shared by both kinds because they are the
+/// same two facts under different names — a need's `buyCountry` and a help's
+/// `country` are both "where it is bought", and a need's `deliverCountry`
+/// and a help's `shipsTo` are both "where it goes". The API speaks each
+/// list's own names (docs/06-api-contract.md); this table speaks the fact.
+///
+/// NULL MEANS ANY, in every filter column. That is what makes the match a
+/// single query — `(fromCountry IS NULL OR fromCountry = $1)` — and it is why
+/// a search with every column null is legal: "tell me about everything" is a
+/// thing somebody may want, and MAX_SAVED_SEARCHES is what stops it becoming
+/// a hundred standing queries.
+model SavedSearch {
+  id     String     @id @default(cuid())
+  userId String
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind   SearchKind
+  /// What the person called it. Shown back to them, never in an email: the
+  /// email names the listing, because that is what they would recognise.
+  name   String     @db.VarChar(80)
+  /// Whether a match sends an email, per search rather than per account
+  /// (#86's switch on `User` still wins, and so does a ban).
+  notify Boolean    @default(true)
+
+  /// Where it is bought: a need's `buyCountry`, a help's `country`.
+  fromCountry String?   @db.Char(2)
+  /// Where it goes: a need's `deliverCountry`, one of a help's `shipsTo`.
+  toCountry   String?   @db.Char(2)
+  categoryId  String?
+  /// Restrict, like a need (#15): nothing deletes a category while anything
+  /// points at it. SET NULL would quietly widen a saved search from
+  /// "cosmetics" to "anything", which is a search nobody asked for.
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  /// Words in a need's title or description. `NEED` only — the offers list
+  /// has no text filter to save (#18).
+  q           String?   @db.VarChar(100)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  // The match scan: every search of one kind that wants an email.
+  @@index([kind, notify])
 }
 
 model Need {

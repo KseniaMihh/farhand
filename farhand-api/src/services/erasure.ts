@@ -160,6 +160,12 @@ export async function eraseAccount(userId: string): Promise<void> {
     await tx.session.deleteMany({ where: { userId } });
     await tx.verificationToken.deleteMany({ where: { userId } });
 
+    // Standing queries go with the account (#90). The foreign key cascades,
+    // but nothing deletes this User row — #66 keeps it and empties it — so
+    // the cascade would never fire. A search left behind would be a search
+    // emailing an address at a domain nobody owns.
+    await tx.savedSearch.deleteMany({ where: { userId } });
+
     // Photos go, receipts stay (#79). The rows here, inside the transaction;
     // the bytes below, once it has committed.
     return removeAccountFiles(tx, userId);

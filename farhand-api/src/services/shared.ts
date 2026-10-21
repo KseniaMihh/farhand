@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { HttpError } from "../errors.js";
 
 /**
@@ -7,6 +8,22 @@ import { HttpError } from "../errors.js";
  * shape underneath: rows someone owns, paged the same way. What genuinely
  * repeats lives here; what differs stays in each service.
  */
+
+/**
+ * Prisma's "you referenced a row that does not exist" error — a categoryId
+ * that matches no category, whether it arrived on a need (#15), an offer
+ * (#17) or a saved search (#90).
+ *
+ * Here rather than in one of them since #90, because the third caller is the
+ * point at which a copy becomes a copy: a need importing it from a saved
+ * search, which imports the need service back, is a cycle nobody needs.
+ */
+export function isForeignKeyError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2003"
+  );
+}
 
 /** The same fields with the undefineds gone: what Prisma's update accepts. */
 type Provided<T> = { [K in keyof T]?: Exclude<T[K], undefined> };

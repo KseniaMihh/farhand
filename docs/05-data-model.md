@@ -357,6 +357,42 @@ Nothing deletes finished rows yet. They are a log of what the system did for
 whom, they accumulate slowly, and #114's scheduled sweep is where a cleanup
 goes on the day the count matters.
 
+## Standing queries (V2)
+
+**`SavedSearch`** — a browse query somebody kept, and asked to be told about
+(#90, decision 0026). Ten per account, counted inside a transaction that locks
+the `User` row, because a count-then-insert two requests can both pass is a
+limit that is only true when nobody is in a hurry.
+
+**The filters are columns, not a JSON blob**, and the reason is which way the
+question is asked. Browsing asks "which listings match this filter" and the
+filter is in the request; a saved search asks **"which filters match this
+listing"**, and the filters are in the table. Columns make that one query;
+a blob would make it a scan and a loop in JavaScript. A column also cannot
+hold a filter that no browse endpoint has.
+
+**`NULL` means any, in every filter column.** That is what lets the match be a
+single `WHERE`: `(fromCountry IS NULL OR fromCountry = $1)`. It is also why a
+search with every column null is legal — "tell me about everything" is a thing
+somebody may want, and the per-account limit is what stops it becoming a
+hundred standing queries.
+
+**One table for both lists**, told apart by `kind`, and the two country
+columns are shared because they are the same two facts under different names:
+a need's `buyCountry` and an offer's `country` are both *where it is bought*,
+a need's `deliverCountry` and one of an offer's `shipsTo` are both *where it
+goes*. The API speaks each list's own names
+(`docs/06-api-contract.md`); the table speaks the fact. `q` is the one column
+only one kind uses, because the offers list has no text filter to save.
+
+`categoryId` is `ON DELETE RESTRICT`, like a need's: `SET NULL` would quietly
+widen a saved search from "cosmetics" to "anything", which is a search nobody
+asked for.
+
+Saved searches are **deleted** when an account is erased, not anonymised with
+the rest of it (#66): the row is nobody's query once there is nobody, and a
+search left behind is a search emailing an address at a domain no one owns.
+
 ## Cross-cutting decisions
 
 | Decision | Reason |
