@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { env } from "../env.js";
 import { HttpError } from "../errors.js";
+import { PostgresRateLimitStore } from "./rate-limit-store.js";
 
 /**
  * Rate limiting for the authentication endpoints.
@@ -29,10 +30,16 @@ import { HttpError } from "../errors.js";
  * Neither catches both attacks. Together they cover each other, which is why
  * issue #14 asks for both.
  *
- * The counts live in this process's memory. That is fine for one server and
- * wrong for several: each would count separately, so three servers means three
- * times the limit. When the API is deployed behind more than one instance, the
- * store moves to Redis — the library supports it, and nothing else changes.
+ * THE COUNTS LIVE IN THE DATABASE, not in this process (#91). They used to be
+ * in memory, which is fine for one server and wrong for several — each would
+ * count separately, so three servers meant three times the limit, and that
+ * was the only thing in the code keeping this project on a single instance
+ * (docs/14-deployment.md).
+ *
+ * The store is ./rate-limit-store.ts: one table, one row per limiter per
+ * client, one statement per request. A table rather than Redis for decision
+ * 0019's reason, and it fails OPEN when the database cannot be reached —
+ * docs/10-decisions/0027-counters-that-survive-a-second-machine.md.
  */
 
 /**
@@ -122,6 +129,14 @@ export const RATE_LIMITS = {
 export type LimitBy = "ip" | "account" | "user";
 
 export interface RateLimiterOptions {
+  /**
+   * This limiter's name, which becomes the first part of every key it writes
+   * (#91). One table holds every limiter's counters, so two limiters counting
+   * the same address have to be told apart — and a key that says
+   * `login-ip:1.2.3.4` is also the one that can be read in the database when
+   * somebody asks why they were refused.
+   */
+  name: string;
   windowMs: number;
   max: number;
   by: LimitBy;
@@ -146,6 +161,10 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
     limit: options.max,
     standardHeaders: "draft-8",
     legacyHeaders: false,
+    // A store of its own per limiter, which is what the library expects: the
+    // object carries the window length and the key prefix, both of which are
+    // this limiter's and not another's.
+    store: new PostgresRateLimitStore(options.name),
     skip: (req) => !env.RATE_LIMIT_ENABLED || (options.except?.(req) ?? false),
     keyGenerator: (req) => {
       if (options.by === "ip") return ipKeyGenerator(req.ip ?? "");
@@ -251,67 +270,80 @@ function isFileRead(req: Request): boolean {
  */
 export const limiters = {
   loginByIp: createRateLimiter({
+    name: "login-ip",
     windowMs: RATE_LIMITS.login.windowMs,
     max: RATE_LIMITS.login.perIp,
     by: "ip",
   }),
   loginByAccount: createRateLimiter({
+    name: "login-account",
     windowMs: RATE_LIMITS.login.windowMs,
     max: RATE_LIMITS.login.perAccount,
     by: "account",
   }),
   registerByIp: createRateLimiter({
+    name: "register-ip",
     windowMs: RATE_LIMITS.register.windowMs,
     max: RATE_LIMITS.register.perIp,
     by: "ip",
   }),
   registerByAccount: createRateLimiter({
+    name: "register-account",
     windowMs: RATE_LIMITS.register.windowMs,
     max: RATE_LIMITS.register.perAccount,
     by: "account",
   }),
   emailToAddressByIp: createRateLimiter({
+    name: "email-ip",
     windowMs: RATE_LIMITS.emailToAddress.windowMs,
     max: RATE_LIMITS.emailToAddress.perIp,
     by: "ip",
   }),
   emailToAddressByAccount: createRateLimiter({
+    name: "email-account",
     windowMs: RATE_LIMITS.emailToAddress.windowMs,
     max: RATE_LIMITS.emailToAddress.perAccount,
     by: "account",
   }),
   tokenByIp: createRateLimiter({
+    name: "token-ip",
     windowMs: RATE_LIMITS.token.windowMs,
     max: RATE_LIMITS.token.perIp,
     by: "ip",
   }),
   globalByIp: createRateLimiter({
+    name: "global-ip",
     windowMs: RATE_LIMITS.global.windowMs,
     max: RATE_LIMITS.global.perIp,
     by: "ip",
     except: isFileRead,
   }),
   fileByIp: createRateLimiter({
+    name: "file-ip",
     windowMs: RATE_LIMITS.file.windowMs,
     max: RATE_LIMITS.file.perIp,
     by: "ip",
   }),
   messageByUser: createRateLimiter({
+    name: "message-user",
     windowMs: RATE_LIMITS.message.windowMs,
     max: RATE_LIMITS.message.perUser,
     by: "user",
   }),
   avatarByUser: createRateLimiter({
+    name: "avatar-user",
     windowMs: RATE_LIMITS.avatar.windowMs,
     max: RATE_LIMITS.avatar.perUser,
     by: "user",
   }),
   needPhotoByUser: createRateLimiter({
+    name: "need-photo-user",
     windowMs: RATE_LIMITS.needPhoto.windowMs,
     max: RATE_LIMITS.needPhoto.perUser,
     by: "user",
   }),
   receiptByUser: createRateLimiter({
+    name: "receipt-user",
     windowMs: RATE_LIMITS.receipt.windowMs,
     max: RATE_LIMITS.receipt.perUser,
     by: "user",

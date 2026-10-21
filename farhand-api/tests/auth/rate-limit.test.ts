@@ -79,7 +79,12 @@ describe("the limiter itself", () => {
 
   it("allows requests up to the limit, then refuses", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 3, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-1",
+        windowMs: 60_000,
+        max: 3,
+        by: "ip",
+      }),
     );
     const ip = nextIp();
 
@@ -91,7 +96,12 @@ describe("the limiter itself", () => {
 
   it("refuses with the API's error shape, not the library's plain text", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 1, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-2",
+        windowMs: 60_000,
+        max: 1,
+        by: "ip",
+      }),
     );
     const ip = nextIp();
     await post(inner, ip);
@@ -107,7 +117,12 @@ describe("the limiter itself", () => {
 
   it("says when to come back, in seconds", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 1, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-3",
+        windowMs: 60_000,
+        max: 1,
+        by: "ip",
+      }),
     );
     const ip = nextIp();
     await post(inner, ip);
@@ -121,7 +136,12 @@ describe("the limiter itself", () => {
 
   it("tells a client how much budget is left, before it runs out", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 3, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-4",
+        windowMs: 60_000,
+        max: 3,
+        by: "ip",
+      }),
     );
 
     const response = await post(inner, nextIp());
@@ -132,7 +152,12 @@ describe("the limiter itself", () => {
 
   it("counts each address separately", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 1, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-5",
+        windowMs: 60_000,
+        max: 1,
+        by: "ip",
+      }),
     );
     const first = nextIp();
     const second = nextIp();
@@ -147,7 +172,12 @@ describe("the limiter itself", () => {
     // The point of the per-account limit: one password guessed against one
     // account from a thousand addresses is still one account under attack.
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 2, by: "account" }),
+      createRateLimiter({
+        name: "ad-hoc-6",
+        windowMs: 60_000,
+        max: 2,
+        by: "account",
+      }),
     );
     const email = nextEmail();
 
@@ -160,7 +190,12 @@ describe("the limiter itself", () => {
 
   it("treats one address as one address, whatever the email", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 2, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-7",
+        windowMs: 60_000,
+        max: 2,
+        by: "ip",
+      }),
     );
     const ip = nextIp();
 
@@ -173,7 +208,12 @@ describe("the limiter itself", () => {
 
   it("gives one account one budget however the email is typed", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 1, by: "account" }),
+      createRateLimiter({
+        name: "ad-hoc-8",
+        windowMs: 60_000,
+        max: 1,
+        by: "account",
+      }),
     );
     const email = nextEmail();
 
@@ -187,7 +227,7 @@ describe("the limiter itself", () => {
 
   it("lets the client back in once the window has passed", async () => {
     const inner = limited(
-      createRateLimiter({ windowMs: 300, max: 1, by: "ip" }),
+      createRateLimiter({ name: "ad-hoc-9", windowMs: 300, max: 1, by: "ip" }),
     );
     const ip = nextIp();
     await post(inner, ip);
@@ -201,7 +241,12 @@ describe("the limiter itself", () => {
   it("does nothing at all when rate limiting is switched off", async () => {
     // Which is what lets the rest of the suite hammer these endpoints.
     const inner = limited(
-      createRateLimiter({ windowMs: 60_000, max: 1, by: "ip" }),
+      createRateLimiter({
+        name: "ad-hoc-10",
+        windowMs: 60_000,
+        max: 1,
+        by: "ip",
+      }),
     );
     const ip = nextIp();
     await post(inner, ip);

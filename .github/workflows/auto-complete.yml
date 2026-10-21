@@ -108,3 +108,14 @@ jobs:
         run: npm run job:sweep-exports
         env:
           NODE_ENV: production
+
+      # A THIRD, for the same reason as the second (#91). The rate-limit
+      # counters are rewritten in place while a window is live, so what
+      # accumulates is windows nobody came back for — one row per address per
+      # limiter, harmless and endless. Deleting an expired one changes nothing
+      # a client can see.
+      - name: Sweep expired rate-limit windows
+        if: always()
+        run: npm run job:sweep-rate-limits
+        env:
+          NODE_ENV: production

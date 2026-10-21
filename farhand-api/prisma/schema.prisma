@@ -40,6 +40,34 @@ enum NeedStatus {
   REMOVED // removed by moderator
 }
 
+/// One rate-limit counter: a window, and how many requests have landed in it
+/// (#91).
+///
+/// A TABLE RATHER THAN REDIS, and the same argument as `Job` (decision 0019):
+/// the counters have to be shared by every instance, and a second piece of
+/// infrastructure to share them is a second thing to run, pay for and watch.
+/// The database is already there, already shared, and already the thing whose
+/// absence means the API is down anyway — which is also why the store fails
+/// OPEN (docs/10-decisions/0027-counters-that-survive-a-second-machine.md).
+///
+/// `key` is the limiter's name and what it counts, joined: `login-ip:1.2.3.4`.
+/// The name is in the key because one table holds every limiter's counters,
+/// and two limiters counting the same address must not share a budget.
+///
+/// There is no `createdAt`. The row is not a record of anything — it is a
+/// number with an expiry date, rewritten in place until the window rolls
+/// over, and swept once a day.
+model RateLimit {
+  key       String   @id
+  count     Int
+  /// When this window ends. Written from the DATABASE's clock, not the
+  /// application's: several instances means several clocks, and the one that
+  /// has to agree is the one the rows are in (#85's lesson about `now()`).
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
 /// Which list a saved search stands over (#90).
 enum SearchKind {
   NEED
