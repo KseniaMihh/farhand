@@ -23,6 +23,7 @@ import { profilesRouter } from "./routes/profiles.js";
 import { prohibitedRouter } from "./routes/prohibited.js";
 import { proposalsRouter } from "./routes/proposals.js";
 import { reportsRouter } from "./routes/reports.js";
+import { searchesRouter } from "./routes/searches.js";
 
 /**
  * Builds the Express app.
@@ -99,6 +100,7 @@ export function createApp(): Express {
   app.use(notificationsRouter);
   app.use(prohibitedRouter);
   app.use(exportsRouter);
+  app.use(searchesRouter);
   app.use(needsRouter);
   app.use(helpsRouter);
   app.use(proposalsRouter);

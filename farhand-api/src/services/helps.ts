@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { Help, HelpStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { queueMatching } from "./saved-searches.js";
 import {
   acknowledgementFields,
   checkAcknowledgement,
@@ -114,7 +115,7 @@ export async function createHelp(
           )
         : {};
 
-      return tx.help.create({
+      const created = await tx.help.create({
         data: {
           helperId: actor.id,
           country: input.country,
@@ -128,6 +129,13 @@ export async function createHelp(
         },
         include: withCategories,
       });
+
+      // Somebody may have saved a search for a helper in this country (#90).
+      if (created.status === "ACTIVE") {
+        await queueMatching(tx, "HELP", created.id);
+      }
+
+      return created;
     });
   } catch (error) {
     if (isMissingRelated(error)) {
@@ -168,7 +176,7 @@ export async function updateHelp(
           )
         : {};
 
-      return tx.help.update({
+      const updated = await tx.help.update({
         where: { id: helpId },
         data: {
           ...onlyProvided(rest),
@@ -179,6 +187,14 @@ export async function updateHelp(
         },
         include: withCategories,
       });
+
+      // Activating a paused offer is publishing it — the `PAUSED` twin of a
+      // need's draft, here as it is for #87's tick (#90).
+      if (goingPublic) {
+        await queueMatching(tx, "HELP", updated.id);
+      }
+
+      return updated;
     });
   } catch (error) {
     if (isMissingRelated(error)) {

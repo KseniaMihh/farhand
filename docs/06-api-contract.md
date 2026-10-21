@@ -2267,6 +2267,7 @@ do something, or has lost the chance to — never as an activity feed.**
 | A moderator resolved a dispute | Both sides, since neither of them did it |
 | The deal completed | Both sides — the fourteen-day review window is news to the person who pressed it too |
 | A moderator acted on your account or your content | The person it was about, **whatever their preference says** |
+| Something matched a search they saved | The person who saved it, unless they posted it themselves (#90). The one line here that is not "you must do something", and the exception is argued in `docs/10-decisions/0026-the-one-email-somebody-asked-for.md` |
 
 And the silences, which are decisions and not gaps:
 
@@ -2291,6 +2292,121 @@ so no request waits for a mail provider and no request's timing says who
 exists. **There are no links in these emails**, for #119's reason: `APP_ORIGIN`
 is still the API's own address because there is no frontend (#93), so every
 notification names the need it is about instead.
+
+## Saved searches
+
+Version 2 (#90). A standing query over one of the browse lists, and being told
+when something matches it.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/me/searches` | AUTH | Ten per account. `409` at the limit |
+| GET | `/me/searches` | AUTH | The caller's own, newest first. No paging |
+| DELETE | `/me/searches/:id` | AUTH | `204`. Somebody else's is `404` |
+
+### `POST /me/searches`
+
+```json
+{
+  "kind": "NEED",
+  "name": "Sunscreen to Estonia",
+  "notify": true,
+  "filters": { "buyCountry": "JP", "deliverCountry": "EE", "q": "sunscreen" }
+}
+```
+
+| Field | Rule |
+|---|---|
+| `kind` | `NEED` or `HELP` — which list the search stands over |
+| `name` | 1–80 characters. What the person calls it; it is never in an email |
+| `notify` | Default `true`. Whether a match emails, per search |
+| `filters` | The browse endpoint's own query names, for that kind. May be `{}` |
+
+**The filters are the browse endpoints' own names**, so a client can save the
+query string it is already running: `buyCountry`, `deliverCountry`,
+`categoryId` and `q` for a need (`GET /needs`); `country`, `shipsTo` and
+`categoryId` for an offer (`GET /helps`). The object is `.strict()` **per
+kind**, so a `country` sent for a need search is a `422` rather than a search
+that quietly ignores half of what was asked for — somebody waiting on a filter
+that was dropped is waiting for a narrower search than the one that exists.
+
+Returns `201` with the search as it was stored, read back in the same words:
+
+```json
+{
+  "search": {
+    "id": "cm1…",
+    "kind": "NEED",
+    "name": "Sunscreen to Estonia",
+    "notify": true,
+    "filters": { "buyCountry": "JP", "deliverCountry": "EE", "q": "sunscreen" },
+    "createdAt": "2026-10-21T09:12:00.000Z"
+  }
+}
+```
+
+A filter that was not set is **absent**, not null: the object is what was
+asked for, and a list of nulls is a list of questions nobody asked.
+
+**An empty `filters` is allowed** — "tell me about everything" is a thing
+somebody may want on a small marketplace, and the per-account limit is what
+stops it becoming a hundred standing queries. An unknown `categoryId` is a
+`400`, the same answer a need filed under one gets.
+
+**Ten per account**, and the eleventh is a `409` naming the number — the same
+refusal as the open-needs limit, and for the same reason: the problem is the
+state, not the shape of the request.
+
+**`AUTH`, not `SESSION`.** The thing a saved search does is send email, and an
+unverified address is one nobody has proved they own. This is the opposite
+decision from `PATCH /me/notifications`, which is `SESSION` precisely so that
+anybody can stop email; starting it is the half that needs a proved address.
+
+**There is no `PATCH`.** Renaming a standing query or switching its email off
+is a delete and a save. Version 2 scope does not grow either.
+
+### `GET /me/searches`
+
+```json
+{ "items": [ … ] }
+```
+
+The caller's own, newest first, no cursor: ten is the whole list, and a page of
+ten with a cursor nobody can use is machinery pretending to be a rule.
+
+### `DELETE /me/searches/:id`
+
+`204`. Somebody else's search, and an id that never existed, both answer `404`
+— the rule #79 set for files: a row you may not read is one you may not know
+exists.
+
+Saved searches go when the account does (#66).
+
+### What a match means
+
+**When**: the moment a listing becomes public — posted openly, or a draft
+published, or a paused offer reactivated. Exactly the four moments #87 asks
+for the prohibited-list tick, because it is the same event.
+
+**Where**: never in the request that published. The publish writes one row on
+#85's queue and answers; the worker does the matching seconds later. A hundred
+standing queries must not be a hundred comparisons inside somebody's `POST`.
+
+**What matches**: every filter that is set must agree, and a filter that is not
+set matches anything. `q` is matched against the need's title and description,
+without case, the same comparison `GET /needs` makes from the other side. An
+offer whose `shipsTo` is empty ships anywhere, so it matches any saved
+destination — again the same rule as `GET /helps`.
+
+**Who is told**: everybody whose search matches, **except the person who
+posted it**. One email per person per listing, however many of their searches
+caught it: the `Notification` row is keyed on the listing, so the second is
+refused by the same unique index that stops a deal sending two.
+
+**What stops it**: `notify: false` on the search, the account-wide switch
+(`PATCH /me/notifications`), a banned or deleted account, or the listing
+ceasing to be public before the worker composes the email — which is checked
+again at that moment, because minutes can pass.
 
 ## Files
 

@@ -47,7 +47,16 @@ export type NotificationKind =
   /** The deal completed, so reviews are open for 14 days (#83). */
   | "deal-completed"
   /** A moderator acted on your account or your content (#26, #27). */
-  | "moderation-decision";
+  | "moderation-decision"
+  /**
+   * Something appeared that matches a search they saved (#90).
+   *
+   * The one kind that is not "you must do something" — and the rule above
+   * survives it because of who asked: a standing query is a person naming
+   * the thing they want to hear about, which an activity feed is not
+   * (docs/10-decisions/0026-the-one-email-somebody-asked-for.md).
+   */
+  | "saved-search-match";
 
 /**
  * What the notification is ABOUT: which table, and which row.
@@ -62,7 +71,14 @@ export type NotificationSubject =
   | { type: "proposal"; id: string }
   | { type: "deal-event"; id: string }
   | { type: "quote"; id: string }
-  | { type: "admin-action"; id: string };
+  | { type: "admin-action"; id: string }
+  /**
+   * The listing a saved search caught (#90) — the LISTING, not the search.
+   * That is what makes "one email however many of your searches matched"
+   * fall out of the unique index rather than needing a rule of its own.
+   */
+  | { type: "need"; id: string }
+  | { type: "help"; id: string };
 
 /**
  * The kinds a person cannot switch off.
@@ -389,6 +405,64 @@ async function compose(
     const title = event.deal.need.title;
 
     return dealMessage(kind, event.toStatus, title);
+  }
+
+  /**
+   * A saved search caught something (#90).
+   *
+   * The status is checked HERE as well as in the matching, and it is not
+   * belt and braces: minutes can pass between the two, and a need that was
+   * closed in between is a need nobody should be emailed about. `null` is
+   * the composer's way of saying so, and the row is marked skipped.
+   */
+  if (subjectType === "need") {
+    const need = await prisma.need.findUnique({
+      where: { id: subjectId },
+      select: {
+        title: true,
+        status: true,
+        buyCountry: true,
+        deliverCountry: true,
+      },
+    });
+    if (need?.status !== "OPEN") return null;
+
+    return {
+      subject: `Matches your saved search: ${need.title}`,
+      lines: [
+        `Somebody has posted "${need.title}", to be bought in ${need.buyCountry} and delivered to ${need.deliverCountry}.`,
+        "",
+        "It matches a search you saved. What happens next: offer to help if you can get it — nothing is agreed until the requester accepts your offer.",
+        "",
+        "To stop these, delete the saved search or turn its email off.",
+      ],
+    };
+  }
+
+  if (subjectType === "help") {
+    const help = await prisma.help.findUnique({
+      where: { id: subjectId },
+      select: { status: true, country: true, shipsTo: true },
+    });
+    if (help?.status !== "ACTIVE") return null;
+
+    // An offer has no title to name it by, so the countries are the subject
+    // line: they are what somebody saved the search for.
+    const where =
+      help.shipsTo.length === 0
+        ? "anywhere"
+        : help.shipsTo.slice(0, 3).join(", ");
+
+    return {
+      subject: `Matches your saved search: somebody shopping in ${help.country}`,
+      lines: [
+        `Somebody in ${help.country} has offered to shop for other people, and posts to ${where}.`,
+        "",
+        "It matches a search you saved. What happens next: ask them about a need of yours — nothing is agreed until they accept.",
+        "",
+        "To stop these, delete the saved search or turn its email off.",
+      ],
+    };
   }
 
   if (subjectType === "admin-action") {

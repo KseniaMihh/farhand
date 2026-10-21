@@ -1,10 +1,11 @@
-import type { Job, Prisma } from "@prisma/client";
+import type { Job, Prisma, SearchKind } from "@prisma/client";
 import { prisma } from "../db.js";
 import { logger } from "../logger.js";
 import { mailer } from "../mailer.js";
 import { reportError } from "../observability.js";
 import { fulfilExport } from "./exports.js";
 import { sendNotification } from "./notifications.js";
+import { matchListing } from "./saved-searches.js";
 import {
   createPasswordResetToken,
   createVerificationToken,
@@ -57,7 +58,8 @@ export type JobKind =
   | "verification-email"
   | "password-reset-email"
   | "notification"
-  | "data-export";
+  | "data-export"
+  | "search-match";
 
 export interface JobPayloads {
   "verification-email": { email: string };
@@ -71,6 +73,12 @@ export interface JobPayloads {
   notification: { notificationId: string };
   /** #89, and an id for the same reason: the rows are read when it runs. */
   "data-export": { exportId: string };
+  /**
+   * #90: a listing that has just gone public, and which list it is on. An id
+   * again — and here the gap matters twice over, because the thing read when
+   * it runs is not only the listing but everybody's standing queries.
+   */
+  "search-match": { kind: SearchKind; listingId: string };
 }
 
 /**
@@ -258,6 +266,13 @@ const handlers: {
       const token = await createVerificationToken(prisma, user.id);
       await mailer.sendVerificationEmail(user.email, token);
     }
+  },
+
+  "search-match": async ({ kind, listingId }) => {
+    // Everybody with a standing query gets looked at here rather than in the
+    // request that published the listing (#90). Safe to run twice: the
+    // unique index behind `notify` turns the second run into nothing.
+    await matchListing(kind, listingId);
   },
 
   "data-export": async ({ exportId }) => {

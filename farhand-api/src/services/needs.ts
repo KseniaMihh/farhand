@@ -1,7 +1,7 @@
-import { Prisma } from "@prisma/client";
 import type { Need, NeedStatus, User } from "@prisma/client";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
+import { queueMatching } from "./saved-searches.js";
 import {
   acknowledgementFields,
   checkAcknowledgement,
@@ -9,6 +9,7 @@ import {
 } from "./prohibited.js";
 import {
   afterCursor,
+  isForeignKeyError,
   NEWEST_FIRST,
   type CursorPosition,
   onlyProvided,
@@ -192,13 +193,22 @@ export async function createNeed(
           )
         : {};
 
-      return tx.need.create({
+      const created = await tx.need.create({
         data: {
           requesterId: actor.id,
           ...fields,
           ...acknowledged,
         },
       });
+
+      // Somebody may be waiting for exactly this (#90). Queued inside the
+      // transaction, like every other job: a match for a need that was
+      // rolled back is a job that fails forever.
+      if (created.status === "OPEN") {
+        await queueMatching(tx, "NEED", created.id);
+      }
+
+      return created;
     });
   } catch (error) {
     if (isForeignKeyError(error)) {
@@ -246,10 +256,19 @@ export async function updateNeed(
           )
         : {};
 
-      return tx.need.update({
+      const updated = await tx.need.update({
         where: { id: needId },
         data: { ...onlyProvided(fields), ...acknowledged },
       });
+
+      // `goingPublic` is the same question #87 asks, and the answer is the
+      // same event: a draft becoming visible is a need appearing, as much as
+      // one posted openly in the first place (#90).
+      if (goingPublic) {
+        await queueMatching(tx, "NEED", updated.id);
+      }
+
+      return updated;
     });
   } catch (error) {
     if (isForeignKeyError(error)) {
@@ -293,17 +312,6 @@ export async function deleteNeed(actor: User, needId: string): Promise<void> {
     where: { id: needId },
     data: { status: "CLOSED" },
   });
-}
-
-/**
- * Prisma's "you referenced a row that does not exist" error — here, a
- * categoryId that matches no category.
- */
-function isForeignKeyError(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === "P2003"
-  );
 }
 
 /* ───────────────────────────── browsing (#16) ───────────────────────────── */
