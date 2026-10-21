@@ -331,6 +331,14 @@ preference changed between the event and the sending. Neither is deleted,
 because "what were we going to tell them, and why didn't we" is a question
 somebody asks exactly once, in anger.
 
+**A preference that was already off leaves no row at all.** `notify()` asks
+before it writes, so there is nothing left to skip later: `skippedAt` is only
+for the gap between the event and the sending. That is deliberate — the row is
+the record of an email, and an email nobody was ever going to be sent is not
+one — and it is the shape of this table that misleads people. The pre-launch
+walk expected a `skippedAt` row here and said so in writing until the
+21 October run on production proved otherwise.
+
 **The unique index on `(userId, kind, subjectId)` is the "one event, one
 email" rule**, held by the database rather than by a check-then-insert that two
 workers can both pass — the same reasoning as #19's one proposal per helper per
