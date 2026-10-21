@@ -4,7 +4,8 @@
 
 A platform for people who can't order the thing they want, and people who live where they can.
 
-> **Status: work in progress.** The version 1 API is feature-complete and deployed; the frontend is version 2.
+> **Status: work in progress.** The version 1 API is feature-complete and deployed, and version 2 — files,
+> reviews, notifications, trust, saved searches — is built on top of it. What is left is the frontend.
 > See [Roadmap](#roadmap).
 
 **Live:** [`https://farhand-api.onrender.com`](https://farhand-api.onrender.com/health) —
@@ -69,13 +70,17 @@ fresh. Where a choice was a trade-off, this README says which way it went and wh
 | ORM / migrations | Prisma 7.10, configured through `prisma.config.ts` (the Prisma 7 style) |
 | API | Express 5, Zod for request validation, pino for logging |
 | Tests | Vitest + Supertest, against a real PostgreSQL database |
-| CI | GitHub Actions: lint, formatting, typecheck, tests on every pull request |
+| CI | GitHub Actions: lint, formatting, typecheck, tests on every pull request; then migrate and deploy |
+| Hosting | Render (the API, free plan) and Neon (PostgreSQL, free plan) — decision 0010 |
+| Files | Backblaze B2 over the S3 protocol, `sharp` for re-encoding — decision 0011 |
+| Email | Brevo's HTTP API, because the free plan blocks outbound SMTP — decision 0014 |
+| Errors | Sentry, with a request id in every error body |
 | Dev tooling | `tsx`, `dotenv`, ESLint 10 with type-aware `typescript-eslint` rules, Prettier |
-| Planned | Playwright, Docker image, cloud deployment, Next.js frontend |
+| Planned | Playwright, Next.js frontend |
 
 ## Data model
 
-Sixteen models. Rather than list every field — `farhand-api/prisma/schema.prisma` is commented and is the
+Twenty-three models. Rather than list every field — `farhand-api/prisma/schema.prisma` is commented and is the
 source of truth — here are the six decisions behind the shape.
 
 **Private and public data are separate tables.** `User` holds email, password hash, role and account status, and
@@ -107,9 +112,10 @@ The models, grouped as the schema groups them:
 - **Accounts** — `User`, `Profile`, `Session`, `VerificationToken`
 - **Listings** — `Category`, `Need`, `Help`
 - **Matching & messaging** — `Proposal`, `Conversation`, `Message`
-- **Deals** — `Deal`, `DealEvent`
+- **Deals** — `Deal`, `Quote`, `DealEvent`
 - **Admin** — `AdminAction`
-- **v2 (trust & files)** — `Review`, `Report`, `File`
+- **Trust & files (v2)** — `Review`, `Report`, `File`, `ProhibitedItem`
+- **Work and word (v2)** — `Job`, `Notification`, `SavedSearch`, `DataExport`, `RateLimit`
 
 Sessions store a **hash** of the cookie value, never the value itself — so a database leak doesn't hand an
 attacker a set of working sessions. `VerificationToken` follows the same rule.
@@ -202,52 +208,25 @@ With the database up, from `farhand-api`:
 npm run dev        # tsx watch - restarts on every save
 ```
 
+**The endpoint list is not repeated here.** [`docs/06-api-contract.md`](docs/06-api-contract.md)
+is the specification — there is no OpenAPI file, that document is it — and
+`tests/contract/endpoints.test.ts` fails if the API and that document disagree
+about an endpoint or about who may call it (#69). A second list in this file
+would be a third place to forget, which is the mistake this README has already
+made once (#92).
+
+Enough to see it working:
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /health` | Liveness. Is the process responding? Checks nothing else, because restarting the API won't fix a database that is down. Also reports the commit it runs, so a deploy can tell the new version from the old. |
 | `GET /health/ready` | Readiness. Round-trips the database and returns 503 if it's unreachable, so a load balancer can route around a broken instance. |
-| `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Emails a verification token (logged in development). |
+| `POST /auth/register` | Creates an account and its profile. Answers `201` identically whether or not the email was already registered, so it cannot be used to discover who has an account. Queues a verification email — printed to the terminal in development, sent through Brevo in production. |
 | `POST /auth/verify-email` | Confirms the address with the emailed token. Tokens are single use, expire after 24 hours, and are stored only as a hash. |
-| `POST /auth/resend-verification` | Sends a new verification link and retires the older ones. Answers the same for every email. |
-| `GET /needs` | The public list: open needs, newest first, filtered by country, category or text, paged by cursor. |
-| `GET /needs/:id` | One need. Its owner sees any status; everyone else sees open and matched ones. |
-| `GET /me/needs` | The caller's own needs, drafts included. |
-| `POST /needs` | Posts a need. Five open per account; drafts do not count. |
-| `PATCH /needs/:id` | Edits a need, while it is a draft or open, and only the owner's own. |
-| `DELETE /needs/:id` | Closes a need. Refused while a deal is live; the row is kept either way. |
-| `GET /helps` | The public list of offers: filter by the helper's country, where they ship, or a category. |
-| `GET /helps/:id` | One offer. Its helper sees any status; everyone else sees active ones. |
-| `POST /helps` | Posts an offer to buy and send: a country, the countries it ships to, and its categories. |
-| `PATCH /helps/:id` | Edits an offer. Sending categories replaces the list. |
-| `DELETE /helps/:id` | Takes an offer down. The row stays, because proposals point at it. |
-| `POST /needs/:id/proposals` | A helper offers to shop for somebody else's need. One proposal per helper per need, decided by a unique constraint rather than by a look-first check. |
-| `POST /helps/:id/proposals` | A requester approaches a helper about a need of their own. The same row, the other way round. |
-| `GET /me/proposals` | Everything the caller is part of, sent and received, in one paged list. |
-| `POST /proposals/:id/accept` | The requester says yes. Five writes in one transaction — accept this, decline the rest, match the need, create the deal, log the first event — or none of them. |
-| `POST /proposals/:id/decline` | The requester says no. Only while the proposal is pending. |
-| `POST /proposals/:id/withdraw` | The helper changes their mind. Not undo: the slot stays taken. |
-| `POST /proposals/:id/messages` | Sends a message. The first one opens the thread, which is why this is addressed by the proposal. Rate limited per sender. |
-| `GET /conversations` | The inbox: threads the caller is in, most recently spoken in first, with unread counts. |
-| `GET /conversations/:id/messages` | One thread. Participants and moderators only; paged like a chat window, newest page first, read forwards. |
-| `POST /conversations/:id/read` | Records that the caller has read a thread, on their own side only. |
-| `POST /deals/:id/quote` | The helper says what it will cost. Revising is submitting again — every revision is kept. |
-| `GET /deals/:id/quotes` | Every revision on a deal, newest first, for its two people. |
-| `POST /deals/:id/transition` | Moves a deal to its next status — the only way any deal ever changes state. What is allowed comes from one table; every move writes to the event log. |
-| `GET /deals/:id` | One deal with its quotes and its whole history. Its two people, and moderators. |
-| `GET /me/deals` | The caller's deals, either side, filtered by status, paged. |
-| `POST /reports` | Reports a user, need, offer or message. The target is checked in the service — a polymorphic id has no foreign key to keep it honest. |
-| `GET /admin/reports` | The moderator queue: oldest first, because it is work waiting rather than a feed. |
-| `GET /admin/reports/:id` | One report with the thing it is about, so a moderator can judge it. |
-| `POST /admin/reports/:id/resolve` | Closes a report with a note. Frees the reporter to report again if it recurs. |
-| `POST /admin/users/:id/actions` | Warn, suspend, ban or reactivate. A reason every time, and the record is written with the change or not at all. |
-| `POST /admin/content/:type/:id/remove` | Takes a need, offer or message down, recording both whose it was and which one. |
 | `POST /auth/login` | Checks the password and sets an httpOnly session cookie. An unknown email and a wrong password get the same answer, in the same time. |
 | `GET /auth/me` | Who is logged in: the user and their profile, never the password hash. |
-| `POST /auth/logout` | Ends this device's session and clears the cookie. Other devices stay logged in. |
-| `POST /auth/forgot-password` | Emails a reset link that works for one hour. Answers the same whether or not the email has an account. |
-| `POST /auth/reset-password` | Sets a new password with the emailed token, and logs the account out on every device. |
-| `PUT /me/avatar` | Sets your avatar: the image is the request body. Stored as a square WebP of at most 512 px with every scrap of metadata — GPS included — removed. Replacing one deletes the old file. |
-| `DELETE /me/avatar` | Back to no avatar, row and bytes. |
+| `GET /needs` | The public list: open needs, newest first, filtered by country, category or text, paged by cursor. |
+| `POST /needs` | Posts a need. Five open per account; drafts do not count; a public one must tick the prohibited list. |
 | `GET /files/:id` | A redirect to a signed link that works for five minutes. Avatars follow their owner's profile, need photos their need, receipts only the two people in the deal and moderators — anyone else gets the same `404` as for a file that does not exist. |
 
 > **Writing to the API by hand?** Every `POST`, `PATCH` and `DELETE` must arrive
@@ -311,6 +290,14 @@ Truncation also clears the seeded categories, deliberately. A test that needs a
 category creates the one it needs, rather than depending on seed data that may
 change.
 
+**The prohibited list is the one exception**, and it is written down here so
+nobody wonders why. Since #87 a public listing cannot be posted without ticking
+the current list, and the version it ticks is a fingerprint of the rows in the
+database — so an empty table makes every posting in the suite impossible.
+`tests/setup/truncate.ts` re-seeds three lines after each truncation. The rule
+is still "a test creates what it needs"; this is the one thing no test can
+create for itself without re-stating the rule it is testing.
+
 `tests/setup/truncate.ts` refuses to run unless `NODE_ENV=test` **and** the
 database name ends in `_test`, so a mistyped connection string stops the suite
 instead of emptying your development data. `tests/isolation.test.ts` tests the
@@ -328,28 +315,70 @@ that sets every row's timestamp to the test's own clock (`due()` in
 real `new Date()` only where the thing under test is "now", as
 `tests/helpers/jobs.ts` does when it stands in for a worker.
 
+Every test file has a row here, and `tests/contract/readme.test.ts` fails if
+one arrives without it (#92).
+
 | File | What it does |
 | --- | --- |
 | `vitest.config.ts` | Loads `.env.test` over the shell environment; pins the suite to one worker |
 | `tests/setup/global-setup.ts` | Creates the test database if missing, then `prisma migrate deploy`, then the test bucket in the local file store |
 | `tests/setup/truncate.ts` | The safety check, and the truncation before each test |
 | `tests/health.test.ts` | `/health` and the commit it reports, `/health/ready`, and the 404 error shape |
-| `tests/files/store.test.ts` | Storing a file: the size and type limits, refusals that store nothing, and a failure halfway leaving no orphan |
-| `tests/files/read.test.ts` | `GET /files/:id`: the expiring redirect, bytes never public, who may see each purpose, and vanished bytes not being a crash |
-| `tests/files/account-deletion.test.ts` | Deleting an account: photos go, receipts stay, and bytes are deleted only after the transaction commits |
-| `tests/profiles/avatar.test.ts` | Avatars: what is stored (square, small, WebP, no metadata, upright), every refusal changing nothing, replacing leaving one file, and the rate limit |
+| `tests/isolation.test.ts` | The harness itself: one test writes a row, the next asserts it is gone |
+| `tests/env.test.ts` | Settings that only mean anything complete — a half-configured file store or mail key refuses to start |
+| `tests/contract/endpoints.test.ts` | Every documented endpoint exists, every live one is documented, and each one's guards match its marker (#69) |
+| `tests/contract/readme.test.ts` | This README's source tree and test table against the files that are really there (#92) |
 | `tests/auth/register.test.ts` | Registration: validation, hashing, the one-transaction rule, and the identical duplicate response |
-| `tests/auth/verify-email.test.ts` | Verification: single use (including a staged double-click), expiry, wrong token type, identical rejections |
+| `tests/auth/verify-email.test.ts` | Verification: single use including a staged double-click, expiry, wrong token type, identical rejections |
 | `tests/auth/login.test.ts` | Login: the cookie settings, hashed session storage, identical and equally slow failures, banned vs suspended |
 | `tests/auth/me-logout.test.ts` | `/auth/me`, logout, and requireAuth: expired sessions, bans landing on the next request, one device at a time |
 | `tests/auth/guards.test.ts` | requireVerified, requireActive and requireRole, each on a one-route test app |
 | `tests/auth/password-reset.test.ts` | Forgot and reset: identical answers, only the newest link working, expiry, reuse, and every device logged out |
 | `tests/auth/resend-verification.test.ts` | Resend: a working new link, older links retired, and the same answer for unknown, verified and banned accounts |
 | `tests/auth/rate-limit.test.ts` | Rate limiting: counting by address and by account, the 429 shape, windows resetting, and the real endpoints being wired up |
+| `tests/auth/mailer.test.ts` | Sending for real: the provider call, what is never logged, and what a refusal does to the queued job |
+| `tests/profiles/public-profile.test.ts` | `GET /users/:id`: the five fields a stranger sees, and who answers 404 |
+| `tests/profiles/my-profile.test.ts` | `PATCH /me/profile`: only your own, only the fields you send, and what a blank one means |
+| `tests/profiles/avatar.test.ts` | Avatars: what is stored (square, small, WebP, no metadata, upright), every refusal changing nothing, replacing leaving one file, and the rate limit |
+| `tests/profiles/delete-account.test.ts` | `DELETE /me`: the password, the deals that refuse it, and exactly what anonymisation leaves behind |
 | `tests/needs/needs.test.ts` | Needs: every permission rule — ownership, editable statuses, the open-needs limit, and what blocks a delete |
 | `tests/needs/browse.test.ts` | Browsing: filters, what each visitor may see, and paging that stays correct while needs are posted |
+| `tests/needs/photos.test.ts` | Photos on a need: six at most, who may add and remove one, and the cover photo a list carries |
 | `tests/helps/helps.test.ts` | Helps: ownership, categories replaced rather than added, empty shipsTo meaning anywhere, and a delete that keeps proposals |
 | `tests/helps/browse.test.ts` | Browsing offers: filters, ships-anywhere matching every search, paging, and what EXPLAIN says about the GIN index |
+| `tests/proposals/proposals.test.ts` | Proposals: who may send one, one per helper per need whatever became of it, declining and withdrawing |
+| `tests/proposals/accept.test.ts` | Accepting: the one transaction that makes a deal, the need it matches, and the other proposals it does not touch |
+| `tests/conversations/conversations.test.ts` | Threads and messages: who may read one, what unread means, and the moderator rule |
+| `tests/conversations/rate-limit.test.ts` | The limit on sending messages, counted per signed-in sender rather than per address |
+| `tests/deals/transitions.test.ts` | The deal state machine: all 81 moves, who may make each one, and what each leaves in the event log |
+| `tests/deals/quotes.test.ts` | Quotes: who may send and agree one, and why agreeing is not a status change |
+| `tests/deals/events.test.ts` | `GET /deals/:id/events`: the history both sides see, oldest first, with the actor named |
+| `tests/deals/receipts.test.ts` | Receipts: who may attach one and when, six per kind, nothing deleting one, and the line a moderator's read writes |
+| `tests/deals/cancellation.test.ts` | Cancellation, disputes, and the sweep that completes a deal fourteen days after delivery |
+| `tests/reviews/reviews.test.ts` | Reviews: one per side, the fourteen-day window, and blind until both are in or the window closes |
+| `tests/reviews/summary.test.ts` | The rating summary on a profile: what counts, what does not, and the single query it costs |
+| `tests/reviews/moderation.test.ts` | Reporting and removing a review: the tombstone it leaves, and the words only a moderator can still read |
+| `tests/reports/reports.test.ts` | Reports: who may file one about what, one open report per person per target, and the queue's order |
+| `tests/admin/moderation.test.ts` | Moderation: warn, suspend, ban, reactivate, takedowns, the audit row each writes, and what a report shows |
+| `tests/admin/user-search.test.ts` | Finding a person: exact email, partial name, the one endpoint that returns an address, and the line every search writes |
+| `tests/admin/erasure.test.ts` | A moderator erasing a banned account: banned only, idempotent, and the same erasure `DELETE /me` performs |
+| `tests/prohibited/acknowledgement.test.ts` | The tick: required at the moment a listing becomes public, refused when the wording has changed, and recorded with its version |
+| `tests/notifications/notifications.test.ts` | The mechanism: one event one email, the preference re-read at sending time, and who gets nothing |
+| `tests/notifications/events.test.ts` | Which events send an email and which deliberately do not — the silences tested as carefully as the sends |
+| `tests/notifications/preference.test.ts` | `PATCH /me/notifications`: the one switch, and the kinds it cannot stop |
+| `tests/searches/saved-searches.test.ts` | Saved searches: what may be saved, the limit, what a new listing matches, and the single email it sends |
+| `tests/exports/export.test.ts` | Asking for a copy and downloading it: whose data is in it, what is left out, and the seven-day sweep |
+| `tests/jobs/queue.test.ts` | The queue: claiming with a lease, backoff, giving up after five attempts, and work that outlives a crash |
+| `tests/files/store.test.ts` | Storing a file: the size and type limits, refusals that store nothing, and a failure halfway leaving no orphan |
+| `tests/files/read.test.ts` | `GET /files/:id`: the expiring redirect, bytes never public, who may see each purpose, and vanished bytes not being a crash |
+| `tests/files/account-deletion.test.ts` | Deleting an account: photos go, receipts stay, and bytes are deleted only after the transaction commits |
+| `tests/files/cost.test.ts` | What a page of images costs in queries, measured rather than assumed |
+| `tests/files/store-cleanup.test.ts` | The test bucket is emptied between runs, so a suite cannot slow down for ever |
+| `tests/security/hardening.test.ts` | The headers, the body size limit, what a 500 does not say, and the routes that must stay closed |
+| `tests/security/csrf.test.ts` | The origin check on every write, and the three ways a request can fail it |
+| `tests/security/observability.test.ts` | A request id on every error, the same id in the log, and what is reported to Sentry |
+| `tests/security/reporting-outage.test.ts` | What happens when the thing that records failures fails |
+| `tests/security/shared-rate-limits.test.ts` | One budget across two independent copies of the app, the window dated by the database, and failing open when it cannot be reached |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -399,6 +428,7 @@ change, nothing reaches `master` unverified.
 | Seed the category list (adds new ones, renames changed ones, never deletes) and the prohibited list (adds what is missing, **never rewords** what is there) | `npm run seed` | `farhand-api` |
 | Complete deals delivered 14 days ago | `npm run job:auto-complete` | `farhand-api` |
 | Destroy data exports older than 7 days | `npm run job:sweep-exports` | `farhand-api` |
+| Delete rate-limit windows that have ended | `npm run job:sweep-rate-limits` | `farhand-api` |
 | Run whatever is waiting on the job queue, once | `npm run job:drain` | `farhand-api` |
 | Typecheck | `npm run typecheck` | `farhand-api` |
 | Lint (and auto-fix what's safe) | `npm run lint` / `npm run lint:fix` | `farhand-api` |
@@ -417,15 +447,25 @@ supports TypeScript 7, remove the alias.
 
 ## Project structure
 
+Every source file has a line here, and `tests/contract/readme.test.ts` fails
+if one arrives without it (#92). The tests are listed by folder: the table
+under [Tests](#tests) is where they are enumerated, and twice is once too many.
+
 ```
 farhand/
-├── .github/workflows/ci.yml    lint, format, typecheck, test; then build the image and run the stack
+├── .github/
+│   └── workflows/
+│       ├── ci.yml              lint, format, typecheck, test; build the image, run the stack; migrate Neon and deploy
+│       ├── auto-complete.yml   the daily sweeps: deals delivered 14 days ago, expired exports, expired rate-limit windows
+│       └── drain-queue.yml     the six-hourly backstop that drains the job queue if the web service is asleep
 ├── docker-compose.yml          the stack: PostgreSQL, the local file store, a one-shot migrate step, the API
 ├── render.yaml                 how Render runs the API: region, health check, one instance
 ├── .gitignore
 ├── .gitattributes              forces LF line endings, so Prettier agrees on Windows
 ├── README.md
-├── scripts/                    repo chores: GitHub issue seeding, test database creation
+├── CLAUDE.md                   working notes for Claude: pointers to the documents, not a second copy of them
+├── docs/                       the long-form documents — the contract, the data model, the deal lifecycle, the decision records
+├── scripts/                    repo chores: GitHub issue and label seeding, test database creation
 ├── farhand-api/                the backend (npm and Prisma run here)
 │   ├── Dockerfile              four stages; only the last one ships
 │   ├── .dockerignore
@@ -442,55 +482,113 @@ farhand/
 │   │   ├── schema.prisma       the data model, commented
 │   │   └── migrations/         applied migrations - never edited
 │   ├── src/
-│   │   ├── server.ts           entry point: starts and stops the process
+│   │   ├── server.ts           entry point: starts the HTTP server and the worker, and stops both
 │   │   ├── app.ts              builds the Express app (binds no port)
+│   │   ├── worker.ts           the job-queue worker that runs inside the web service
 │   │   ├── env.ts              environment variables, validated with Zod
 │   │   ├── db.ts               the shared Prisma client
 │   │   ├── logger.ts           pino
 │   │   ├── errors.ts           HttpError and the error response shape
+│   │   ├── observability.ts    Sentry, and what happens when reporting itself fails
 │   │   ├── password.ts         argon2id hashing; the only file that imports argon2
 │   │   ├── tokens.ts           single-use tokens: generated, hashed, stored
-│   │   ├── mailer.ts           outgoing email; logs the token in development
+│   │   ├── mailer.ts           outgoing email: Brevo's HTTP API, and the development fallback
 │   │   ├── sessions.ts         login sessions and the cookie settings
 │   │   ├── storage.ts          the file store (S3 protocol); the only file that knows it
-│   │   ├── images.ts           avatars re-encoded with sharp; the only file that knows it
+│   │   ├── images.ts           avatars, need photos and receipts re-encoded with sharp; the only file that knows it
+│   │   ├── seed.ts             categories and the prohibited-items list
+│   │   ├── jobs/
+│   │   │   ├── drain.ts        runs the queue once, for the scheduled backstop
+│   │   │   ├── auto-complete.ts  completes deals delivered 14 days ago
+│   │   │   ├── sweep-exports.ts  destroys export payloads past their seven days
+│   │   │   └── sweep-rate-limits.ts  deletes rate-limit windows that have ended
 │   │   ├── middleware/
-│   │   │   ├── error-handler.ts
-│   │   │   ├── rate-limit.ts   per-address and per-account limits on the auth endpoints
+│   │   │   ├── error-handler.ts  every error becomes the same JSON shape
+│   │   │   ├── request-id.ts   one id per request, echoed in the error body
+│   │   │   ├── security.ts     headers, CORS, and the origin check on writes
+│   │   │   ├── rate-limit.ts   the limits themselves, and what each one counts by
+│   │   │   ├── rate-limit-store.ts  the counters, in the database every instance shares
 │   │   │   └── auth.ts         requireAuth, requireVerified, requireActive, requireRole
 │   │   ├── schemas/
 │   │   │   └── common.ts       field rules more than one router needs
 │   │   ├── services/
-│   │   │   ├── shared.ts       pieces both listing services use
+│   │   │   ├── shared.ts       paging, cursors, and the pieces several services use
 │   │   │   ├── needs.ts        who may create, edit and close a need
 │   │   │   ├── helps.ts        the same, for offers to carry something
+│   │   │   ├── need-photos.ts  a need's photos, and the one query a page of them costs
+│   │   │   ├── proposals.ts    offering to help, and accepting: the one place a deal is born
+│   │   │   ├── conversations.ts  threads, messages, and when a moderator may read one
+│   │   │   ├── deals.ts        a deal as each side sees it, its events and its receipts
+│   │   │   ├── transitions.ts  the deal state machine: who may move it, and where to
+│   │   │   ├── receipts.ts     attaching proof of purchase and postage
+│   │   │   ├── reviews.ts      reviews, blind until both are in, and what removal leaves
+│   │   │   ├── profiles.ts     public profiles, own profile, and leaving
 │   │   │   ├── avatars.ts      set, replace and remove your own avatar
-│   │   │   └── files.ts        file rules: size, type, who may see one, what deletion removes
+│   │   │   ├── files.ts        file rules: size, type, who may see one, what deletion removes
+│   │   │   ├── reports.ts      reporting a person, a listing, a message or a review
+│   │   │   ├── moderation.ts   the few things a moderator may do, and the record of them
+│   │   │   ├── erasure.ts      the anonymisation both DELETE /me and a moderator use
+│   │   │   ├── exports.ts      a copy of everything held about one person
+│   │   │   ├── notifications.ts  what is worth an email, and one event sending one
+│   │   │   ├── jobs.ts         the queue: claiming, retrying, giving up
+│   │   │   ├── prohibited.ts   the list, its fingerprint, and the tick against it
+│   │   │   └── saved-searches.ts  standing queries, and matching a listing against them
 │   │   └── routes/
-│   │       ├── health.ts
+│   │       ├── health.ts       liveness, readiness, and the commit it reports
 │   │       ├── auth.ts         register, verify email, log in and out, me, reset password
-│   │       ├── needs.ts        create, edit, delete and browse needs
+│   │       ├── profiles.ts     public profile, own profile, avatar, delete account
+│   │       ├── needs.ts        create, edit, delete and browse needs; photos
 │   │       ├── helps.ts        create, edit, delete and browse offers
+│   │       ├── proposals.ts    send, accept, decline, withdraw; messages on a proposal
+│   │       ├── conversations.ts  reading a thread and marking it read
+│   │       ├── deals.ts        one deal, its events, its transitions, its quotes and receipts
+│   │       ├── reports.ts      POST /reports
+│   │       ├── admin.ts        the whole /admin surface: the queue, actions, takedowns, erasure
+│   │       ├── notifications.ts  the one switch
+│   │       ├── prohibited.ts   the public list
+│   │       ├── exports.ts      ask for a copy, download it once it is built
+│   │       ├── searches.ts     saved searches
 │   │       └── files.ts        GET /files/:id, a redirect to a signed link
 │   └── tests/
 │       ├── tsconfig.json       tests are their own TS project, not part of the build
 │       ├── setup/
-│       │   ├── global-setup.ts creates the test database, applies migrations
-│       │   └── truncate.ts     safety check, and TRUNCATE before each test
-│       ├── auth/
-│       │   ├── register.test.ts
-│       │   ├── verify-email.test.ts
-│       │   ├── login.test.ts
-│       │   ├── me-logout.test.ts
-│       │   ├── guards.test.ts
-│       │   ├── password-reset.test.ts
-│       │   ├── resend-verification.test.ts
-│       │   └── rate-limit.test.ts
-│       ├── files/              storing, reading, and what account deletion does to files
+│       │   ├── global-setup.ts  creates the test database, applies migrations, makes the test bucket
+│       │   └── truncate.ts     the safety check, and TRUNCATE before each test
 │       ├── helpers/
-│       │   └── auth.ts         signUpAndLogIn() for tests that need a user
-│       ├── health.test.ts
-│       └── isolation.test.ts   proves the harness isolates tests
+│       │   ├── auth.ts         signUpAndLogIn() and friends, for tests that need a user
+│       │   ├── needs.ts        a category, a valid need body, a deal on a need
+│       │   ├── files.ts        file rows and sample images without going through an endpoint
+│       │   ├── images.ts       reading back what sharp produced
+│       │   ├── http.ts         comparing two answers, and pinning the keys of one
+│       │   ├── jobs.ts         running whatever the last request queued
+│       │   ├── queries.ts      what the database was actually asked, while something happened
+│       │   ├── prohibited.ts   the current list fingerprint, which a public posting needs
+│       │   ├── transactions.ts  breaking a transaction halfway, on purpose
+│       │   ├── contract.ts     reading the API contract, and the app's own routing table
+│       │   └── readme.ts       reading this file: the tree above and the table below
+│       ├── admin/              moderation, the audit log, user search, erasure
+│       ├── auth/               registration through to password reset, the guards, the limits, the mailer
+│       ├── contract/           the two documents that are checked against the code
+│       ├── conversations/      threads, messages, and the limit on sending them
+│       ├── deals/              the state machine, quotes, receipts, events, cancellation
+│       ├── exports/            asking for a copy and downloading it
+│       ├── files/              storing, reading, cost, cleanup, and what deletion removes
+│       ├── helps/              offers and browsing them
+│       ├── jobs/               the queue: claiming, backoff, giving up
+│       ├── needs/              needs, browsing them, photos
+│       ├── notifications/      the mechanism, which events send, and the switch
+│       ├── profiles/           public and own profiles, avatars, leaving
+│       ├── prohibited/         the tick at the moment it matters
+│       ├── proposals/          sending and accepting
+│       ├── reports/            submitting and queueing
+│       ├── reviews/            writing, reading, the blind window, removal, summaries
+│       ├── searches/           saved searches end to end
+│       ├── security/           headers, CORS, origin checks, request ids, shared limits
+│       ├── env.test.ts         settings that only mean anything complete
+│       ├── health.test.ts      the first API-level tests
+│       ├── isolation.test.ts   proves the harness isolates tests
+│       ├── assert-store-empty.ts  a standalone check that the test bucket is empty
+│       └── fill-store.ts       fills it on purpose, to prove the check works
 └── farhand-web/                planned: Next.js frontend
 ```
 
@@ -498,7 +596,7 @@ farhand/
 
 **v1 — the core product**
 
-- [x] Data model: 16 models, relations, indexes
+- [x] Data model: 16 models to start with, relations, indexes
 - [x] PostgreSQL 18 in Docker Compose
 - [x] Initial migration
 - [x] Hand-written constraints: one active deal per need, rating range, non-negative money
@@ -517,14 +615,21 @@ farhand/
 - [x] Request ids through the logs, and error reporting
 - [x] API in Docker, deployed to a cloud host with monitoring
 
-**v2 — trust and safety**
+**v2 — trust and polish**
 
-- [ ] The frontend
-- [ ] File uploads (need photos, receipts) to object storage
-- [ ] Reviews after completed deals
-- [ ] Prohibited items refused at posting time, rather than only reported afterwards
-- [ ] Email notifications through a background job queue
-- [ ] Frontend (`farhand-web`, Next.js) as a separate project
+- [x] File uploads to object storage: avatars, need photos, receipts on a deal
+- [x] Reviews after completed deals, blind until both sides have written
+- [x] Prohibited items ticked at the moment a listing becomes public, not only reported afterwards
+- [x] Email notifications through a background job queue, and the switch that stops them
+- [x] A moderator's view of a person, and the erasure for an account that cannot ask for one
+- [x] A data export: everything held about one person, built in the background
+- [x] Saved searches, and being told when something matches
+- [x] Rate limits that survive a second machine
+- [ ] The README describing the project again — this issue (#92)
+- [ ] Frontend (`farhand-web`, Next.js) as a separate project (#93)
+
+Before the frontend: one walk through the whole product on production, by hand
+(#131). The suite cannot prove that an email really arrives.
 
 ## Scope & safety
 
