@@ -8,6 +8,7 @@ import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
 import { runQueuedJobs } from "../helpers/jobs.js";
 import { createCategory, needBody } from "../helpers/needs.js";
+import { statementsDuring } from "../helpers/queries.js";
 import { currentProhibitedVersion } from "../helpers/prohibited.js";
 
 /**
@@ -450,6 +451,13 @@ describe("a listing that does not match", () => {
       .set("Cookie", kadri.cookie)
       .send(await needBody(categoryId, { status: "DRAFT" }));
     expect(draft.status).toBe(201);
+
+    // Not even a job: the question is not asked, rather than asked and
+    // answered no. A variant that queued the matching for drafts too passed
+    // every other test in this file, because the matching checks the status
+    // again — the queue is where it is observable.
+    expect(await prisma.job.count()).toBe(0);
+
     await runEverythingQueued();
 
     // Nobody can see a draft, so there is nothing to be told about.
@@ -563,6 +571,23 @@ describe("an offer that matches", () => {
     expect(sent).toHaveBeenCalledTimes(1);
   });
 
+  it("does not tell a helper about their own offer", async () => {
+    // The same rule as a need, and a separate test because it is a separate
+    // line of code: a variant that deleted this one left every need test
+    // green.
+    await save(yuki, {
+      kind: "HELP",
+      name: "Anybody in Japan",
+      filters: { country: "JP" },
+    });
+    const sent = watchTheMail();
+
+    await postHelp();
+    await runEverythingQueued();
+
+    expect(sent).not.toHaveBeenCalled();
+  });
+
   it("is silent when the offer does not ship there", async () => {
     await save(kadri, {
       kind: "HELP",
@@ -637,6 +662,85 @@ describe("how the matching runs", () => {
     expect(
       await prisma.notification.count({ where: { userId: yuki.id } }),
     ).toBe(1);
+  });
+
+  /**
+   * The matching's own status check, made observable.
+   *
+   * A variant that deleted it passed everything, because the composer checks
+   * the status a second time before writing the email — so the only visible
+   * difference was a Notification row that should never have been written.
+   * Asserting the ROW rather than the email is what makes the first guard a
+   * rule somebody can see, instead of a line nothing would miss.
+   */
+  it("records nothing for a listing that is no longer public", async () => {
+    await save(yuki, sunscreenSearch());
+    const need = await postNeed();
+    await prisma.job.deleteMany({});
+    await prisma.need.update({
+      where: { id: need.id },
+      data: { status: "CLOSED" },
+    });
+
+    const { matchListing } =
+      await import("../../src/services/saved-searches.js");
+    await matchListing("NEED", need.id);
+
+    expect(await prisma.notification.count()).toBe(0);
+    expect(await prisma.job.count()).toBe(0);
+  });
+
+  /**
+   * And the composer's check, made observable the only way it can be: by
+   * closing the need in the gap between the two jobs. Minutes can pass there
+   * in production, which is the whole reason the second check exists.
+   */
+  it("says nothing when the listing closes between the matching and the email", async () => {
+    await save(yuki, sunscreenSearch());
+    const sent = watchTheMail();
+
+    const need = await postNeed();
+    await runQueuedJobs(); // the matching: a Notification row and a job
+
+    expect(await prisma.notification.count()).toBe(1);
+    await prisma.need.update({
+      where: { id: need.id },
+      data: { status: "CLOSED" },
+    });
+
+    await runQueuedJobs(); // the sending, which now has nothing to say
+
+    expect(sent).not.toHaveBeenCalled();
+    const row = await prisma.notification.findFirstOrThrow();
+    expect(row.sentAt).toBeNull();
+    expect(row.skippedAt).not.toBeNull();
+  });
+
+  /**
+   * One person is asked about once, however many of their searches caught the
+   * listing. The unique index would refuse the second row anyway — this is
+   * about not asking: three searches must not mean three inserts and three
+   * reads of the same user (#102's shape of test, tests/files/cost.test.ts).
+   */
+  it("asks the database once for one person, however many searches matched", async () => {
+    for (const name of ["By country", "By words", "Everything"]) {
+      await save(yuki, sunscreenSearch({ name, filters: {} }));
+    }
+    watchTheMail();
+    const need = await postNeed();
+    await prisma.job.deleteMany({});
+
+    const { matchListing } =
+      await import("../../src/services/saved-searches.js");
+    const statements = await statementsDuring(() =>
+      matchListing("NEED", need.id),
+    );
+
+    expect(
+      statements.filter((sql) =>
+        sql.includes('INSERT INTO "public"."Notification"'),
+      ),
+    ).toHaveLength(1);
   });
 
   it("is not a reason for the publish to fail", async () => {
