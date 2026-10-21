@@ -432,10 +432,19 @@ seconds:
 Every reply, not only a `429`, carries `RateLimit` and `RateLimit-Policy`
 headers, so a client can see what is left instead of guessing.
 
-The counts are held in the API process's memory. That is correct for one
-instance and wrong for several — each would count separately — so the store
-moves to Redis when the API is deployed behind more than one instance
-(`src/middleware/rate-limit.ts`).
+**The counts are held in the database, not in the API's memory** (#91). Every
+number in this section is therefore the number, however many instances are
+running: they share one row per limiter per client, and the window's deadline
+is written by the database's own clock so two machines cannot disagree about
+when it ends. Until #91 the counters were per process, which meant a second
+instance would have doubled every limit here — the reason `numInstances` was
+pinned to `1` in `render.yaml` (`docs/14-deployment.md`, decision 0027).
+
+**If the database cannot be reached, the request is allowed** and the failure
+is logged as an error. The store is the API's own database, so a counter that
+cannot be read means the endpoint behind it is already failing; refusing as
+well would turn a blip into a certain outage. The log line is what keeps that
+from being a limiter that has quietly stopped limiting.
 
 ## Profile
 

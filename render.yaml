@@ -12,11 +12,15 @@ services:
     # would race the migration step and could serve a new image against an
     # old schema.
     autoDeployTrigger: off
-    # Two reasons, and both have to go before this can be anything else
-    # (docs/14-deployment.md, "One instance, for two reasons"):
-    #   the free plan does not scale past one instance at all; and
-    #   the rate limiters count in memory, so two instances would each keep
-    #   their own count and every documented limit would double (#91).
+    # ONE reason now, and it is the plan's (docs/14-deployment.md, "One
+    # instance, and now for one reason"): the free plan does not scale past a
+    # single instance at all.
+    #
+    # The code's reason is gone. The rate limiters counted in memory until
+    # #91, so two instances would have kept two tallies and doubled every
+    # documented limit; the counters are rows in the shared database now, and
+    # a test runs two independent copies of the app against one budget. On a
+    # paid plan this number can go up without anything in the code changing.
     numInstances: 1
     envVars:
       - key: NODE_ENV

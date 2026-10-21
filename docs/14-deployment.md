@@ -334,14 +334,15 @@ instead. Same order, different place.
 
 ## The daily sweep
 
-Two things run on a schedule rather than on a request, in one workflow and
+Three things run on a schedule rather than on a request, in one workflow and
 one run. Since #89 the second destroys the payload of any data export that
-has had its seven days; it runs with `if: always()`, because a copy of
-somebody's personal history that should have been deleted has nothing to do
-with whether a deal completed. One schedule rather than two on purpose: both
-are "a clock has passed, tidy up", they want the same cadence, and a second
-schedule is a second thing that can silently stop firing — which is what #114
-found had happened to this one.
+has had its seven days, and since #91 the third deletes rate-limit windows
+that have ended. Both run with `if: always()`: a copy of somebody's personal
+history that should have been deleted has nothing to do with whether a deal
+completed, and neither has a table of expired counters. One schedule rather
+than three on purpose: all of them are "a clock has passed, tidy up", they
+want the same cadence, and a second schedule is a second thing that can
+silently stop firing — which is what #114 found had happened to this one.
 
 The first of them is the sweep that
 completes a deal fourteen days after delivery (#25). Without it a delivered
@@ -567,30 +568,47 @@ Zero here was predicted from the git history — no code had ever written the
 column — and checking it costs one query. A destructive migration is the
 one place where *predicted* and *verified* are worth keeping apart.
 
-## One instance, for two reasons
+## One instance, and now for one reason
 
-`render.yaml` sets `numInstances: 1`, and there are **two independent**
-reasons for it. Fixing either one alone would not let a second instance run.
+`render.yaml` sets `numInstances: 1`. Until #91 there were **two independent**
+reasons for that, and only one of them is left.
 
-**The plan.** Render's free plan does not scale past a single instance, so
-`1` is the only value it would accept.
+**The plan.** Render's free plan does not scale past a single instance, so `1`
+is the only value it would accept. That is still true, and it is now the only
+thing in the way.
 
-**The code.** The rate limiters count in memory, one tally per process
-(`src/middleware/rate-limit.ts`, which has said so since #14). Two instances
-mean two tallies and therefore twice the limit: 20 login attempts per address
-becomes 40, 10 per account becomes 20, and 300 requests a minute becomes 600.
-Worse than the doubling: the `RateLimit` headers would disagree with each
-other request by request, and somebody refused with a `429` could simply try
-again and be served by the other instance's fresh count. The numbers in
-`06-api-contract.md` would stop being true in a way nobody could predict.
+**The code — fixed in #91.** The rate limiters used to count in memory, one
+tally per process (`src/middleware/rate-limit.ts`, which said so from #14
+until #91). Two instances meant two tallies and therefore twice every
+documented limit: 20 login attempts per address became 40, 10 per account
+became 20, 300 requests a minute became 600. Worse than the doubling, the
+`RateLimit` headers would have disagreed with each other request by request,
+and somebody refused with a `429` could have tried again and been served by
+the other instance's fresh count. The numbers in `06-api-contract.md` would
+have stopped being true in a way nobody could predict.
 
-So paying for a larger plan would not be enough on its own — the counters
-have to move to a shared store first (#91). Until then, one instance keeps
-the written rules and the running system saying the same thing.
+The counters now live in the database every instance already shares — a
+`RateLimit` table and about a hundred lines of store, rather than a Redis to
+run and pay for (decision 0027, and 0019's argument about the job queue
+repeated). A test proves it the only way that means anything: it builds two
+independent copies of the application, spends the login budget across both,
+and expects the twenty-first request to be refused by either
+(`tests/security/shared-rate-limits.test.ts`).
+
+**So `numInstances` is now a plan question, not a correctness one.** On a paid
+plan it can go above one without anything in the code changing. What would
+still want thinking about on the day:
+
+| | |
+|---|---|
+| The worker | Every instance runs `startWorker()`, and #85's `FOR UPDATE SKIP LOCKED` claim is built for exactly that — two workers step over each other's rows rather than queueing behind them |
+| The counters | One short statement per limited request, against the database. Fine at this size; the first thing to measure if it ever is not |
+| Sticky anything | There is none. Sessions are a hashed cookie checked against a table, so any instance can answer any request |
 
 This section used to say the single instance was *"not to save money — the
-reason is the code's"*. True, and it left the impression that the plan would
-allow two. It would not (#100).
+reason is the code's"*. That was true, and it left the impression that the
+plan would allow two. It would not (#100). Now the code's reason is gone and
+the plan's is all that remains.
 
 ## Cold starts
 
@@ -610,8 +628,8 @@ measured here, and each one has already decided something:
 
 | Limit | What it decides |
 |---|---|
-| A single instance | See above: half the reason `numInstances` is `1` |
-| Sleeps after 15 idle minutes | The cold start above — and it wipes the rate-limit counters, which is a reminder that they are not durable state |
+| A single instance | See above: since #91 it is the **only** reason `numInstances` is `1` |
+| Sleeps after 15 idle minutes | The cold start above. It used to wipe the rate-limit counters too; since #91 they are rows, and they survive a sleep, a restart and a deploy |
 | 0.1 CPU, 512 MB | Why argon2id hashing and avatar re-encoding are the two expensive things the API does, and why both are limited per user |
 | **Outbound SMTP is blocked** (ports 25, 465, 587) | Email cannot be sent by connecting to a mail server. This is what chose Brevo's HTTP API in #119 — one `fetch`, no SMTP library in the project at all (decision 0014) |
 | **No background workers** ($7 a month for one) | Why the job queue runs inside the web service rather than beside it, with an Actions cron as its backstop (decision 0019) |

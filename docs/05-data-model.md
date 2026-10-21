@@ -357,6 +357,27 @@ Nothing deletes finished rows yet. They are a log of what the system did for
 whom, they accumulate slowly, and #114's scheduled sweep is where a cleanup
 goes on the day the count matters.
 
+## Counting what people do (V2)
+
+**`RateLimit`** — one window and how many requests have landed in it (#91,
+decision 0027). The counters were in the API process's memory until then,
+which is correct for one instance and wrong for several: each would count
+separately, so every documented limit doubled on a second machine.
+
+**It is not a record of anything**, and the shape says so: no `createdAt`, no
+history, one row per limiter per client, rewritten in place until the window
+rolls over and swept once a day. `key` is the limiter's name and what it
+counts, joined — `login-ip:1.2.3.4` — because one table holds every limiter's
+counters and two limiters counting the same address must not share a budget.
+
+**`expiresAt` is written by the database's clock**, never by the
+application's. Several instances means several clocks, and a deadline two
+machines disagree about is a counter that restarts whenever the request lands
+on the one running fast. The whole counter is one statement for the same
+family of reasons — `INSERT … ON CONFLICT DO UPDATE … RETURNING`, so the row
+lock settles the race between two requests that arrive together, rather than
+a transaction of ours.
+
 ## Standing queries (V2)
 
 **`SavedSearch`** — a browse query somebody kept, and asked to be told about
