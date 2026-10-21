@@ -83,22 +83,30 @@ not the API from a script.
 
 **HTTPS proxy (Render).** Terminates TLS, so the API itself never needs a
 certificate and never speaks it. It passes the real client address in
-`X-Forwarded-For`, and `trust proxy` set to `1` makes Express believe exactly
-that one hop. Without it every request appears to come from the proxy: one
-rate-limit bucket shared by the whole world — 20 login attempts per 15 minutes
-for all of Farhand — and a "logged in from…" record that says nothing. With
-`true` instead of `1`, a caller could forge an address per request and take an
-unlimited budget, or forge somebody else's and lock them out.
+`X-Forwarded-For`, and `trust proxy` says how many hops of it to believe.
+**Three, measured rather than assumed** (#145, decision 0029): a caller,
+Cloudflare in front of every `onrender.com` host, and Render's balancer. The
+last hop reaches this process over loopback, which is why `remoteAddress` is
+`::1` and not a proxy's address.
 
-**One is the wrong number, and the paragraph above describes where we are.**
-Measured on production on 21 October 2026, in step 12 of the pre-launch walk:
-the chain is three hops — a caller, Cloudflare in front of `onrender.com`, the
-Render balancer — so `req.ip` is the balancer, `Session.ipAddress` records an
-address nobody owns, and every by-address limiter counts against a handful of
-internal addresses instead of its caller. Express counts hops from the socket
-backwards, which is why one lands on the rightmost entry rather than the
-leftmost. The fix, and the choice between a fixed count and a provider header,
-is #145.
+The number matters in both directions. Too small and every request appears to
+come from the proxy: one rate-limit bucket shared by the whole world — 20 login
+attempts per 15 minutes for all of Farhand — and a "logged in from…" record
+that says nothing. That is not hypothetical; it was this service for a year,
+with `1` inherited from a Fly setup, until step 12 of the pre-launch walk read
+`10.195.187.131` out of `Session.ipAddress` on 21 October 2026. `true` instead
+of a number is the other direction: Express would believe the **leftmost**
+entry, so a caller could forge an address per request and take an unlimited
+budget, or forge somebody else's and lock them out.
+
+Counting from the socket backwards is what makes a number safe. Cloudflare
+appends the address it sees to whatever the header already said, so anything a
+caller invents ends up to the left of its real address and a count of three
+steps over it. What a count cannot survive is a change to the chain, so
+`middleware/caller-address.ts` also complains — once per process, at error
+level — if the address it resolves is one no caller could have: loopback,
+RFC 1918 or link-local. That is true of every count that is too small,
+including the one we had.
 
 **farhand-api.** One app, because a transaction is free and a saga is not:
 `acceptProposal`'s five writes are all-or-nothing only because they share one
@@ -292,7 +300,7 @@ that trade gets decided, with decision 0012 as the argument against
 | A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
 | Signed links inside list responses | A page of N images is N requests to the API. #102 made each one cheaper and took it out of the browsing budget. #81 added the list response that carries images — `GET /needs` gives each card a `coverPhoto` — but as a **path**, so the N requests are still there. Whether a list should hand out signed links instead is #93's to decide, and decision 0012 holds the argument against it: a signed link dies in five minutes and anything that stored the answer dies with it | #93 |
 | A frontend | `APP_ORIGIN` is the API's own URL — a placeholder until something else deserves it | #93 |
-| ~~Proof the hop count is right~~ | **Checked, and it was wrong.** The walk did exactly what this row asked — logged in on production and compared `Session.ipAddress` with a real address — and got `10.195.187.131`, a Render balancer. The chain is three hops, not one: a caller, Cloudflare in front of `onrender.com`, and the balancer. Everything by address is counted against the balancer rather than the caller, which is both too strict and too lax at once | #145 |
+| ~~Proof the hop count is right~~ | **Checked, it was wrong, and it is fixed (#145, decision 0029.)** The walk did exactly what this row asked — logged in on production and compared `Session.ipAddress` with a real address — and got `10.195.187.131`, a Render balancer. The chain is three hops, not one. For a year everything by address was counted against the balancer rather than the caller, which is both too strict and too lax at once; 1181 tests were green throughout, because a one-entry `X-Forwarded-For` reads back correctly under any count | — |
 | A measured latency figure | The cross-Atlantic numbers in this document are estimates. `GET /health/ready` returns the real `latencyMs` from the deployed service | — |
 
 ### One of these has a trap in it: where the frontend lives

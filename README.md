@@ -379,6 +379,7 @@ one arrives without it (#92).
 | `tests/security/observability.test.ts` | A request id on every error, the same id in the log, and what is reported to Sentry |
 | `tests/security/reporting-outage.test.ts` | What happens when the thing that records failures fails |
 | `tests/security/shared-rate-limits.test.ts` | One budget across two independent copies of the app, the window dated by the database, and failing open when it cannot be reached |
+| `tests/security/caller-address.test.ts` | Whose address a request arrives with, three proxies away, and the complaint when that resolves to one no caller could have |
 
 `.env.test` is committed, unlike `.env` — it holds the same throwaway credentials
 as `docker-compose.yml`, and committing it means a fresh clone can run the tests
@@ -505,6 +506,7 @@ farhand/
 │   │   │   └── sweep-rate-limits.ts  deletes rate-limit windows that have ended
 │   │   ├── middleware/
 │   │   │   ├── error-handler.ts  every error becomes the same JSON shape
+│   │   │   ├── caller-address.ts  how many proxies to believe about who is calling
 │   │   │   ├── request-id.ts   one id per request, echoed in the error body
 │   │   │   ├── security.ts     headers, CORS, and the origin check on writes
 │   │   │   ├── rate-limit.ts   the limits themselves, and what each one counts by
@@ -584,7 +586,7 @@ farhand/
 │       ├── reports/            submitting and queueing
 │       ├── reviews/            writing, reading, the blind window, removal, summaries
 │       ├── searches/           saved searches end to end
-│       ├── security/           headers, CORS, origin checks, request ids, shared limits
+│       ├── security/           headers, CORS, origin checks, request ids, limits, the caller's address
 │       ├── env.test.ts         settings that only mean anything complete
 │       ├── health.test.ts      the first API-level tests
 │       ├── isolation.test.ts   proves the harness isolates tests

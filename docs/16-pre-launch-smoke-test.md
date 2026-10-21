@@ -275,20 +275,22 @@ side the table allows (`04-deal-lifecycle.md`).
       Render's. With `trust proxy` wrong, every caller shares one rate-limit
       bucket (`15-architecture.md`).
 
-      **Known failure, #145.** On 21 October this answered `10.195.187.131`,
-      one of Render's balancers: the chain is three hops and `src/app.ts`
-      trusts one. Until #145 lands, a `10.x` address here is the expected
-      wrong answer — and if you get your own address instead, something
-      changed underneath us and #145 wants to know before it is fixed.
+      This is the step that earned its keep. On 21 October it answered
+      `10.195.187.131`, one of Render's balancers — the chain is three hops
+      and `src/app.ts` had trusted one since the first deploy. Fixed in #145;
+      a `10.x` answer here now means the chain changed again. Since #145 the
+      API also says so itself: a private address resolved in production writes
+      one `error` line naming the whole chain, so Render's logs are worth a
+      look even when this tick passes.
 - [ ] **The rate limiter answers, and the count is in the database.** One
       account gets **ten** wrong passwords in fifteen minutes
       (`RATE_LIMITS.login.perAccount`), so the **eleventh** attempt is the one
       that answers `429`. The body names when to try again, and in Neon
       `SELECT key, count, "expiresAt" FROM "RateLimit" ORDER BY "expiresAt"
       DESC;` shows a row keyed `login-account:…` or `login-ip:…` (#91). The
-      per-address budget is twenty — and until #145 it is twenty for everybody
-      at once, which is the tick above saying the same thing from the other
-      end.
+      per-address budget is twenty, and since #145 it is twenty for **one**
+      caller rather than twenty shared by everybody behind the proxy — which
+      is the tick above saying the same thing from the other end.
 - [ ] **It does not forget.** Since #91 the counters are rows, so a refusal
       survives a restart and the free plan's fifteen-minute sleep. If you
       spend a budget here, waiting for the service to doze no longer clears

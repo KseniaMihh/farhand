@@ -1,6 +1,10 @@
 import express, { type Express } from "express";
 import { pinoHttp } from "pino-http";
 import { logger } from "./logger.js";
+import {
+  createCallerAddressCheck,
+  TRUSTED_PROXY_HOPS,
+} from "./middleware/caller-address.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { limiters } from "./middleware/rate-limit.js";
 import { echoRequestId, requestIdFor } from "./middleware/request-id.js";
@@ -42,24 +46,26 @@ export function createApp(): Express {
 
   // In production Render terminates HTTPS at its edge and forwards a plain
   // HTTP request here, so every connection Express sees comes from the proxy.
-  // This tells Express to believe the X-Forwarded-* headers from exactly one
-  // hop (docs/15-architecture.md).
+  // This tells Express how much of X-Forwarded-For to believe. The number is
+  // THREE, and it is measured rather than assumed — the chain, the forgery
+  // argument and what a count costs are all in middleware/caller-address.ts
+  // (docs/15-architecture.md, decision 0029).
   //
-  // What depends on it is `req.ip`, and that is the rate limiters: without it
-  // every caller in the world shares one bucket, so 20 login attempts per
-  // address per 15 minutes becomes 20 for the whole of Farhand, and one person
-  // with a script locks everybody out. The address recorded on each session
-  // (routes/auth.ts, "logged in from…") would be the proxy's too.
+  // What depends on it is `req.ip`, and that is the rate limiters: get it
+  // wrong and every caller in the world shares one bucket, so 20 login
+  // attempts per address per 15 minutes becomes 20 for the whole of Farhand,
+  // and one person with a script locks everybody out. The address recorded on
+  // each session (routes/auth.ts, "logged in from…") is the proxy's too.
+  //
+  // This said `1` for a year, inherited from a Fly setup with one proxy, and
+  // both of those were true on production the whole time: #131's walk read
+  // `10.195.187.131` out of `Session.ipAddress` and #145 is what came of it.
   //
   // NOT the session cookie, despite what this comment used to claim: that is
   // written with plain res.cookie, which sets `Secure` without consulting
   // req.secure — unlike express-session, which refuses. The browser's own
   // connection really is HTTPS, so it stores the cookie either way (#100).
-  //
-  // 1 hop, not `true`: X-Forwarded-For is a header, and a header is written by
-  // whoever sends the request. Trusting the whole chain lets a caller name any
-  // address it likes and take a fresh bucket for every request.
-  app.set("trust proxy", 1);
+  app.set("trust proxy", TRUSTED_PROXY_HOPS);
 
   // Don't advertise the framework. Free, and one less hint for a scanner.
   app.disable("x-powered-by");
@@ -71,6 +77,12 @@ export function createApp(): Express {
   // Straight after the logger, so the id is on every answer — including the
   // ones a limiter or a guard refuses before any route sees them.
   app.use(echoRequestId);
+
+  // Before the limiters, because what it is checking is what the limiters are
+  // about to count, and a refused request is as good a witness as a served
+  // one. Says nothing at all unless the address above resolved to one no
+  // caller could have (#145).
+  app.use(createCallerAddressCheck());
 
   // Headers first: they belong on every answer, including the ones that never
   // reach a route because a limiter or a guard refused them.
