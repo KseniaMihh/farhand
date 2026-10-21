@@ -448,8 +448,9 @@ supports TypeScript 7, remove the alias.
 ## Project structure
 
 Every source file has a line here, and `tests/contract/readme.test.ts` fails
-if one arrives without it (#92). The tests are listed by folder: the table
-under [Tests](#tests) is where they are enumerated, and twice is once too many.
+if one arrives without it (#92, decision 0028). The tests are listed by folder:
+the table under [Tests](#tests) is where they are enumerated, and twice is once
+too many.
 
 ```
 farhand/
