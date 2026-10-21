@@ -17,7 +17,7 @@ history, and none of them can be wrong in a way `npm test` would notice.
 |---|---|
 | Where | `https://farhand-api.onrender.com`, the real one |
 | Who | **Four** throwaway aliases, `appfarhand+smokeA@gmail.com` through `…+smokeD@gmail.com`. **A** is the requester, **B** the helper, **C** a bystander who is made a moderator half way through, and **D** a spare that exists to be banned and erased. All four register and verify; C and D need verified addresses because an unverified account may not act at all |
-| What you need open | Both inboxes, Render's logs, and Neon's SQL editor |
+| What you need open | All four inboxes, Render's logs, and Neon's SQL editor |
 | How long | Half an hour, unhurried |
 
 **Do not click unsubscribe in any of these emails.** One click blocks that
@@ -36,11 +36,19 @@ usually means you left it off.
 A cold service takes 30–60 seconds to answer the first request (free plan,
 `14-deployment.md`). That is not a failure.
 
+**Neither is an email that takes two or three minutes.** The 21 October run
+saw it repeatedly. The row is written and the job is `doneAt` long before the
+message is in the inbox, so check `Job.doneAt` and `Notification.sentAt`
+before concluding anything: if those are set, Brevo has it and you are waiting
+on a mail queue rather than on Farhand.
+
 ## The walk
 
-Tick each one. If a step fails, stop and write down what the answer was: a
-failure here is a deployment fact, and the next thing to do is open an issue
-for it, not carry on.
+Tick each one. If a step fails, write down exactly what the answer was and
+open an issue for it: a failure here is a deployment fact, not a flaky test.
+Then carry on, unless the rest of the walk is built on the thing that failed.
+The 21 October run found its second failure two steps after its first, and
+stopping at the first would have hidden it.
 
 ### 1 · It is awake, and it is the right version
 
@@ -105,13 +113,17 @@ the next step is posted. Nothing is expected to happen here.
 - [ ] A posts a need with `prohibitedVersion` from step 1 → `201`.
 - [ ] A saves a second need as `status: "DRAFT"` with no tick → `201`, because
       nobody can see a draft.
+- [ ] In Neon, **now and not after the next two ticks**:
+      `SELECT status, "prohibitedVersion", "prohibitedAckAt" FROM "Need";` —
+      the published need carries the fingerprint from step 1, and the draft
+      carries nulls in both columns. The two ticks below publish that draft,
+      and a published draft carries the fingerprint like any other need: run
+      this query afterwards and there is nothing left with nulls to look at.
 - [ ] A publishes that draft with `PATCH /needs/:id` and `status: "OPEN"`,
       still with no tick → **`422`**. This is the one the issue was named for:
       saving a draft and publishing it was the way past the whole mechanism.
-- [ ] The same PATCH with the tick → `200`.
-- [ ] In Neon: `SELECT "prohibitedVersion", "prohibitedAckAt" FROM "Need";` —
-      the published ones carry the fingerprint from step 1, and the draft
-      carries nulls.
+- [ ] The same PATCH with the tick → `200`, and that row now carries the
+      fingerprint too.
 - [ ] A uploads a photo: `POST /needs/:id/photos` → `201`.
 - [ ] `GET /files/:id` redirects, and the image really loads in a browser.
 - [ ] **The same URL with the query string removed is refused** by Backblaze
@@ -149,9 +161,15 @@ side the table allows (`04-deal-lifecycle.md`).
 - [ ] A agrees the quote → `QUOTE_AGREED`. **No email** — A's own next move.
 - [ ] A pays → `PRODUCT_PAID`, and **B receives "Your turn: …"**.
 - [ ] B buys → `PURCHASED`. **No email** — B's own next move.
-- [ ] B uploads a receipt: `POST /deals/:id/receipts/PRODUCT_RECEIPT` → `201`,
-      and a **PDF** as well as a photograph, since they take different paths
-      (#82).
+- [ ] B uploads a receipt: `POST /deals/:id/receipts/product` → `201`, and a
+      **PDF** to `POST /deals/:id/receipts/shipping`, since a photograph and
+      a PDF take different paths through the same endpoint (#82).
+
+      The kind in the path is `product` or `shipping`, lower case
+      (`routes/deals.ts` parses it with a `z.enum`). `PRODUCT_RECEIPT` is the
+      `FilePurpose` stored in the column, which is what `05-data-model.md` and
+      the permission table in `06-api-contract.md` are naming — not a path
+      anything will answer on.
 - [ ] A can read B's receipt; **C cannot** — ask as C and get a `404`, which
       is the same answer a receipt that does not exist gets.
 - [ ] B posts it → `SHIPPED` with a tracking number and real postage, and
@@ -205,13 +223,32 @@ side the table allows (`04-deal-lifecycle.md`).
       `{"emailNotifications": false}` → `200`.
 - [ ] Cause a notification for B — the simplest is a second need from A and a
       second offer from B, then A accepts, which would normally email B.
-- [ ] **No email arrives**, and in Neon the row says so:
+- [ ] **No email arrives**, and in Neon there is **no new row at all**:
       `SELECT kind, "sentAt", "skippedAt" FROM "Notification"
-      ORDER BY "createdAt" DESC LIMIT 5;` — `skippedAt` set, `sentAt` null.
+      ORDER BY "createdAt" DESC LIMIT 5;` — nothing `proposal-accepted` for
+      B, the newest row for B still being step 9's warning.
+
+      This correction is what the 21 October run was worth. The walk used to
+      expect a row with `skippedAt` set, and that is a different case:
+      `notify()` asks the preference **before** it writes anything, so
+      somebody who had email off when the event happened leaves no row behind
+      at all. `skippedAt` is for the gap between the event and the sending —
+      the account went, or the switch moved while the job was queued
+      (`05-data-model.md`; both of those paths are tested in
+      `tests/notifications/notifications.test.ts`).
 - [ ] Now `WARN` B again as the moderator. **The email arrives anyway**:
       moderation is exempt, and that exemption is the one thing about the
       switch somebody will complain about if it is wrong.
-- [ ] B turns it back on → `200`, and the next notification arrives.
+- [ ] B turns it back on → `200`.
+- [ ] **A cancels that second deal**: `POST /deals/:id/transition` with
+      `{"to": "CANCELLED"}` → `200`, and **B is emailed about it**. The switch
+      coming back on is proved by the next thing that happens, not by the
+      setting echoing itself.
+      That cancellation is not tidying up, it is step 12: B closes its own
+      account there, and an account with a live deal is refused on purpose,
+      with nothing yet able to clear it (#134). This step is the one that
+      would have left a live deal behind, and the 21 October run had to go
+      back for it.
 
 ### 11 · A copy of your own data
 
@@ -237,11 +274,21 @@ side the table allows (`04-deal-lifecycle.md`).
       ORDER BY "createdAt" DESC LIMIT 1;` is **your own address**, not
       Render's. With `trust proxy` wrong, every caller shares one rate-limit
       bucket (`15-architecture.md`).
-- [ ] **The rate limiter answers, and the count is in the database.** Six
-      wrong passwords in a row for A → `429`, the body names when to try
-      again, and in Neon `SELECT key, count, "expiresAt" FROM "RateLimit"
-      ORDER BY "expiresAt" DESC;` shows a row keyed `login-account:…` or
-      `login-ip:…` (#91).
+
+      **Known failure, #145.** On 21 October this answered `10.195.187.131`,
+      one of Render's balancers: the chain is three hops and `src/app.ts`
+      trusts one. Until #145 lands, a `10.x` address here is the expected
+      wrong answer — and if you get your own address instead, something
+      changed underneath us and #145 wants to know before it is fixed.
+- [ ] **The rate limiter answers, and the count is in the database.** One
+      account gets **ten** wrong passwords in fifteen minutes
+      (`RATE_LIMITS.login.perAccount`), so the **eleventh** attempt is the one
+      that answers `429`. The body names when to try again, and in Neon
+      `SELECT key, count, "expiresAt" FROM "RateLimit" ORDER BY "expiresAt"
+      DESC;` shows a row keyed `login-account:…` or `login-ip:…` (#91). The
+      per-address budget is twenty — and until #145 it is twenty for everybody
+      at once, which is the tick above saying the same thing from the other
+      end.
 - [ ] **It does not forget.** Since #91 the counters are rows, so a refusal
       survives a restart and the free plan's fifteen-minute sleep. If you
       spend a budget here, waiting for the service to doze no longer clears
@@ -262,6 +309,14 @@ side the table allows (`04-deal-lifecycle.md`).
       if nothing has failed, and read the report: no token, no password, no
       API key (#29, #119).
 
+      **Skipped on 21 October: production has no `SENTRY_DSN`.** Without one
+      `observability.ts` logs "Error reporting is off" and reports nothing, by
+      design (`09-environment.md`) — which means a 5xx on production leaves a
+      line in Render's logs and no trace anywhere else. Set the variable in
+      Render's dashboard (`14-deployment.md` says why it is not in
+      `render.yaml`) and this step can be answered. Leave it unset and the
+      walk cannot ask the question at all.
+
 ### 13 · And then tidy up
 
 - [ ] Delete the smoke-test accounts, or leave them `DELETED` — but write down
@@ -274,6 +329,18 @@ side the table allows (`04-deal-lifecycle.md`).
 - [ ] Clear anything left in `RateLimit` for the addresses you used, if you
       spent a budget deliberately in step 12. The rows expire on their own
       within the hour, and the daily sweep removes them after that.
+- [ ] **Put C back to `USER`.** Step 9 makes C a moderator and nothing in the
+      walk takes it away:
+      `UPDATE "User" SET role = 'USER' WHERE email = '…+smokeC@gmail.com';`
+      Of everything the walk leaves behind, a spare moderator nobody remembers
+      making is the one that is a security fact rather than clutter.
+- [ ] **Close what A left open.** A's needs are public and `OPEN` — the
+      sunscreen one, the published draft, and the second need from step 10.
+      Cancel or delete them, or the first real visitor browses a shop window
+      made of smoke tests.
+- [ ] **Log the test sessions out** — `POST /auth/logout` for each one, C's
+      above all. A moderator's cookie sitting in a terminal history outlives
+      the walk by as long as nobody notices it.
 - [ ] Record the date and the commit SHA this was run against, at the bottom of
       this file.
 
@@ -281,4 +348,9 @@ side the table allows (`04-deal-lifecycle.md`).
 
 | Date | Commit | Who | Result |
 |---|---|---|---|
-| — | — | — | Not yet run |
+| 2026-10-21 | `1c27134` | Ksenia | 106 passed, 2 failed, 1 skipped. Failed: the proxy hop count (#145), and one `Notification` assertion that was wrong in this document rather than in the code. Skipped: Sentry, not configured on production. Everything else — the queue, the bucket, the signed links, the mail, the matching, the moderation, the export, the erasure — answered as written |
+
+A row here is a whole walk. A re-run after a fix may honestly be two steps
+rather than thirteen — say which two in the Result column, because "passed"
+meaning "the ones that failed last time" is a different claim from the one
+this file's title makes.
