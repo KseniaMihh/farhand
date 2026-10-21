@@ -223,6 +223,51 @@ describe("one budget, however many machines", () => {
   });
 
   /**
+   * A refused request must not extend the ban.
+   *
+   * The window is FIXED: it ends a set time after the first request in it,
+   * and nothing that happens inside it moves that deadline. A variant that
+   * pushed the deadline forward on every request passed every other test in
+   * both files — because none of them kept knocking while they were locked
+   * out, which is the one thing a person who has been refused actually does.
+   *
+   * Sliding would mean somebody who retries every few seconds is never let
+   * back in, and `Retry-After` would be a number that is true when it is sent
+   * and false by the time it matters.
+   */
+  it("does not push the deadline back when it refuses a request", async () => {
+    const ip = nextIp();
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(pinoHttp({ logger }));
+    app.use(express.json());
+    app.post(
+      "/thing",
+      createRateLimiter({
+        name: "fixed-window",
+        windowMs: 600,
+        max: 1,
+        by: "ip",
+      }),
+      (_req, res) => {
+        res.json({ ok: true });
+      },
+    );
+    app.use(errorHandler);
+
+    expect(await hit(app, ip)).toBe(200);
+    expect(await hit(app, ip)).toBe(429);
+
+    // Knocking again, halfway through: the refusal must change nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await hit(app, ip)).toBe(429);
+
+    // Past the ORIGINAL deadline, which the two refusals did not move.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(await hit(app, ip)).toBe(200);
+  });
+
+  /**
    * The window's end is written by the DATABASE's clock, not the
    * application's. Several instances means several clocks, and a deadline two
    * machines disagree about is a counter that restarts whenever the request
