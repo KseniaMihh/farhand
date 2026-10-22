@@ -462,10 +462,17 @@ export interface UserSearchFilters {
  * One row of the moderator's user list.
  *
  * The email IS here, unlike everywhere else in the API
- * (docs/07-trust-and-safety.md: "no email addresses anywhere"). This is the one
- * exception and it is the reason the endpoint exists: a moderator holding a
- * complaint about `anna@example.com` has to be able to reach the account. The
- * password hash is not here, and never is.
+ * (docs/07-trust-and-safety.md: "no email addresses anywhere"). This shape is
+ * the exception, and it is the reason the endpoints that use it exist: a
+ * moderator holding a complaint about `anna@example.com` has to be able to
+ * reach the account. The password hash is not here, and never is.
+ *
+ * TWO ENDPOINTS ANSWER WITH IT and neither has a copy of the mapping:
+ * `searchUsers` finds rows by email, name or status, and
+ * `getUserForModerator` opens one by id (#94). `ReportedUser` above is the
+ * deliberate near-miss — the same account seen by a moderator judging a
+ * report, with the address taken out and a bio and avatar put in
+ * (decision 0024).
  */
 export interface UserSummary {
   id: string;
@@ -495,6 +502,70 @@ export interface UserSummary {
  * the query: one lookup and somebody paging through the whole table look
  * identical otherwise.
  */
+/** One row, from a `User` with its profile included. */
+function summaryOf(
+  user: User & {
+    profile: { displayName: string | null; countryCode: string | null } | null;
+  },
+): UserSummary {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.profile?.displayName ?? null,
+    countryCode: user.profile?.countryCode ?? null,
+    role: user.role,
+    status: user.status,
+    suspendedUntil: user.suspendedUntil,
+    emailVerified: user.emailVerifiedAt !== null,
+    createdAt: user.createdAt,
+  };
+}
+
+/**
+ * One account, for a moderator who already has its id (#94).
+ *
+ * `searchUsers` above answers "which account is this?" for somebody holding
+ * an email or a name. This answers "show me that one" for somebody holding an
+ * id — which is what a report, a deal, an event log or a URL actually hands a
+ * moderator, and every action already takes one
+ * (`POST /admin/users/:id/actions`). Until this existed, the only way back to
+ * an account's status and address was to search for something the moderator
+ * might not have.
+ *
+ * **It returns the search's row**, built by the same `summaryOf` — not a
+ * shape of its own. One row of the search result already *is* the moderator's
+ * view of one account, and a second spelling of that view is how a field gets
+ * added to one door and not the other. The test for this compares the two
+ * endpoints' answers rather than a list written out by hand.
+ *
+ * Deleted and banned accounts come back, for the reason the search includes
+ * them: they answer `404` everywhere else (#65), and they are exactly what a
+ * moderator checking whether a ban was fair needs to open.
+ *
+ * Logged like the search, and for the same reason — this is the other
+ * endpoint that hands out an email address. Reading is not a decision, so it
+ * writes no `AdminAction` (the rule at the top of this file). A miss writes
+ * nothing: the request line already carries the id that missed.
+ */
+export async function getUserForModerator(
+  actor: User,
+  userId: string,
+): Promise<UserSummary> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { profile: true },
+  });
+
+  if (!user) throw HttpError.notFound("Account not found");
+
+  logger.info(
+    { moderatorId: actor.id, userId: user.id },
+    "moderator opened an account",
+  );
+
+  return summaryOf(user);
+}
+
 export async function searchUsers(
   actor: User,
   filters: UserSearchFilters,
@@ -521,17 +592,7 @@ export async function searchUsers(
 
   const page = toPage(rows, limit);
 
-  const summaries: UserSummary[] = page.items.map((user) => ({
-    id: user.id,
-    email: user.email,
-    displayName: user.profile?.displayName ?? null,
-    countryCode: user.profile?.countryCode ?? null,
-    role: user.role,
-    status: user.status,
-    suspendedUntil: user.suspendedUntil,
-    emailVerified: user.emailVerifiedAt !== null,
-    createdAt: user.createdAt,
-  }));
+  const summaries: UserSummary[] = page.items.map(summaryOf);
 
   logger.info(
     {

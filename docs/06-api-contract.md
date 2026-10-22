@@ -1711,6 +1711,7 @@ it inside the window — and the only one who can still change it.
 | GET | `/admin/reports/:id` | MOD | One report, with the thing it is about |
 | POST | `/admin/reports/:id/resolve` | MOD | Resolution note required |
 | GET | `/admin/users` | MOD | Find an account by email or display name, filter by status, paged |
+| GET | `/admin/users/:id` | MOD | One account, for a moderator who already has its id. The search's row |
 | POST | `/admin/users/:id/actions` | MOD | Warn, suspend, ban, reactivate; reason required |
 | POST | `/admin/content/:type/:id/remove` | MOD | Hide a need, offer, message or review |
 | DELETE | `/admin/users/:id` | MOD | Erase a **banned** account on its owner's behalf; reason required |
@@ -1817,12 +1818,14 @@ moderator account is not exempt from being the thing that leaks.
 }
 ```
 
-**This is the only endpoint in the API that returns an email address.**
-Everywhere else there are none at all, deliberately — `GET /users/:id` shows a
-display name and a country and nothing that identifies a person off Farhand
-(#65). A moderator holding a complaint about `anna@example.com` has to be able
-to reach that account, so the exception exists, and it is worth knowing that
-it is the only one. The password hash is never returned.
+**The `/admin/users` endpoints are the only ones in the API that return an
+email address** — this one and `GET /admin/users/:id` below, which answers
+with a single row of exactly this shape. Everywhere else there are none at
+all, deliberately: `GET /users/:id` shows a display name and a country and
+nothing that identifies a person off Farhand (#65). A moderator holding a
+complaint about `anna@example.com` has to be able to reach that account, so
+the exception exists, and it is worth knowing how few doors it has. The
+password hash is never returned by either.
 
 **It stayed the only one by being checked.** `GET /admin/reports/:id` returned
 the whole `User` row for a report about a person until #95, which made it a
@@ -1837,6 +1840,54 @@ was fair needs to find.
 **Every search is logged**: who searched, whether it was by email, the filters
 they used, and `resultCount` — how many rows came back. The count matters: one
 lookup and somebody paging through the whole table look identical without it.
+
+### `GET /admin/users/:id`
+
+`MOD`. One account, for a moderator who already has its id. Returns `200`:
+
+```json
+{
+  "user": {
+    "id": "cm1…",
+    "email": "anna@example.com",
+    "displayName": "Anna",
+    "countryCode": "EE",
+    "role": "USER",
+    "status": "ACTIVE",
+    "suspendedUntil": null,
+    "emailVerified": true,
+    "createdAt": "2026-03-04T09:12:00.000Z"
+  }
+}
+```
+
+**It is one row of `GET /admin/users`, and the same nine fields** — built by
+the same function, so the moderator's view of an account cannot exist in two
+spellings. The test for it compares the two endpoints' answers to each other
+rather than to a list written out by hand, because a field added to one and
+not the other is the drift worth catching.
+
+**Why a door and not another filter.** An id is what a report, a deal, an
+event log or a URL hands a moderator, and every action already takes one
+(`POST /admin/users/:id/actions`). The answer is one account or nothing, so a
+page wrapper and a cursor would be furniture — and `404` says "no such
+account", where an empty list says only "nothing matched".
+
+**Deleted and banned accounts are returned**, for the reason the search
+includes them: they answer `404` from every public endpoint, and they are
+exactly what a moderator checking whether a ban was fair needs to open.
+
+**An id that matches nobody is `404`**, not `422`. Any non-empty string is a
+well-formed request for an account that is not there, which is how every other
+`:id` route in the API answers.
+
+**Every call is logged** — who opened which account — the way a search is
+(#67, #27). A read is not a decision, so no `AdminAction` is written. A miss
+writes nothing: the request line already carries the id that missed.
+
+**Not here: the account's moderation history.** What has been done *to* an
+account is a separate question with its own privacy argument, and no endpoint
+answers it yet.
 
 ### `POST /admin/users/:id/actions`
 

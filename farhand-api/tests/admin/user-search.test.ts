@@ -407,3 +407,208 @@ describe("GET /admin/users", () => {
     });
   });
 });
+
+/**
+ * `GET /admin/users/:id` — issue #94.
+ *
+ * The other door to the same room. #67 answers "which account is this?" for a
+ * moderator holding an email or a name; this answers "show me this one" for a
+ * moderator holding an id — which is what a report, a deal, an event log or a
+ * URL actually hands them. Before it, the only way back to an account's status
+ * and address was to search for something they might not have.
+ *
+ * So the row it returns is the SEARCH'S row, and the first test here is the
+ * one that keeps it that way: it compares the two endpoints' answers to each
+ * other rather than to a list written out by hand. A field added to one and
+ * not the other is the drift worth catching, and "the moderator's view of an
+ * account" existing in two spellings is how a password hash gets into one of
+ * them.
+ */
+describe("GET /admin/users/:id", () => {
+  function open(user: TestUser, id: string) {
+    return request(app).get(`/admin/users/${id}`).set("Cookie", user.cookie);
+  }
+
+  describe("who may call it", () => {
+    it("refuses a request with no session", async () => {
+      const response = await request(app).get(`/admin/users/${anna.id}`);
+
+      expect(response.status).toBe(401);
+    });
+
+    it("refuses an ordinary user", async () => {
+      const response = await open(anna, anna.id);
+
+      expect(response.status).toBe(403);
+    });
+
+    it("refuses an unverified account, moderator or not", async () => {
+      const unverified = await signUpAndLogIn(app, "new@example.com");
+      await prisma.user.update({
+        where: { id: unverified.id },
+        data: { role: "MODERATOR" },
+      });
+
+      const response = await open(unverified, anna.id);
+
+      expect(response.status).toBe(403);
+    });
+
+    it("refuses a suspended moderator", async () => {
+      await prisma.user.update({
+        where: { id: mo.id },
+        data: { status: "SUSPENDED", suspendedUntil: null },
+      });
+
+      const response = await open(mo, anna.id);
+
+      expect(response.status).toBe(403);
+    });
+
+    it("lets a moderator in", async () => {
+      const response = await open(mo, anna.id);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("lets an admin in", async () => {
+      const admin = await signUpVerifiedAndLogIn(app, "boss@example.com", "Bo");
+      await prisma.user.update({
+        where: { id: admin.id },
+        data: { role: "ADMIN" },
+      });
+
+      const response = await open(admin, anna.id);
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe("what it answers", () => {
+    /**
+     * The test this endpoint exists for, and the reason it is a comparison
+     * rather than a list: whatever the moderator's view of an account is, both
+     * doors have to show the same one.
+     */
+    it("is the search's row, field for field", async () => {
+      const searched = (await search(mo, "?email=anna@example.com"))
+        .body as SearchBody;
+      const opened = (await open(mo, anna.id)).body as { user: unknown };
+
+      expect(opened.user).toEqual(searched.items[0]);
+    });
+
+    it("carries those same nine fields and nothing else", async () => {
+      const body = (await open(mo, anna.id)).body as { user: object };
+
+      expect(Object.keys(body.user).sort()).toEqual([
+        "countryCode",
+        "createdAt",
+        "displayName",
+        "email",
+        "emailVerified",
+        "id",
+        "role",
+        "status",
+        "suspendedUntil",
+      ]);
+    });
+
+    it("never includes a password hash", async () => {
+      const response = await open(mo, anna.id);
+
+      expect(JSON.stringify(response.body)).not.toContain("$argon2");
+      expect(JSON.stringify(response.body)).not.toContain("passwordHash");
+    });
+
+    /**
+     * Both answer `404` from every public endpoint (#65), and both are
+     * exactly what a moderator checking whether a ban was fair needs to open
+     * — the same argument the search includes them for.
+     */
+    it("opens a banned account", async () => {
+      await prisma.user.update({
+        where: { id: anna.id },
+        data: { status: "BANNED" },
+      });
+
+      const response = await open(mo, anna.id);
+
+      expect(response.status).toBe(200);
+      expect(response.body as { user: { status: string } }).toMatchObject({
+        user: { status: "BANNED" },
+      });
+    });
+
+    it("opens a deleted account", async () => {
+      await prisma.user.update({
+        where: { id: anna.id },
+        data: { status: "DELETED" },
+      });
+
+      const response = await open(mo, anna.id);
+
+      expect(response.status).toBe(200);
+      expect(response.body as { user: { status: string } }).toMatchObject({
+        user: { status: "DELETED" },
+      });
+    });
+
+    it("answers 404 for an id that matches nobody", async () => {
+      const response = await open(mo, "cm0000000000000000000000");
+
+      expect(response.status).toBe(404);
+      expect((response.body as ErrorBody).error.code).toBe("NOT_FOUND");
+    });
+
+    /**
+     * Not `422`: the id is a string in a path and anything non-empty is a
+     * well-formed request for an account that is not there. The same answer as
+     * every other `:id` route in the API.
+     */
+    it("answers 404 for an id that is not an id at all", async () => {
+      const response = await open(mo, "not-an-id");
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe("what gets written down", () => {
+    /**
+     * Reading is not a decision, so no `AdminAction` — the application log,
+     * the way the search is recorded (#67, #27). No count to write here: one
+     * line is one account.
+     */
+    it("records who opened which account", async () => {
+      const written = vi.spyOn(logger, "info");
+
+      await open(mo, anna.id);
+      const lines = moderatorLines(written.mock.calls);
+      written.mockRestore();
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.[0]).toMatchObject({
+        moderatorId: mo.id,
+        userId: anna.id,
+      });
+    });
+
+    it("writes no AdminAction, because nothing was decided", async () => {
+      await open(mo, anna.id);
+
+      expect(await prisma.adminAction.count()).toBe(0);
+    });
+
+    it("writes nothing at all when there was nothing to open", async () => {
+      const written = vi.spyOn(logger, "info");
+
+      await open(mo, "cm0000000000000000000000");
+      const lines = moderatorLines(written.mock.calls);
+      written.mockRestore();
+
+      // The request line already carries the id that missed (pino-http logs
+      // the path), so a second line saying so would be the same fact twice.
+      expect(lines).toHaveLength(0);
+    });
+  });
+});

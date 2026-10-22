@@ -360,7 +360,7 @@ one arrives without it (#92).
 | `tests/reviews/moderation.test.ts` | Reporting and removing a review: the tombstone it leaves, and the words only a moderator can still read |
 | `tests/reports/reports.test.ts` | Reports: who may file one about what, one open report per person per target, and the queue's order |
 | `tests/admin/moderation.test.ts` | Moderation: warn, suspend, ban, reactivate, takedowns, the audit row each writes, and what a report shows |
-| `tests/admin/user-search.test.ts` | Finding a person: exact email, partial name, the one endpoint that returns an address, and the line every search writes |
+| `tests/admin/user-search.test.ts` | Finding a person: exact email, partial name, opening one account by its id, the only two endpoints that return an address, and the line every lookup writes |
 | `tests/admin/erasure.test.ts` | A moderator erasing a banned account: banned only, idempotent, and the same erasure `DELETE /me` performs |
 | `tests/prohibited/acknowledgement.test.ts` | The tick: required at the moment a listing becomes public, refused when the wording has changed, and recorded with its version |
 | `tests/notifications/notifications.test.ts` | The mechanism: one event one email, the preference re-read at sending time, and who gets nothing |
