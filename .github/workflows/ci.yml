@@ -197,10 +197,60 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  web:
+    name: Lint, typecheck, test and build the web app
+    runs-on: ubuntu-latest
+
+    # npm runs inside farhand-web, exactly as it does locally.
+    defaults:
+      run:
+        working-directory: farhand-web
+
+    # No database, no services: this job asks whether the app compiles and
+    # whether lib/api.ts behaves. What it deliberately does NOT do is call the
+    # deployed API — a frontend build that fails because production is asleep
+    # would be a false red, and the API has its own job above for that.
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # The same Node as the API. Bump all of them together.
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: farhand-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Last, because it is the slowest and the most likely to be red for a
+      # reason the steps above have already named. `next build` typechecks
+      # again on its own; this is the step that would catch a page which
+      # compiles but cannot be rendered.
+      - name: Build
+        run: npm run build
+
   deploy:
     name: Deploy to Render
-    # Only after both of the above are green, and only for master. A pull
+    # Only after the two API jobs are green, and only for master. A pull
     # request builds and tests; merging is what deploys.
+    #
+    # NOT `web`: this job deploys the API, and holding a working API back
+    # because a frontend typo failed to compile would be a worse outcome than
+    # shipping it. Nothing is lost by leaving it out — a pull request cannot be
+    # merged until every job is green, so master is always web-green anyway.
     needs: [verify, image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest

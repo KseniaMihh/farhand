@@ -1,0 +1,85 @@
+.heading {
+  font-size: 1.6rem;
+  margin: 0 0 20px;
+  letter-spacing: -0.01em;
+}
+
+.quiet {
+  color: var(--muted);
+}
+
+.failed {
+  border: 1px solid var(--red);
+  border-radius: 10px;
+  padding: 16px 18px;
+  background: var(--surface);
+}
+
+.failed p {
+  margin: 0 0 6px;
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.photo,
+.noPhoto {
+  width: 96px;
+  height: 96px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--ground);
+  border: 1px solid var(--line);
+}
+
+.body {
+  min-width: 0;
+}
+
+.title {
+  font-size: 1.1rem;
+  margin: 0 0 4px;
+}
+
+.route {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.description {
+  margin: 0;
+  /* Two lines, because a card is a card. The need's own page shows all of it. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 520px) {
+  .card {
+    grid-template-columns: 64px 1fr;
+    gap: 12px;
+  }
+
+  .photo,
+  .noPhoto {
+    width: 64px;
+    height: 64px;
+  }
+}

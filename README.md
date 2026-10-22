@@ -427,6 +427,8 @@ change, nothing reaches `master` unverified.
 | Regenerate the Prisma client | `npx prisma generate` | `farhand-api` |
 | Browse data | `npx prisma studio` | `farhand-api` |
 | Seed the category list (adds new ones, renames changed ones, never deletes) and the prohibited list (adds what is missing, **never rewords** what is there) | `npm run seed` | `farhand-api` |
+| Run the frontend (port 3100; the API's dev server has 3000) | `npm run dev` | `farhand-web` |
+| Build the frontend, which typechecks it too | `npm run build` | `farhand-web` |
 | Complete deals delivered 14 days ago | `npm run job:auto-complete` | `farhand-api` |
 | Destroy data exports older than 7 days | `npm run job:sweep-exports` | `farhand-api` |
 | Delete rate-limit windows that have ended | `npm run job:sweep-rate-limits` | `farhand-api` |
@@ -592,8 +594,21 @@ farhand/
 │       ├── isolation.test.ts   proves the harness isolates tests
 │       ├── assert-store-empty.ts  a standalone check that the test bucket is empty
 │       └── fill-store.ts       fills it on purpose, to prove the check works
-└── farhand-web/                planned: Next.js frontend
+└── farhand-web/                the frontend (#93)
+    ├── app/                    one screen: browse open needs
+    │   ├── layout.tsx          the shell every screen sits in
+    │   ├── page.tsx            the browse screen, rendered in the browser on purpose
+    │   ├── globals.css         a column, a readable size, light and dark
+    │   └── page.module.css     the cards
+    ├── lib/
+    │   ├── api.ts              the only place that talks to the API, and reads an error
+    │   └── api.test.ts         its specification
+    ├── next.config.ts          the API under /api, which is decision 0031
+    └── README.md               how to run it, and what comes next
 ```
+
+The web app's own README is the front door for it: how to run it, why every
+request is relative, and the order the next screens are likely to come in.
 
 ## Roadmap
 
@@ -628,11 +643,20 @@ farhand/
 - [x] A data export: everything held about one person, built in the background
 - [x] Saved searches, and being told when something matches
 - [x] Rate limits that survive a second machine
-- [ ] The README describing the project again — this issue (#92)
-- [ ] Frontend (`farhand-web`, Next.js) as a separate project (#93)
+- [x] The README describing the project again (#92)
+- [x] A moderator able to end a deal nobody is left to settle (#134)
+- [x] The address a request really arrives with (#145)
+- [x] One account opened by its id (#94)
+- [x] Frontend (`farhand-web`, Next.js) as a separate project, scaffolded with
+      one screen (#93)
 
-Before the frontend: one walk through the whole product on production, by hand
-(#131). The suite cannot prove that an email really arrives.
+The walk through the whole product on production happened on 21 October (#131),
+before the frontend, because the suite cannot prove that an email really
+arrives. It found one real bug — the proxy hop count — which is #145 above.
+
+**The API is complete for version 2.** What follows is screens, and an issue
+to deploy the web app: it carries `APP_ORIGIN`, the serverless region and a
+re-measurement of the hop count, which belong together.
 
 ## Scope & safety
 

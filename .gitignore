@@ -3,3 +3,16 @@ node_modules/
 .idea/
 *.iml
 dist/
+
+# Next's build output, local environment files, and the two files it writes
+# by itself: next-env.d.ts, and an AGENTS.md block that `next dev` re-adds on
+# every run (farhand-web). This project's instructions are written by the
+# people working on it — CLAUDE.md at the root — so a generated one is treated
+# as build output.
+.next/
+.env*.local
+next-env.d.ts
+farhand-web/AGENTS.md
+
+# TypeScript's incremental build cache.
+*.tsbuildinfo
