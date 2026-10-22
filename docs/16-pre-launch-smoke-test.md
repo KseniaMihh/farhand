@@ -307,17 +307,26 @@ side the table allows (`04-deal-lifecycle.md`).
 - [ ] **The reviews B wrote survive too**, under "Deleted account" — a
       takedown of a person is not a takedown of what the other side was told
       about them.
-- [ ] **Sentry has the errors and none of the secrets.** Cause one on purpose
-      if nothing has failed, and read the report: no token, no password, no
-      API key (#29, #119).
+- [ ] **Error reporting is switched on.** In Render's logs for the current
+      deploy, the line reads `Error reporting started` with
+      `environment: production` — not `Error reporting is off (no
+      SENTRY_DSN)`. That one line is the whole of what this step can honestly
+      ask.
 
-      **Skipped on 21 October: production has no `SENTRY_DSN`.** Without one
-      `observability.ts` logs "Error reporting is off" and reports nothing, by
-      design (`09-environment.md`) — which means a 5xx on production leaves a
-      line in Render's logs and no trace anywhere else. Set the variable in
-      Render's dashboard (`14-deployment.md` says why it is not in
-      `render.yaml`) and this step can be answered. Leave it unset and the
-      walk cannot ask the question at all.
+      **It used to say "cause an error on purpose and read the report", and
+      that was never answerable.** Nothing in this API returns a 500 by
+      design: an unknown route is `404`, bad input is `422`, a refused move
+      is `409`, and only `5xx` is reported at all (#29). Manufacturing one
+      would mean deploying a deliberate fault to production, which is a
+      stranger risk than the one it checks. The other half of the old tick —
+      that a report carries no token, no password and no API key — is held by
+      `tests/security/observability.test.ts`, which runs on every pull
+      request instead of once a year by hand.
+
+      `SENTRY_DSN` lives in Render's dashboard and deliberately not in
+      `render.yaml` (`14-deployment.md` says why). It was unset until
+      22 October, so until then a 5xx on production left one line in Render's
+      logs and no trace anywhere else (#148).
 
 ### 13 · And then tidy up
 
@@ -351,6 +360,7 @@ side the table allows (`04-deal-lifecycle.md`).
 | Date | Commit | Who | Result |
 |---|---|---|---|
 | 2026-10-21 | `1c27134` | Ksenia | 106 passed, 2 failed, 1 skipped. Failed: the proxy hop count (#145), and one `Notification` assertion that was wrong in this document rather than in the code. Skipped: Sentry, not configured on production. Everything else — the queue, the bucket, the signed links, the mail, the matching, the moderation, the export, the erasure — answered as written |
+| 2026-10-22 | `2eacff2` | Ksenia | **Three ticks, not the whole walk** (#148). Step 12's hop count: `Session.ipAddress` after a fresh login is the caller's own address, not a `10.x` balancer — #145 confirmed from inside the database, having been confirmed from outside by the rate-limit bucket headers. Step 12's error reporting: `SENTRY_DSN` set, and Render's log reads `Error reporting started`, `environment: production`. Step 10's `Notification` assertion was the document's mistake, corrected on 21 October rather than re-run |
 
 A row here is a whole walk. A re-run after a fix may honestly be two steps
 rather than thirteen — say which two in the Result column, because "passed"
