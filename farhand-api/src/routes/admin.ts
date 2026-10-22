@@ -10,6 +10,7 @@ import {
 } from "../middleware/auth.js";
 import {
   actOnUser,
+  getUserForModerator,
   getReportWithTarget,
   removeContent,
   resolveReport,
@@ -237,10 +238,12 @@ const userSearchSchema = z.object({
 /**
  * Finding a person. MOD.
  *
- * The one place in the API that hands out an email address
- * (docs/07-trust-and-safety.md says there are none anywhere, and this is the
- * exception that proves the rule). Which is why it is behind `requireRole`,
- * why it is paged, and why every call of it is written to the log.
+ * One of the two places in the API that hand out an email address — the
+ * other is `GET /admin/users/:id` below, which answers with one row of this
+ * shape (docs/07-trust-and-safety.md says there are none anywhere, and these
+ * are the exception that proves the rule). Which is why it is behind
+ * `requireRole`, why it is paged, and why every call of it is written to the
+ * log.
  */
 adminRouter.get(
   "/admin/users",
@@ -258,5 +261,28 @@ adminRouter.get(
     );
 
     res.json(page);
+  },
+);
+
+/**
+ * The other door to the same room (#94), and the second endpoint that hands
+ * out an email address — so the paragraph above about `requireRole` and the
+ * log applies to this one word for word.
+ *
+ * A door rather than `?id=` on the search: the answer is one account or
+ * nothing, so a page wrapper and a cursor would be furniture, and a `404`
+ * says "no such account" where an empty list says only "nothing matched".
+ */
+adminRouter.get(
+  "/admin/users/:id",
+  requireAuth,
+  requireVerified,
+  requireActive,
+  requireRole("MODERATOR"),
+  async (req, res) => {
+    const { id } = idParams.parse(req.params);
+    const user = await getUserForModerator(getAuth(req).user, id);
+
+    res.json({ user });
   },
 );
