@@ -299,7 +299,7 @@ that trade gets decided, with decision 0012 as the argument against
 | Anything asynchronous | Every arrow but Sentry's is somebody waiting. `forgot-password` has a known few-millisecond timing gap a queue would close | #85 |
 | A second instance | Blocked twice over: the free plan, and the in-memory rate limits | #91 |
 | Signed links inside list responses | A page of N images is N requests to the API. #102 made each one cheaper and took it out of the browsing budget. #81 added the list response that carries images — `GET /needs` gives each card a `coverPhoto` — but as a **path**, so the N requests are still there. Whether a list should hand out signed links instead is #93's to decide, and decision 0012 holds the argument against it: a signed link dies in five minutes and anything that stored the answer dies with it | #93 |
-| A frontend | `APP_ORIGIN` is the API's own URL — a placeholder until something else deserves it | #93 |
+| A frontend | **Begun (#93.)** `farhand-web/` exists, builds, is checked by CI, and browses open needs from the deployed API through the proxy in decision 0031. `APP_ORIGIN` is still the API's own URL, because the frontend has no deployed address yet — the issue that gives it one changes `APP_ORIGIN`, picks the function region, and re-measures the hop count together | the deploy issue |
 | ~~Proof the hop count is right~~ | **Checked, it was wrong, and it is fixed (#145, decision 0029.)** The walk did exactly what this row asked — logged in on production and compared `Session.ipAddress` with a real address — and got `10.195.187.131`, a Render balancer. The chain is three hops, not one. For a year everything by address was counted against the balancer rather than the caller, which is both too strict and too lax at once; 1181 tests were green throughout, because a one-entry `X-Forwarded-For` reads back correctly under any count | — |
 | A measured latency figure | The cross-Atlantic numbers in this document are estimates. `GET /health/ready` returns the real `latencyMs` from the deployed service | — |
 
@@ -318,18 +318,31 @@ The exact mechanism varies — the browser may refuse to store the cookie or
 refuse to send it, depending on the browser and its third-party cookie
 settings — but the outcome is the same either way.
 
-Three ways out, and #93 should pick one before it builds anything:
+Three ways out, and #93 picked the second —
+[decision 0031](10-decisions/0031-the-frontend-proxies-the-api.md):
 
 1. **One registrable domain for both** — `app.example.ee` and `api.example.ee`.
-   Needs a domain, which is the only thing on this page that costs money.
-2. **The frontend proxies the API under its own address** (Next.js rewrites),
-   so the browser only ever sees one site. Costs an extra hop per request.
-3. **`sameSite: "none"`**, which works and gives up what Lax was doing: a
-   browser-level defence against another site making a request as you. The
-   `Origin` check (#28) would be carrying it alone, and browsers are steadily
-   restricting third-party cookies anyway.
+   Needs a domain, which is the only thing on this page that costs money. The
+   best answer technically, and the one to revisit the day a domain exists:
+   it is also half the fix for #121 and it fixes #119's rewritten sender.
+2. **The frontend proxies the API under its own address** — **chosen.**
+   `farhand-web/next.config.ts` rewrites `/api/:path*` to the API, so the
+   browser only ever sees one site and Lax keeps protecting us. Costs an extra
+   hop per request, and the whole decision lives in one file, which is what
+   makes it reversible.
+3. **`sameSite: "none"`**, which gives up what Lax was doing: a browser-level
+   defence against another site making a request as you. Rejected for a
+   simpler reason than that in the end — Safari blocks third-party cookies by
+   default and Firefox partitions them, so it would not reliably work at all.
 
 Found while writing this map, which is what the map is for.
+
+**And it hands a question back to #145.** The frontend becomes another machine
+in front of the API, so the measured hop count of three may not be three any
+more once it is deployed. The deploy issue carries that re-measurement
+together with `APP_ORIGIN` and the serverless region — a function in the
+United States proxying to Frankfurt would add a transatlantic round trip to
+every request.
 
 ## Keeping this true
 
