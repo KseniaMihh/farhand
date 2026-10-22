@@ -402,9 +402,24 @@ async function compose(
     });
     if (!event) return null;
 
-    const title = event.deal.need.title;
-
-    return dealMessage(kind, event.toStatus, title);
+    return dealMessage(kind, event.toStatus, event.deal.need.title, {
+      // Somebody who is in neither seat did this, which is a moderator —
+      // #134 gave them moves on a live deal, and the sweep leaves no actor
+      // at all (#101). Read from the event rather than a role lookup,
+      // because what matters to the reader is that it was not the other
+      // person, and a moderator who later stops being one does not change
+      // what happened.
+      byModerator:
+        event.actorId !== null &&
+        event.actorId !== event.deal.requesterId &&
+        event.actorId !== event.deal.helperId,
+      // Money has moved by PRODUCT_PAID, and a deal can only be DISPUTED
+      // from PRODUCT_PAID onwards (docs/04-deal-lifecycle.md) — so the
+      // status it came FROM is enough to know, and no event log has to be
+      // read a second time.
+      moneyHadMoved: MONEY_HAS_MOVED.includes(event.fromStatus ?? "MATCHED"),
+      note: event.note,
+    });
   }
 
   /**
@@ -490,11 +505,49 @@ async function compose(
   return null;
 }
 
+/**
+ * The statuses by which somebody has sent money.
+ *
+ * `DISPUTED` is in the list because a deal can only be disputed from
+ * `PRODUCT_PAID`, `PURCHASED` or `SHIPPED` — so by the time it is frozen,
+ * the requester has paid (docs/04-deal-lifecycle.md).
+ */
+const MONEY_HAS_MOVED: DealStatus[] = [
+  "PRODUCT_PAID",
+  "PURCHASED",
+  "SHIPPED",
+  "DISPUTED",
+];
+
+/**
+ * What Farhand says about money it never held.
+ *
+ * decision 0030, which #134 had to make before it could let a moderator end
+ * a deal somebody had paid into: Farhand holds no money (decision 0004), so
+ * the only honest thing it can do is say whose business the money is. Saying
+ * nothing would leave somebody who has sent 24 euros reading the word
+ * "cancelled" and nothing else.
+ */
+const MONEY_IS_THEIRS =
+  "Farhand never holds your money, so anything already sent is between you " +
+  "and the other person. The deal's history stays readable to you both.";
+
+/** What else the reader needs to know about how a deal ended. */
+interface Ending {
+  /** Somebody who is in neither seat moved it. */
+  byModerator: boolean;
+  /** The deal had reached a status where money has been sent. */
+  moneyHadMoved: boolean;
+  /** The reason or resolution note, which every ending requires. */
+  note: string | null;
+}
+
 /** The deal emails, keyed by what the deal became. */
 function dealMessage(
   kind: NotificationKind,
   status: DealStatus,
   title: string,
+  ending: Ending = { byModerator: false, moneyHadMoved: false, note: null },
 ): Message {
   if (kind === "deal-completed") {
     return {
@@ -508,15 +561,49 @@ function dealMessage(
   }
 
   if (kind === "deal-cancelled") {
+    // THREE ENDINGS, AND THE OLD WORDING WAS ONLY TRUE OF ONE. "Nothing more
+    // is owed by either side" is right for a deal cancelled before anybody
+    // paid, and wrong the moment money has moved — which it could already be
+    // before #134, because a requester may cancel a deal they have paid for.
+    const lines = ending.byModerator
+      ? [
+          `A moderator has ended the deal for "${title}".`,
+          ...(ending.note === null
+            ? []
+            : ["", `What they said: ${ending.note}`]),
+        ]
+      : [
+          `The deal for "${title}" has been cancelled${
+            ending.moneyHadMoved
+              ? "."
+              : ", so nothing more is owed by either side."
+          }`,
+        ];
+
     return {
-      subject: `Cancelled: ${title}`,
-      lines: [
-        `The deal for "${title}" has been cancelled, so nothing more is owed by either side.`,
-      ],
+      subject: ending.byModerator
+        ? `A moderator ended the deal: ${title}`
+        : `Cancelled: ${title}`,
+      lines: ending.moneyHadMoved ? [...lines, "", MONEY_IS_THEIRS] : lines,
     };
   }
 
   if (kind === "deal-disputed") {
+    // A moderator freezing a deal themselves (#134) is not "wait for a
+    // moderator": one is already here. Usually because the other side cannot
+    // act any more, and the note is where that is said.
+    if (ending.byModerator) {
+      return {
+        subject: `A moderator has frozen the deal: ${title}`,
+        lines: [
+          `A moderator has frozen the deal for "${title}" while they look at it. Neither side can move it in the meantime.`,
+          ...(ending.note === null
+            ? []
+            : ["", `What they said: ${ending.note}`]),
+        ],
+      };
+    }
+
     return {
       subject: `A dispute on the deal: ${title}`,
       lines: [

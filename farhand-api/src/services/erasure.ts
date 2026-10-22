@@ -63,16 +63,19 @@ export function deletedEmailFor(userId: string): string {
  * thing or their money, and erasing one of the two people in it leaves them
  * with neither. The same refusal whoever asks (#66, #88).
  *
- * AND IT CAN DEADLOCK, which #88 decided to leave honest rather than paper
- * over: a banned account cannot move a deal, the other side can only move it
- * where the table allows, and a moderator can only move one out of
- * `DISPUTED` (docs/04-deal-lifecycle.md). So a banned account with a deal at
- * `PRODUCT_PAID` can be impossible to erase until somebody settles it. That
- * is in docs/11-risks.md, and #134 is the issue that fixes it, because the fix is a
- * change to the deal lifecycle and an argument about who is owed the money —
- * not something to decide inside a deletion routine.
+ * IT USED TO DEADLOCK, and #134 is why it no longer does. A banned account
+ * cannot move a deal; before #134 a moderator's only row started at
+ * `DISPUTED`, so an erasure waited on one of the deal's own two people
+ * choosing to press something — and if both were gone, it waited forever.
+ * A moderator can now end a deal nobody has paid for outright, and freeze
+ * then end one somebody has (docs/04-deal-lifecycle.md, decision 0030). So
+ * this refusal is a "do that first", and `whoIsAsking` is what makes it say
+ * which "that".
  */
-export async function assertNoRunningDeals(userId: string): Promise<void> {
+export async function assertNoRunningDeals(
+  userId: string,
+  whoIsAsking: "owner" | "moderator" = "owner",
+): Promise<void> {
   const unsettledDeals = await prisma.deal.count({
     where: {
       OR: [{ requesterId: userId }, { helperId: userId }],
@@ -80,11 +83,19 @@ export async function assertNoRunningDeals(userId: string): Promise<void> {
     },
   });
 
-  if (unsettledDeals > 0) {
-    throw HttpError.conflict(
-      `This account has ${String(unsettledDeals)} deal(s) still in progress. Settle or cancel them first.`,
-    );
-  }
+  if (unsettledDeals === 0) return;
+
+  // The owner can act on their own deals; a moderator cannot act on somebody
+  // else's except through the two rows #134 gave them. One sentence each,
+  // because an error that names the wrong remedy wastes somebody's afternoon.
+  const remedy =
+    whoIsAsking === "moderator"
+      ? "End them first: a deal nobody has paid for can be cancelled, and one somebody has paid for can be frozen and then ended with a note."
+      : "Settle or cancel them first.";
+
+  throw HttpError.conflict(
+    `This account has ${String(unsettledDeals)} deal(s) still in progress. ${remedy}`,
+  );
 }
 
 /**
@@ -222,7 +233,7 @@ export async function eraseAccountAsModerator(
     );
   }
 
-  await assertNoRunningDeals(target.id);
+  await assertNoRunningDeals(target.id, "moderator");
 
   // The audit row first, in its own statement, and then the erasure — both
   // before anything is answered. #27 exists so that a power leaves a trace,

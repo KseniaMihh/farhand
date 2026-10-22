@@ -47,18 +47,24 @@ docs/06-api-contract.md. The first `DealEvent` is written there too, with
 | `PURCHASED` | `SHIPPED` | Helper | Tracking number and real postage present | Requester **emailed** to settle the difference (#86) |
 | `SHIPPED` | `DELIVERED` | Requester | — | — |
 | `DELIVERED` | `COMPLETED` | Requester, or automatically after 14 days | — | Reviews unlock, and their 14-day window starts (#83) |
-| Any state before `SHIPPED` | `CANCELLED` | Either side | Reason required | Need may reopen |
-| Any state from `PRODUCT_PAID` to `SHIPPED` | `DISPUTED` | Either side | Reason required | Deal frozen |
+| `MATCHED`, `QUOTE_AGREED` | `CANCELLED` | Either side, **or a moderator** | Reason required | Need may reopen |
+| `PRODUCT_PAID`, `PURCHASED` | `CANCELLED` | Either side | Reason required | Need may reopen |
+| Any state from `PRODUCT_PAID` to `SHIPPED` | `DISPUTED` | Either side, **or a moderator** | Reason required | Deal frozen |
 | `DISPUTED` | `CANCELLED` or previous state | Moderator | Reason required | Resolution note recorded |
 
 Any transition not in this table is invalid, including going backwards.
 
 **This table exists once in the code**, as data, in
-`farhand-api/src/services/transitions.ts` — `from`, `to`, who may ask, and
-which extra fields the request must carry. The route validates against it, the
-service enforces it, and a test walks all 81 possible moves to check that the
-fourteen above are allowed and the other sixty-seven are refused. If this
-document and that file ever disagree, one of them is a bug.
+`farhand-api/src/services/transitions.ts` — `from`, `to`, **everybody** who
+may ask, and which extra fields the request must carry. The route validates
+against it, the service enforces it, and a test walks all 81 possible moves:
+the seventeen these rows add up to are allowed, and the other sixty-four —
+including standing still — are refused.
+
+Since #134 that walk has a second dimension. For every move the table does
+list, each kind of actor the row does **not** name is refused as well, which
+nothing checked while every row named exactly one. If this document and that
+file ever disagree, one of them is a bug.
 
 **A receipt is allowed at `PURCHASED`, and never required.** The transition
 checks nothing about files, which is a decision rather than a gap
@@ -93,6 +99,30 @@ good (docs/05-data-model.md); somebody else can.
 **A dispute freezes the deal.** From `DISPUTED` the table offers nothing to
 either of its two people — only the moderator's row — so neither side can move
 it while they disagree.
+
+**And a moderator can freeze one themselves (#134).** Not to take a side, but
+because a deal can outlive the people in it: a banned account cannot move
+anything, so an erasure obligation (#88) used to wait on the other person
+choosing to act, and if both were gone it waited for good. The two powers a
+moderator has are split on whether money has moved, which is
+[decision 0030](10-decisions/0030-ending-a-deal-nobody-can-finish.md):
+
+- **Nothing paid yet** — `MATCHED` or `QUOTE_AGREED` — and a moderator may
+  cancel it outright. Nobody is out of pocket, so the cancellation says only
+  what is true: it ended without delivery.
+- **Money has moved** — `PRODUCT_PAID` onwards — and they may not. They
+  freeze it, look at it, and end it from `DISPUTED` with a resolution note,
+  which is the row that already existed. Two events, two notes, and a human
+  decision in between.
+
+`DELIVERED` is in neither list, because the parcel arrived and the 14-day
+sweep settles it whoever is banned: it reads the status and nothing else.
+
+**What Farhand says about the money is the whole of what it can do.** It holds
+none (decision 0004), so when a deal ends after the requester has paid, both
+sides are emailed the moderator's note and told plainly that anything already
+sent is between the two of them. The alternative — the word "cancelled" and
+nothing else — reads as though the money came back.
 
 **"Or previous state" means exactly one state.** Which one is not something the
 table can say, because it depends on the deal's own history: the service reads
@@ -149,7 +179,7 @@ docs/06-api-contract.md.
 | Requester goes silent after delivery | Auto-complete after 14 days at `DELIVERED`. |
 | Requester never confirms delivery at all | Deal stays `SHIPPED`. Tracking number exists as evidence in a dispute. |
 | Both people want to redo a cancelled deal | They cannot, on that need. Cancelling reopens it, so **a different helper** may propose at once — but the same helper is refused, because a proposal is one per helper per need whatever became of it (`0009`). The way back is a new need. |
-| Helper account banned mid-deal | Deal freezes as `DISPUTED` for moderator handling. |
+| Helper account banned mid-deal | Either the requester settles it, or a moderator ends it: outright if nothing has been paid, otherwise frozen first and ended with a note (#134). Nobody has to wait for an account that cannot sign in. |
 
 ## Database guarantee
 

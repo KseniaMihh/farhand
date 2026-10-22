@@ -283,6 +283,10 @@ describe("a deal still running", () => {
     expect(response.status).toBe(409);
     const body = response.body as { error: { message: string } };
     expect(body.error.message).toMatch(/1 deal/);
+    // And it names the remedy a MODERATOR has, which is not the one the
+    // account's owner has: they cannot settle somebody else's deal, only
+    // freeze it and end it (#134).
+    expect(body.error.message).toMatch(/frozen and then ended/);
     expect((await userRow(yuki.id)).status).toBe("BANNED");
     expect(await actions()).toHaveLength(0);
   });
@@ -292,6 +296,58 @@ describe("a deal still running", () => {
     await ban(yuki);
 
     expect((await erase(mo, yuki.id)).status).toBe(204);
+  });
+
+  /**
+   * THE DEADLOCK, AND THE WAY OUT — #134.
+   *
+   * The deal here is between two people who are not the moderator, and both
+   * of them are banned, so there is nobody in it who could settle it. Before
+   * #134 this account could never be erased: the refusal above was correct
+   * and permanent, which is what `docs/11-risks.md` recorded.
+   *
+   * It runs the whole way through on purpose. Each half passes on its own
+   * against the wrong implementation — a moderator who can cancel anything
+   * passes the erasure, and an erasure that ignores live deals passes the
+   * transitions — and only together do they say that the obligation can
+   * actually be met.
+   */
+  it("can be cleared by the moderator alone, and then erased", async () => {
+    const kadri = await signUpVerifiedAndLogIn(
+      app,
+      "kadri@example.com",
+      "Kadri",
+    );
+    const created = await request(app)
+      .post("/needs")
+      .set("Cookie", kadri.cookie)
+      .send(await needBody(categoryId));
+    const need = (created.body as { need: Need }).need;
+    const { id: dealId } = await createDealFor(need, yuki.id, "PRODUCT_PAID");
+
+    await ban(yuki);
+    await ban(kadri);
+
+    // Nobody in the deal can act, and the erasure says so.
+    expect((await erase(mo, yuki.id)).status).toBe(409);
+
+    const transition = (to: string, note: string) =>
+      request(app)
+        .post(`/deals/${dealId}/transition`)
+        .set("Cookie", mo.cookie)
+        .send({ to, note });
+
+    // Money has moved, so it is two steps: freeze, look, end.
+    expect((await transition("DISPUTED", "Both accounts banned.")).status).toBe(
+      200,
+    );
+    expect(
+      (await transition("CANCELLED", "Ended: nobody left to settle it."))
+        .status,
+    ).toBe(200);
+
+    expect((await erase(mo, yuki.id)).status).toBe(204);
+    expect((await userRow(yuki.id)).status).toBe("DELETED");
   });
 });
 
