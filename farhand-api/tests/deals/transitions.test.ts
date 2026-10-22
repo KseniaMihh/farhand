@@ -34,35 +34,51 @@ const STATUSES: DealStatus[] = [
   "DISPUTED",
 ];
 
-/** Every move the document allows, transcribed by hand from its table. */
+type Actor = "requester" | "helper" | "moderator";
+
+/** The document's "Either side": the deal's two people, and nobody else. */
+const SIDES: Actor[] = ["requester", "helper"];
+
+/** All three, for asking what happens when one the row does not name asks. */
+const ACTORS: Actor[] = ["requester", "helper", "moderator"];
+
+/**
+ * Every move the document allows, transcribed by hand from its table —
+ * including **everybody** the Who column names, which is the part #134 made
+ * load-bearing. Before it, no row named more than one kind of actor, so a
+ * single value was enough and "who may NOT" was nobody's business.
+ */
 const ALLOWED: {
   from: DealStatus;
   to: DealStatus;
-  who: "requester" | "helper" | "either" | "moderator";
+  who: Actor[];
 }[] = [
-  { from: "MATCHED", to: "QUOTE_AGREED", who: "requester" },
-  { from: "QUOTE_AGREED", to: "PRODUCT_PAID", who: "requester" },
-  { from: "PRODUCT_PAID", to: "PURCHASED", who: "helper" },
-  { from: "PURCHASED", to: "SHIPPED", who: "helper" },
-  { from: "SHIPPED", to: "DELIVERED", who: "requester" },
-  { from: "DELIVERED", to: "COMPLETED", who: "requester" },
-  // "Any state before SHIPPED", written out.
-  { from: "MATCHED", to: "CANCELLED", who: "either" },
-  { from: "QUOTE_AGREED", to: "CANCELLED", who: "either" },
-  { from: "PRODUCT_PAID", to: "CANCELLED", who: "either" },
-  { from: "PURCHASED", to: "CANCELLED", who: "either" },
-  // "Any state from PRODUCT_PAID to SHIPPED", written out.
-  { from: "PRODUCT_PAID", to: "DISPUTED", who: "either" },
-  { from: "PURCHASED", to: "DISPUTED", who: "either" },
-  { from: "SHIPPED", to: "DISPUTED", who: "either" },
-  { from: "DISPUTED", to: "CANCELLED", who: "moderator" },
+  { from: "MATCHED", to: "QUOTE_AGREED", who: ["requester"] },
+  { from: "QUOTE_AGREED", to: "PRODUCT_PAID", who: ["requester"] },
+  { from: "PRODUCT_PAID", to: "PURCHASED", who: ["helper"] },
+  { from: "PURCHASED", to: "SHIPPED", who: ["helper"] },
+  { from: "SHIPPED", to: "DELIVERED", who: ["requester"] },
+  { from: "DELIVERED", to: "COMPLETED", who: ["requester"] },
+  // Before any money has moved, a moderator may end it outright (#134).
+  { from: "MATCHED", to: "CANCELLED", who: [...SIDES, "moderator"] },
+  { from: "QUOTE_AGREED", to: "CANCELLED", who: [...SIDES, "moderator"] },
+  // After it has, cancelling belongs to the two people. A moderator's way is
+  // to freeze it first — the three rows below — and end it from there.
+  { from: "PRODUCT_PAID", to: "CANCELLED", who: SIDES },
+  { from: "PURCHASED", to: "CANCELLED", who: SIDES },
+  // "Any state from PRODUCT_PAID to SHIPPED", written out — plus a moderator,
+  // who had no move at all on a live deal before #134.
+  { from: "PRODUCT_PAID", to: "DISPUTED", who: [...SIDES, "moderator"] },
+  { from: "PURCHASED", to: "DISPUTED", who: [...SIDES, "moderator"] },
+  { from: "SHIPPED", to: "DISPUTED", who: [...SIDES, "moderator"] },
+  { from: "DISPUTED", to: "CANCELLED", who: ["moderator"] },
   // "Or previous state" (#25). All three are in the table, because it cannot
   // know which one applies to a given deal; only the one the dispute started
   // from is allowed for THAT deal, which the fixture below arranges and
   // tests/deals/cancellation.test.ts checks from the other side.
-  { from: "DISPUTED", to: "PRODUCT_PAID", who: "moderator" },
-  { from: "DISPUTED", to: "PURCHASED", who: "moderator" },
-  { from: "DISPUTED", to: "SHIPPED", who: "moderator" },
+  { from: "DISPUTED", to: "PRODUCT_PAID", who: ["moderator"] },
+  { from: "DISPUTED", to: "PURCHASED", who: ["moderator"] },
+  { from: "DISPUTED", to: "SHIPPED", who: ["moderator"] },
 ];
 
 /**
@@ -97,6 +113,17 @@ beforeEach(async () => {
   yuki = await signUpVerifiedAndLogIn(app, "yuki@example.com", "Yuki");
   marek = await signUpVerifiedAndLogIn(app, "marek@example.com", "Marek");
 });
+
+/**
+ * The signed-in user standing for an actor. kadri is the requester of every
+ * deal in this file and yuki the helper; a moderator is made per test, so it
+ * is handed in rather than looked up.
+ */
+function userFor(actor: Actor, moderator: TestUser): TestUser {
+  if (actor === "helper") return yuki;
+  if (actor === "moderator") return moderator;
+  return kadri;
+}
 
 async function makeModerator() {
   const mo = await signUpVerifiedAndLogIn(app, "mo@example.com", "Mo");
@@ -262,8 +289,10 @@ describe("the table decides", () => {
           ? rule.to
           : "PURCHASED",
       );
-      const actor =
-        rule.who === "helper" ? yuki : rule.who === "moderator" ? mo : kadri; // requester, and "either" is tested from both sides below
+      // The first actor the row names. Rows naming more than one are tried
+      // from every side in the test below this one, and the sides a row does
+      // NOT name are tried in the test below that.
+      const actor = userFor(rule.who[0] ?? "requester", mo);
 
       const response = await request(app)
         .post(`/deals/${deal.id}/transition`)
@@ -271,12 +300,60 @@ describe("the table decides", () => {
         .send({ to: rule.to, ...fieldsFor(rule.from, rule.to) });
       if (response.status !== 200) {
         failed.push(
-          `${rule.from} → ${rule.to} as ${rule.who}: ${String(response.status)}`,
+          `${rule.from} → ${rule.to} as ${rule.who.join(", ")}: ${String(response.status)}`,
         );
       }
     }
 
     expect(failed).toEqual([]);
+  }, 120_000);
+
+  /**
+   * The other half of "who may ask", and it did not exist until #134.
+   *
+   * The 55-refusals test above covers moves the table does not list at all.
+   * This covers the moves it DOES list, asked by somebody it does not name —
+   * which was nobody's business while every row named exactly one kind of
+   * actor, and is the whole shape of the new rules: a moderator may end a
+   * deal nobody has paid for and may not end one somebody has.
+   *
+   * Without this, deleting "moderator" from a row's actors, or adding it to
+   * one, breaks nothing a test can see.
+   */
+  it("refuses everybody the row does not name", async () => {
+    const mo = await makeModerator();
+    const wrongly: string[] = [];
+    let attempted = 0;
+
+    for (const rule of ALLOWED) {
+      for (const actor of ACTORS.filter((who) => !rule.who.includes(who))) {
+        const deal = await dealAt(
+          rule.from,
+          rule.from === "DISPUTED" && rule.to !== "CANCELLED"
+            ? rule.to
+            : "PURCHASED",
+        );
+
+        attempted += 1;
+        const response = await move(
+          userFor(actor, mo),
+          deal.id,
+          rule.to,
+          fieldsFor(rule.from, rule.to),
+        );
+
+        if (response.status === 200) {
+          wrongly.push(`${rule.from} → ${rule.to} as ${actor}`);
+        }
+      }
+    }
+
+    expect(wrongly).toEqual([]);
+    // Seventeen rows times three kinds of actor is 51; the rows name 29 of
+    // those between them, so 22 are asked by somebody who may not. Asserted
+    // for the same reason the 55 above is: a row that quietly grew an actor
+    // would leave this test checking one case less and saying nothing.
+    expect(attempted).toBe(22);
   }, 120_000);
 
   it("refuses a status that is not a status at all", async () => {
@@ -339,17 +416,65 @@ describe("who may ask", () => {
   it("keeps moderators out of the deal's own moves", async () => {
     const mo = await makeModerator();
     const shipped = await dealAt("SHIPPED");
-    const agreed = await dealAt("QUOTE_AGREED");
+    const paid = await dealAt("PRODUCT_PAID");
 
     const confirming = await move(mo, shipped.id, "DELIVERED");
-    const cancelling = await move(mo, agreed.id, "CANCELLED");
+    const cancelling = await move(mo, paid.id, "CANCELLED");
 
     // A moderator resolves disputes; they do not confirm somebody's parcel.
     expect(confirming.status).toBe(403);
-    // And "either side" means either side of the DEAL. A moderator is not a
-    // third side of it — they get the one row that names them.
+    // And they do not end a deal somebody has already paid for. #134 gave
+    // them a way in — freeze it, look at it, then end it with a note — and
+    // deliberately not a one-click cancel over the top of money that moved.
     expect(cancelling.status).toBe(403);
   });
+
+  /**
+   * #134's whole point, as one test: a moderator can settle a live deal
+   * **alone**, from every state a deal can be alive in.
+   *
+   * Before this, a moderator's only row started at DISPUTED, so an erasure
+   * (#88) waited on one of the deal's two people choosing to press something
+   * — and if both of them were banned, it waited forever.
+   *
+   * DELIVERED is not in the list on purpose: the parcel arrived, and
+   * `autoCompleteDeliveredDeals` settles it within fourteen days whoever is
+   * banned, because that sweep looks at the status and at nothing else.
+   */
+  it("lets a moderator settle a live deal from any state, alone", async () => {
+    const mo = await makeModerator();
+    const live: DealStatus[] = [
+      "MATCHED",
+      "QUOTE_AGREED",
+      "PRODUCT_PAID",
+      "PURCHASED",
+      "SHIPPED",
+    ];
+    const stuck: string[] = [];
+
+    for (const from of live) {
+      const deal = await dealAt(from);
+
+      // One step where no money has moved, two where it has.
+      let response = await move(mo, deal.id, "CANCELLED", {
+        note: "The other account is banned and cannot act (smoke).",
+      });
+
+      if (response.status !== 200) {
+        await move(mo, deal.id, "DISPUTED", {
+          note: "Frozen: the other account is banned.",
+        });
+        response = await move(mo, deal.id, "CANCELLED", {
+          note: "Ended: nobody left who can move it.",
+        });
+      }
+
+      if (response.status !== 200)
+        stuck.push(`${from}: ${String(response.status)}`);
+    }
+
+    expect(stuck).toEqual([]);
+  }, 60_000);
 
   it("lets a moderator end a dispute", async () => {
     const mo = await makeModerator();

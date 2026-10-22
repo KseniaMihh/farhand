@@ -1357,8 +1357,9 @@ change is permitted.
 | `PURCHASED` | `SHIPPED` | Helper | `trackingNumber`, `shippingActual` |
 | `SHIPPED` | `DELIVERED` | Requester | — |
 | `DELIVERED` | `COMPLETED` | Requester | — |
-| `MATCHED`, `QUOTE_AGREED`, `PRODUCT_PAID`, `PURCHASED` | `CANCELLED` | Either side | `note` |
-| `PRODUCT_PAID`, `PURCHASED`, `SHIPPED` | `DISPUTED` | Either side | `note` |
+| `MATCHED`, `QUOTE_AGREED` | `CANCELLED` | Either side, or a moderator | `note` |
+| `PRODUCT_PAID`, `PURCHASED` | `CANCELLED` | Either side | `note` |
+| `PRODUCT_PAID`, `PURCHASED`, `SHIPPED` | `DISPUTED` | Either side, or a moderator | `note` |
 | `DISPUTED` | `CANCELLED` | Moderator | `note` |
 | `DISPUTED` | `PRODUCT_PAID`, `PURCHASED` or `SHIPPED` | Moderator | `note` |
 
@@ -1389,9 +1390,18 @@ Nine statuses make 81 possible moves. Seventeen are above; the other sixty-four
 The last of those matters more than it looks: telling somebody "you may not"
 would confirm that the deal exists.
 
-**"Either side" means either side of the deal** — the requester or the helper,
-not a moderator. A moderator has exactly one row of their own, ending a dispute,
-and cannot confirm a parcel or cancel somebody else's deal.
+**"Either side" means either side of the deal** — the requester or the helper.
+Where a row says "or a moderator" it means all three may ask, and that is only
+two rows: ending a deal nobody has paid for, and freezing one somebody has
+(#134, decision 0030). A moderator still cannot confirm a parcel, agree a
+quote, or cancel a deal that has reached `PRODUCT_PAID` — for that they
+freeze it and end it from `DISPUTED`, which leaves two events and two notes
+behind instead of one click.
+
+**When a deal is ended after money has moved**, both sides are emailed the
+note and told that Farhand holds no money, so anything already sent is between
+them. Nothing in the API moves money or records who owes whom: there is no
+such field, deliberately (decision 0004).
 
 **Fields are validated per transition, not per target.** Shipping without a
 tracking number is `422` rather than a deal that says `SHIPPED` with nothing to

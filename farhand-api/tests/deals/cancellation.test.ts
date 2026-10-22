@@ -6,7 +6,9 @@ import { prisma } from "../../src/db.js";
 import { autoCompleteDeals } from "../../src/services/deals.js";
 import { signUpVerifiedAndLogIn } from "../helpers/auth.js";
 import type { TestUser } from "../helpers/auth.js";
+import { mailer } from "../../src/mailer.js";
 import { createCategory } from "../helpers/needs.js";
+import { runQueuedJobs } from "../helpers/jobs.js";
 import { breakInsideTransaction } from "../helpers/transactions.js";
 
 /**
@@ -306,6 +308,157 @@ describe("a dispute freezes the deal", () => {
     });
 
     expect(second.status).toBe(200);
+  });
+});
+
+/**
+ * A moderator ending a deal nobody is left to settle — issue #134.
+ *
+ * #88 can refuse to erase a banned account while a deal of theirs is live,
+ * and before this there was no move a moderator could make on a live deal at
+ * all: their only row started at `DISPUTED`, which one of the deal's two
+ * people had to open. A banned account cannot, so the erasure waited on the
+ * other side choosing to act — and if both were gone, it waited forever.
+ *
+ * The split is decision 0030, and it is about money rather than tidiness: a
+ * deal nobody has paid for can be ended outright, and one somebody has paid
+ * into has to be frozen and looked at first.
+ */
+describe("a moderator ending a live deal", () => {
+  /** What the moderator writes, which every one of these rows requires. */
+  const BECAUSE = {
+    note: "The helper's account is banned and cannot move this deal.",
+  };
+
+  it("ends a deal nobody has paid for, in one step", async () => {
+    const mo = await makeModerator();
+    const { deal } = await dealAt("QUOTE_AGREED");
+
+    const response = await move(mo, deal.id, "CANCELLED", BECAUSE);
+
+    expect(response.status).toBe(200);
+    const event = await prisma.dealEvent.findFirstOrThrow({
+      where: { dealId: deal.id, toStatus: "CANCELLED" },
+    });
+    // The log says a third person did it, and why. Both halves matter: an
+    // audit trail that cannot tell a moderator's cancellation from the
+    // requester's own is not an audit trail.
+    expect(event.actorId).toBe(mo.id);
+    expect(event.note).toBe(BECAUSE.note);
+  });
+
+  it("will not end one somebody has paid for without freezing it first", async () => {
+    const mo = await makeModerator();
+    const { deal } = await dealAt("PRODUCT_PAID");
+
+    const straightToCancelled = await move(mo, deal.id, "CANCELLED", BECAUSE);
+
+    expect(straightToCancelled.status).toBe(403);
+    // And nothing happened. The deal's own opening event is there — accepting
+    // the proposal wrote it, with `fromStatus` null — and a refused move adds
+    // nothing to it (#24).
+    expect(
+      await prisma.dealEvent.findMany({
+        where: { dealId: deal.id },
+        select: { fromStatus: true, toStatus: true },
+      }),
+    ).toEqual([{ fromStatus: null, toStatus: "MATCHED" }]);
+  });
+
+  it("freezes it, then ends it, with a note at both steps", async () => {
+    const mo = await makeModerator();
+    const { deal } = await dealAt("PURCHASED");
+
+    const frozen = await move(mo, deal.id, "DISPUTED", BECAUSE);
+    const ended = await move(mo, deal.id, "CANCELLED", {
+      note: "Nobody is left who can move it. Ended.",
+    });
+
+    expect([frozen.status, ended.status]).toEqual([200, 200]);
+    const events = await prisma.dealEvent.findMany({
+      where: { dealId: deal.id },
+      orderBy: { createdAt: "asc" },
+    });
+    // The first is the deal opening, written when the proposal was accepted.
+    expect(events.map((event) => event.toStatus)).toEqual([
+      "MATCHED",
+      "DISPUTED",
+      "CANCELLED",
+    ]);
+    // Two steps, two notes, and a reader can see which was which — and that
+    // the person who made them is in neither seat.
+    const byModerator = events.slice(1);
+    expect(byModerator.every((event) => event.actorId === mo.id)).toBe(true);
+    expect(byModerator[0]?.note).toBe(BECAUSE.note);
+    expect(byModerator[1]?.note).toMatch(/Nobody is left/);
+  });
+
+  it("tells both sides, quoting the note and whose the money is", async () => {
+    const sent = vi.spyOn(mailer, "sendNotificationEmail").mockResolvedValue();
+    const mo = await makeModerator();
+    const { deal } = await dealAt("PRODUCT_PAID");
+
+    await move(mo, deal.id, "DISPUTED", BECAUSE);
+    await move(mo, deal.id, "CANCELLED", {
+      note: "Ended because the helper's account is gone.",
+    });
+    await runQueuedJobs();
+
+    // Nobody in the deal did this, so there is nobody to leave out: four
+    // emails, two people, two events.
+    const bodies = sent.mock.calls.map((call) => call[2]);
+    const ending = bodies.filter((body) => body.includes("ended the deal"));
+    expect(ending).toHaveLength(2);
+
+    for (const body of ending) {
+      // The note is the whole reason the email is worth sending: it is the
+      // only place either of them learns why a stranger closed their deal.
+      expect(body).toContain("Ended because the helper's account is gone.");
+      // Decision 0030, and the sentence this issue existed to decide. The
+      // deal reached PRODUCT_PAID, so "nothing more is owed by either side"
+      // would be false.
+      expect(body).toContain("Farhand never holds your money");
+    }
+    expect(bodies.some((body) => body.includes("nothing more is owed"))).toBe(
+      false,
+    );
+  });
+
+  it("still says nothing is owed when the deal ended before anybody paid", async () => {
+    const sent = vi.spyOn(mailer, "sendNotificationEmail").mockResolvedValue();
+    const { deal } = await dealAt("MATCHED");
+    // Setting the deal up offered and accepted a proposal, which queues two
+    // emails of its own. Send them and forget them, or the first call below
+    // is somebody being told about an offer.
+    await runQueuedJobs();
+    sent.mockClear();
+
+    // The requester's own cancellation, which is the case the old wording was
+    // written for and the case it is still right about.
+    await move(kadri, deal.id, "CANCELLED", REASON);
+    await runQueuedJobs();
+
+    const body = String(sent.mock.calls[0]?.[2]);
+    expect(body).toContain("nothing more is owed by either side");
+    expect(body).not.toContain("Farhand never holds your money");
+  });
+
+  it("says a moderator froze it, not that one is being waited for", async () => {
+    const sent = vi.spyOn(mailer, "sendNotificationEmail").mockResolvedValue();
+    const mo = await makeModerator();
+    const { deal } = await dealAt("SHIPPED");
+    await runQueuedJobs();
+    sent.mockClear();
+
+    await move(mo, deal.id, "DISPUTED", BECAUSE);
+    await runQueuedJobs();
+
+    const body = String(sent.mock.calls[0]?.[2]);
+    // "Frozen until a moderator looks at it" is the wrong sentence when a
+    // moderator is the one who froze it.
+    expect(body).toContain("A moderator has frozen the deal");
+    expect(body).not.toContain("until a moderator looks at it");
+    expect(body).toContain(BECAUSE.note);
   });
 });
 
