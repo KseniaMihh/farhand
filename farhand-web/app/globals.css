@@ -369,7 +369,8 @@ select.input {
 
 .auth-panel-wordmark {
   font: 700 20px/1 var(--serif);
-  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--cream);
   text-decoration: none;
 }
@@ -460,16 +461,31 @@ a {
 
 /* --- The header, signed in and out --- */
 
+.masthead-left {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-width: 0;
+}
+
 .nav {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 22px;
+}
+
+/* The rule between the public pages and your own, as the design draws it. */
+.nav-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
 }
 
 .nav-link {
   font: var(--button-type);
   color: var(--pine);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .nav-link:hover {
@@ -477,19 +493,48 @@ a {
   text-underline-offset: 3px;
 }
 
+/* The link that is the page you are on. Weight rather than colour, so it
+   still reads when the colour is not available. */
+.nav-link[aria-current="page"] {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 2px;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .nav-name {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--pine);
   font: var(--button-type);
+  cursor: pointer;
+}
+
+.nav-name:hover {
+  background: var(--sage-tint);
+}
+
+.nav-caret {
+  font-size: 10px;
+  opacity: 0.7;
 }
 
 .avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: var(--sage);
   color: var(--pine);
@@ -500,6 +545,102 @@ a {
    wider state, hidden, so the row keeps its width and announces nothing. */
 .nav-placeholder {
   visibility: hidden;
+}
+
+/* The account menu. A real <details> rather than a div with state, so the
+   keyboard and Escape work without any of it being written here. */
+.menu {
+  position: relative;
+}
+
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.menu-sheet {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  min-width: 180px;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 10px 24px rgb(31 59 52 / 0.12);
+}
+
+.menu-sheet button,
+.menu-sheet a {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--pine);
+  font: var(--button-type);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu-sheet button:hover,
+.menu-sheet a:hover {
+  background: var(--sage-tint);
+}
+
+.menu-sheet-note {
+  margin: 2px 10px 6px;
+  font: var(--caption);
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* The unread count beside Inbox. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--pine);
+  color: var(--cream);
+  font: var(--badge);
+}
+
+/* The header is the one place where the whole product is on screen at once,
+   so it is also the first thing to run out of room. Below the column width
+   the navigation scrolls sideways rather than wrapping into two rows that
+   push the page down. */
+@media (max-width: 1100px) {
+  .masthead-left {
+    gap: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .nav-actions .btn {
+    padding: 9px 12px;
+  }
+
+  .nav-name span:not(.avatar):not(.nav-caret) {
+    display: none;
+  }
 }
 
 /* --- The banner under the header (3.6) --- */
@@ -513,10 +654,22 @@ a {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 10px 16px;
   max-width: var(--column);
   margin: 0 auto;
-  padding: 12px var(--gutter);
+  padding: 14px var(--gutter);
+}
+
+.banner-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font: var(--button-type);
 }
 
 .banner-text {
@@ -524,14 +677,36 @@ a {
   flex: 1 1 320px;
 }
 
+.banner-text strong {
+  font-weight: 700;
+}
+
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .banner-unverified {
   background: var(--warning-tint);
   color: var(--warning-ink);
 }
 
+/* Dark enough for white at 14/600, and it is the Warning ink rather than a
+   new colour, so the strip stays one thing. */
+.banner-unverified .btn-primary {
+  background: var(--warning-ink);
+  color: #fff;
+}
+
 .banner-suspended {
   background: var(--paused-tint);
   color: var(--paused-ink);
+}
+
+.banner-suspended .btn-primary {
+  background: var(--paused-ink);
+  color: #fff;
 }
 
 .banner .btn-quiet {
@@ -570,7 +745,8 @@ a {
 
 .wordmark {
   font: 700 20px/1 var(--serif);
-  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--terracotta);
   text-decoration: none;
 }
@@ -578,4 +754,28 @@ a {
 code {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 0.88em;
+}
+
+/* --- Not found (1.5) --- */
+
+.notfound {
+  max-width: 560px;
+  padding: 96px var(--gutter);
+  text-align: center;
+}
+
+.notfound-mark {
+  margin: 0 0 16px;
+  font-size: 40px;
+  opacity: 0.4;
+}
+
+.notfound-title {
+  margin: 0 0 10px;
+  font: var(--page-title);
+}
+
+.notfound-line {
+  margin: 0 0 28px;
+  color: var(--muted);
 }

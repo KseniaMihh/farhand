@@ -22,7 +22,7 @@ import { useSession } from "@/lib/session";
  */
 export function AccountBanner() {
   const { session } = useSession();
-  const [resent, setResent] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
   if (session.status !== "signed-in") return null;
@@ -45,13 +45,18 @@ export function AccountBanner() {
     return (
       <div className="banner banner-suspended">
         <div className="banner-row">
+          <span className="banner-mark" aria-hidden="true">
+            ❚❚
+          </span>
           <p className="banner-text">
             {/* `null` is not "not suspended" — the status already said it is.
                 It means no end date was set, so say that rather than printing
                 "null" or quietly showing nothing. */}
-            {until === null
-              ? "Your account is suspended until a moderator lifts it."
-              : `Your account is suspended until ${until}.`}{" "}
+            <strong>
+              {until === null
+                ? "Your account is suspended until a moderator lifts it."
+                : `Your account is suspended until ${until}.`}
+            </strong>{" "}
             You can read, but not post, propose or message.
           </p>
         </div>
@@ -64,47 +69,59 @@ export function AccountBanner() {
   return (
     <div className="banner banner-unverified">
       <div className="banner-row">
-        <p className="banner-text">
-          {resent ??
-            "Confirm your email to start posting. You can browse meanwhile."}
-        </p>
-        <Link className="btn btn-quiet" href="/verify">
-          Enter code
-        </Link>
-        <button
-          type="button"
-          className="btn btn-quiet"
-          disabled={sending}
-          onClick={() => {
-            setSending(true);
+        <span className="banner-mark" aria-hidden="true">
+          @
+        </span>
 
-            apiSend("POST", "/auth/resend-verification", { email: me.email })
-              .then(() => {
-                // The API answers identically whether or not it did anything
-                // (#41), so this cannot say "sent". Claiming knowledge the
-                // response withholds is how a page becomes a way to test
-                // which addresses exist.
-                setResent(
-                  "If that address still needs confirming, a new code is on its way.",
-                );
-              })
-              .catch((error: unknown) => {
-                // Including the 429. There is no countdown to show — the real
-                // limit is five an hour per account — so show what the API
-                // said and nothing invented.
-                setResent(
-                  error instanceof Error
-                    ? error.message
-                    : "That did not work. Try again in a little while.",
-                );
-              })
-              .finally(() => {
-                setSending(false);
-              });
-          }}
-        >
-          {sending ? "Sending…" : "Send a new code"}
-        </button>
+        <p className="banner-text">
+          {said ?? (
+            <>
+              <strong>Confirm your email to start posting.</strong> You can
+              browse, but needs, offers and messages wait until you enter the
+              code we sent to {me.email}.
+            </>
+          )}
+        </p>
+
+        <span className="banner-actions">
+          <Link className="btn btn-primary" href="/verify">
+            Enter code
+          </Link>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            disabled={sending}
+            onClick={() => {
+              setSending(true);
+
+              apiSend("POST", "/auth/resend-verification", { email: me.email })
+                .then(() => {
+                  // The API answers identically whether or not it did
+                  // anything (#41), so this cannot say "sent". Claiming
+                  // knowledge the response withholds is how a page becomes a
+                  // way to test which addresses exist.
+                  setSaid(
+                    "If that address still needs confirming, a new code is on its way. Older codes stop working.",
+                  );
+                })
+                .catch((error: unknown) => {
+                  // Including the 429. There is no countdown to show — the
+                  // real limit is five an hour per account — so show what the
+                  // API said and nothing invented.
+                  setSaid(
+                    error instanceof Error
+                      ? error.message
+                      : "That did not work. Try again in a little while.",
+                  );
+                })
+                .finally(() => {
+                  setSending(false);
+                });
+            }}
+          >
+            {sending ? "Sending…" : "Send a new code"}
+          </button>
+        </span>
       </div>
     </div>
   );
