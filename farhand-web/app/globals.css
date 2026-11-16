@@ -117,13 +117,428 @@ main {
 }
 
 /* ------------------------------------------------------------------ *
- * TODO(#156): everything below is the scaffold's old styling, kept so
- * the browse screen still renders while the shape is argued about. It
- * is replaced by the control styles from 1.3 — button (primary, need,
- * offer, secondary, quiet, destructive, loading), input (rest, focus,
- * error, disabled), select, and the labelled field — once the skeleton
- * is agreed. The masthead rules move with it.
+ * Controls (1.3). One shape, spent everywhere.
  * ------------------------------------------------------------------ */
+
+/* --- Buttons: ONE PRIMARY PER SCREEN, as the design sheet says --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 20px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: var(--button-type);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--pine);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--pine);
+  color: var(--cream);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2a5248;
+}
+
+/* Need and Offer carry the colours that MEAN need and offer (1.1), so they
+   are never a way to make an ordinary button look livelier. */
+.btn-need {
+  background: var(--blue);
+  color: #fff;
+}
+
+.btn-offer {
+  background: var(--terracotta);
+  /* White on Terracotta is 3.7:1 — under 4.5, so bold only, never body. The
+     button font is 600 at 14px, which is what that ratio is allowed for. */
+  color: #fff;
+}
+
+.btn-secondary {
+  background: var(--card);
+  border-color: var(--pine);
+  color: var(--pine);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--sage-tint);
+}
+
+.btn-quiet {
+  padding: 4px 0;
+  background: none;
+  color: var(--pine);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.btn-danger {
+  background: var(--card);
+  border-color: var(--error-ink);
+  color: var(--error-ink);
+}
+
+.btn:disabled {
+  background: #d6d3c8;
+  border-color: transparent;
+  color: #8a877d;
+  cursor: not-allowed;
+}
+
+/* The design's loading button keeps its words and gains a mark, rather than
+   emptying out — a button whose label vanishes is a button you cannot find
+   again if the request fails. */
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* --- Inputs --- */
+
+.field {
+  margin: 0 0 18px;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  font: var(--label);
+}
+
+.field-label-note {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--pine);
+  font: var(--body);
+}
+
+.input::placeholder {
+  color: var(--muted);
+}
+
+/* The design's focus state is a thicker border rather than a glow. Done with
+   an inset shadow so the box does not grow by a pixel and shunt the layout. */
+.input:focus {
+  outline: none;
+  border-color: var(--pine);
+  box-shadow: inset 0 0 0 1px var(--pine);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--error-ink);
+  box-shadow: inset 0 0 0 1px var(--error-ink);
+}
+
+.input:disabled {
+  background: var(--cream);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+select.input {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--pine) 50%),
+    linear-gradient(135deg, var(--pine) 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 12px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+/* The "Show" control sits inside the box, as a button and not a checkbox:
+   it changes what you can see, not what will be sent. */
+.input-trailing {
+  position: absolute;
+  right: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--pine);
+  font: var(--label);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.input-trailing:focus-visible {
+  outline: 2px solid var(--pine);
+  outline-offset: 1px;
+}
+
+.field-hint,
+.field-error {
+  margin: 6px 0 0;
+  font: var(--caption);
+}
+
+.field-hint {
+  color: var(--muted);
+}
+
+.field-error {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--error-ink);
+}
+
+/* --- A sentence about the whole form, above it --- */
+
+.form-note {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font: var(--body);
+}
+
+.form-note-error {
+  background: var(--error-tint);
+  color: var(--error-ink);
+}
+
+.form-note-ok {
+  background: var(--success-tint);
+  color: var(--success-ink);
+}
+
+/* --- The account screens: a split, Pine on the left (3.1–3.3) --- */
+
+.auth-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  min-height: 100vh;
+}
+
+.auth-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 48px;
+  padding: 40px;
+  background: var(--pine);
+  color: var(--cream);
+}
+
+.auth-panel-wordmark {
+  font: 700 20px/1 var(--serif);
+  letter-spacing: 0.02em;
+  color: var(--cream);
+  text-decoration: none;
+}
+
+.auth-panel-line {
+  max-width: 10em;
+  font: var(--display);
+  margin: 0;
+}
+
+.auth-panel-foot {
+  margin: 0;
+  font: var(--caption);
+  opacity: 0.75;
+}
+
+.auth-form {
+  display: flex;
+  align-items: center;
+  padding: 40px var(--gutter);
+}
+
+.auth-form-inner {
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+}
+
+.auth-title {
+  margin: 0 0 8px;
+  font: var(--page-title);
+}
+
+.auth-lead {
+  margin: 0 0 28px;
+  font: var(--body);
+  color: var(--muted);
+}
+
+.auth-actions {
+  margin-top: 24px;
+}
+
+.auth-actions .btn-primary {
+  width: 100%;
+}
+
+.auth-alt {
+  margin: 18px 0 0;
+  font: var(--caption);
+  text-align: center;
+}
+
+.auth-promise {
+  margin: 28px 0 0;
+  font: var(--caption);
+  color: var(--muted);
+  text-align: center;
+}
+
+a {
+  color: inherit;
+}
+
+/* At phone width the panel stacks above the form and drops the display line,
+   which is decoration. 6.x draws no account screen, so this is the one place
+   the small shape is a judgement rather than a drawing. */
+@media (max-width: 760px) {
+  .auth-split {
+    grid-template-columns: 1fr;
+    min-height: 100dvh;
+  }
+
+  .auth-panel {
+    gap: 16px;
+    padding: 20px var(--gutter);
+  }
+
+  .auth-panel-line,
+  .auth-panel-foot {
+    display: none;
+  }
+
+  .auth-form {
+    padding: 28px var(--gutter) 56px;
+  }
+}
+
+/* --- The header, signed in and out --- */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.nav-link {
+  font: var(--button-type);
+  color: var(--pine);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.nav-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--button-type);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sage);
+  color: var(--pine);
+  font: var(--label);
+}
+
+/* Neither "Sign in" nor a name while the answer is unknown: a copy of the
+   wider state, hidden, so the row keeps its width and announces nothing. */
+.nav-placeholder {
+  visibility: hidden;
+}
+
+/* --- The banner under the header (3.6) --- */
+
+.banner {
+  border-bottom: 1px solid var(--line);
+  font: var(--body);
+}
+
+.banner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  max-width: var(--column);
+  margin: 0 auto;
+  padding: 12px var(--gutter);
+}
+
+.banner-text {
+  margin: 0;
+  flex: 1 1 320px;
+}
+
+.banner-unverified {
+  background: var(--warning-tint);
+  color: var(--warning-ink);
+}
+
+.banner-suspended {
+  background: var(--paused-tint);
+  color: var(--paused-ink);
+}
+
+.banner .btn-quiet {
+  color: inherit;
+}
+
+/* --- The masthead itself --- */
 
 .masthead {
   border-bottom: 1px solid var(--line);

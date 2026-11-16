@@ -1,5 +1,13 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, type SyntheticEvent } from "react";
+import { AuthPanel } from "@/components/auth-panel";
+import { Field } from "@/components/field";
+import { apiSend, ApiFailure } from "@/lib/api";
+import { forgetPendingEmail, pendingEmail } from "@/lib/pending-email";
+import { useSession } from "@/lib/session";
+
 /**
  * Screen 3.2 — confirm an email.
  *
@@ -14,51 +22,187 @@
  * `src/mailer.ts`, and when it does, this page is already where the link
  * lands.
  *
- * A LINK MUST NOT VERIFY BY ARRIVING. Filling the field from the query and
- * waiting for "Confirm email" to be pressed is deliberate: a `GET` that
- * verified would be spent by the first link prefetcher, scanner or inbox
- * preview that saw it, and the token is single-use. The same reasoning is
- * already written down in docs/06-api-contract.md under this endpoint.
+ * A LINK MUST NOT VERIFY BY ARRIVING. The field is filled from the query and
+ * then waits to be submitted: a `GET` that verified would be spent by the
+ * first link prefetcher, scanner or inbox preview that saw it, and the token
+ * is single use. The same reasoning is in docs/06-api-contract.md under this
+ * endpoint.
  */
-export default function Verify() {
-  // TODO(#156): one field, prefilled from useSearchParams().get("token").
-  //
-  //   200 → VERIFYING DOES NOT SIGN ANYBODY IN. It sets `emailVerifiedAt` and
-  //         nothing else; the session is whatever it already was. So:
-  //         signed in → refresh(), then home, and the banner stops showing.
-  //         Signed out → /sign-in, which is the next thing they need.
-  //   422 → "That code didn't work or has expired. Send a new one." —
-  //         which is the design's wording AND the API's position: unknown,
-  //         used, expired and wrong-kind all answer the same, because
-  //         telling them apart helps nobody who legitimately holds a code.
-  //         Say what the API said; do not guess which of the four it was.
-  //   429 → this endpoint has a limiter of its own: 30 per IP per 15 minutes
-  //         (`RATE_LIMITS.token`), keyed by address alone because a token
-  //         has no account to key on. Somebody pasting a code wrong a few
-  //         times will not meet it; somebody guessing will.
-  //
-  // TODO(#156): verifying while signed out is allowed by the API and must
-  // stay allowed here — the token is the proof, not the cookie. Somebody
-  // reaching this page from an inbox on another device has no session at all.
-  //
-  // TODO(#156): "send a new code" needs an address, and after a reload this
-  // page may not have one. Three sources, in order:
-  //
-  //   1. the session, when there is one
-  //   2. sessionStorage, written by /register right after a 201 and cleared
-  //      once verification succeeds
-  //   3. an email field on this page, as the fallback
-  //
-  // NOT THE URL. A querystring lives in history, in the referrer header of
-  // every link clicked afterwards, and in whatever logs the address passes
-  // through; an email address does not belong in any of them. sessionStorage
-  // dies with the tab, which is the right lifetime for a value that only
-  // bridges one redirect.
-  //
-  // Whichever source it comes from, POST /auth/resend-verification answers
-  // identically for an address that exists and one that does not (#41), so
-  // the confirmation says "if that address has an account…" and the fallback
-  // field gives nothing away.
+function VerifyForm() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { session, refresh } = useSession();
 
-  return null;
+  const [token, setToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [failure, setFailure] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  // Filled, not submitted.
+  useEffect(() => {
+    const fromLink = params.get("token");
+
+    if (fromLink !== null && fromLink !== "") setToken(fromLink);
+  }, [params]);
+
+  // The address, in the order it can be known: the session, then what
+  // /register left for this tab, then the field below.
+  const known =
+    session.status === "signed-in" ? session.me.email : (pendingEmail() ?? "");
+
+  function submit(event: SyntheticEvent) {
+    event.preventDefault();
+    setSending(true);
+    setFailure(null);
+    setNote(null);
+
+    apiSend("POST", "/auth/verify-email", { token })
+      .then(async () => {
+        forgetPendingEmail();
+
+        // VERIFYING DOES NOT SIGN ANYBODY IN. It sets `emailVerifiedAt` and
+        // nothing else; the session is whatever it already was. Somebody who
+        // opened the link on another device has none at all.
+        if (session.status === "signed-in") {
+          await refresh();
+          router.replace("/");
+          return;
+        }
+
+        router.replace("/sign-in");
+      })
+      .catch((error: unknown) => {
+        // Unknown, already used, expired and wrong-kind all answer the same,
+        // because telling them apart helps nobody who legitimately holds a
+        // code. Say what the API said; do not guess which of the four it was.
+        // A 429 arrives here too — this endpoint is limited to 30 an hour per
+        // address, keyed by IP because a token has no account to key on.
+        setFailure(
+          error instanceof ApiFailure
+            ? error.message
+            : "Something went wrong. Try again.",
+        );
+        setSending(false);
+      });
+  }
+
+  function resend() {
+    const address = known === "" ? email : known;
+
+    if (address === "") {
+      setFailure(
+        "Enter the address you signed up with, and we'll send a code.",
+      );
+      return;
+    }
+
+    apiSend("POST", "/auth/resend-verification", { email: address })
+      .then(() => {
+        // Answers identically whether or not it did anything (#41), so this
+        // cannot say "sent". Claiming knowledge the response withholds turns
+        // the page into a way to test which addresses exist.
+        setNote(
+          "If that address still needs confirming, a new code is on its way. Older codes stop working.",
+        );
+      })
+      .catch((error: unknown) => {
+        setFailure(
+          error instanceof ApiFailure
+            ? error.message
+            : "Something went wrong. Try again.",
+        );
+      });
+  }
+
+  return (
+    <>
+      <AuthPanel>One last step before you can post.</AuthPanel>
+
+      <div className="auth-form">
+        <div className="auth-form-inner">
+          <h1 className="auth-title">Check your email</h1>
+          <p className="auth-lead">
+            {known === ""
+              ? "We sent a code to the address you signed up with. It works for 24 hours."
+              : `We sent a code to ${known}. It works for 24 hours.`}
+          </p>
+
+          {failure === null ? null : (
+            <p className="form-note form-note-error" role="alert">
+              {failure}
+            </p>
+          )}
+
+          {note === null ? null : (
+            <p className="form-note form-note-ok" role="status">
+              {note}
+            </p>
+          )}
+
+          <form onSubmit={submit} noValidate>
+            <Field
+              label="Code from the email"
+              name="token"
+              autoComplete="one-time-code"
+              spellCheck={false}
+              value={token}
+              hint="It is long. Paste the whole thing."
+              onChange={(e) => {
+                setToken(e.target.value.trim());
+              }}
+            />
+
+            {known === "" && (
+              <Field
+                label="Your email"
+                type="email"
+                name="email"
+                autoComplete="email"
+                value={email}
+                hint="Only needed if you want a new code sent."
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                }}
+              />
+            )}
+
+            <div className="auth-actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={sending || token === ""}
+              >
+                {sending ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    Confirming…
+                  </>
+                ) : (
+                  "Confirm email"
+                )}
+              </button>
+            </div>
+          </form>
+
+          <p className="auth-alt">
+            Didn’t get it? Check spam, or{" "}
+            <button type="button" className="btn btn-quiet" onClick={resend}>
+              send a new code
+            </button>
+          </p>
+
+          <p className="auth-promise">You can browse while you wait.</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default function Verify() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyForm />
+    </Suspense>
+  );
 }

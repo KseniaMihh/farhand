@@ -1,48 +1,172 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, type SyntheticEvent } from "react";
+import { AuthPanel } from "@/components/auth-panel";
+import { Field, PasswordField, SelectField } from "@/components/field";
+import { apiSend, ApiFailure } from "@/lib/api";
+import { countries } from "@/lib/countries";
+import { fieldErrorsIn, type FieldErrors } from "@/lib/field-errors";
+import { rememberPendingEmail } from "@/lib/pending-email";
+
 /**
  * Screen 3.1 — create an account.
- *
- * Four fields, and the API's rules are the only rules (#156's table):
- *
- *   email        trimmed and lowercased by the API; send what was typed
- *   password     8–72. The hint says "at least 8 characters" and nothing
- *                about 72 — the cap is real, server-side, and not worth a
- *                sentence a reader has to carry
- *   displayName  1–50 after trimming
- *   countryCode  ISO 3166-1 alpha-2, uppercased by the API
  *
  * THE ERROR STATE THE DESIGN HAS AND THIS CANNOT: 3.1a draws "An account with
  * this email already exists. Sign in instead." `POST /auth/register` answers
  * `201` with the same body either way, on purpose — telling the two apart
  * would let anybody test whether an address is on Farhand. So a successful
- * registration always lands on /verify, and the design's second error state
- * has no code behind it.
+ * registration always lands on /verify, and that second error state has no
+ * code behind it.
  */
 export default function Register() {
-  // TODO(#156): controlled form → apiSend("POST", "/auth/register", {...}).
-  //
-  //   201 → write the email to sessionStorage, then router.push("/verify").
-  //         The token arrives by email and that page asks for it; the address
-  //         is only there so "send a new code" works after a reload. Not in
-  //         the URL — see the note on /verify for why.
-  //   422 → fieldErrorsIn(error) onto the four fields. The API's top-level
-  //         message is the fallback when `details` blames nothing.
-  //   429 → the API's own sentence. Registration is limited to 5 an hour per
-  //         account and 10 per IP, and there is nothing useful to add to it.
-  //
-  // TODO(#156): the country picker. The API takes any valid ISO 3166-1
-  // alpha-2 code and there is no endpoint listing countries, so THE LIST OF
-  // CODES LIVES HERE — about 249 two-letter strings, in one module.
-  // `Intl.DisplayNames` is not a way out of shipping it: it turns a code into
-  // a name in the reader's own language, which is worth having, but no
-  // browser exposes the set of region codes (`Intl.supportedValuesOf` covers
-  // calendars, currencies, collations, numbering systems, time zones and
-  // units — not regions). So: our array of codes, their names.
-  //
-  // TODO(#156): the password field needs the design's "Show" toggle, which
-  // is `type` flipping between "password" and "text" and an aria-pressed
-  // button — not a second input.
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [countryCode, setCountryCode] = useState("EE");
+  const [fields, setFields] = useState<FieldErrors>({});
+  const [failure, setFailure] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
-  return null;
+  // 249 codes named and collated. Once per mount, not once per keystroke.
+  const list = useMemo(() => countries(), []);
+
+  function submit(event: SyntheticEvent) {
+    event.preventDefault();
+    setSending(true);
+    setFields({});
+    setFailure(null);
+
+    apiSend("POST", "/auth/register", {
+      email,
+      password,
+      displayName,
+      countryCode,
+    })
+      .then(() => {
+        // The address, not the token: /verify needs it so "send a new code"
+        // survives a reload. In sessionStorage rather than the URL — see
+        // lib/pending-email.ts.
+        rememberPendingEmail(email);
+        router.push("/verify");
+      })
+      .catch((error: unknown) => {
+        const blamed = fieldErrorsIn(error);
+
+        setFields(blamed);
+
+        // The top-level sentence only when no field was named. Showing both
+        // is how a screen says "3 things to fix" and then marks one.
+        if (Object.keys(blamed).length === 0) {
+          setFailure(
+            error instanceof ApiFailure
+              ? error.message
+              : "Something went wrong. Try again.",
+          );
+        }
+
+        setSending(false);
+      });
+  }
+
+  return (
+    <>
+      <AuthPanel>Ask someone abroad for what you can’t get at home.</AuthPanel>
+
+      <div className="auth-form">
+        <div className="auth-form-inner">
+          <h1 className="auth-title">Create your account</h1>
+          <p className="auth-lead">
+            Post what you need, or offer to buy where you live.
+          </p>
+
+          {failure === null ? null : (
+            <p className="form-note form-note-error" role="alert">
+              {failure}
+            </p>
+          )}
+
+          <form onSubmit={submit} noValidate>
+            <Field
+              label="Email"
+              type="email"
+              name="email"
+              autoComplete="email"
+              value={email}
+              error={fields.email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+              }}
+            />
+
+            <PasswordField
+              label="Password"
+              name="password"
+              autoComplete="new-password"
+              value={password}
+              // The API allows 8–72. The cap is real, server-side, and not
+              // worth a sentence a reader has to carry around.
+              hint="At least 8 characters"
+              error={fields.password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+              }}
+            />
+
+            <Field
+              label="Display name"
+              name="displayName"
+              autoComplete="nickname"
+              value={displayName}
+              hint="Shown on your needs, offers and reviews"
+              error={fields.displayName}
+              onChange={(e) => {
+                setDisplayName(e.target.value);
+              }}
+            />
+
+            <SelectField
+              label="Country you live in"
+              name="countryCode"
+              autoComplete="country"
+              value={countryCode}
+              error={fields.countryCode}
+              onChange={(e) => {
+                setCountryCode(e.target.value);
+              }}
+            >
+              {list.map((country) => (
+                <option key={country.code} value={country.code}>
+                  {country.name}
+                </option>
+              ))}
+            </SelectField>
+
+            <div className="auth-actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={sending}
+              >
+                {sending ? (
+                  <>
+                    <span className="btn-spinner" aria-hidden="true" />
+                    Creating account…
+                  </>
+                ) : (
+                  "Create account"
+                )}
+              </button>
+            </div>
+          </form>
+
+          <p className="auth-alt">
+            Already have an account? <Link href="/sign-in">Sign in</Link>
+          </p>
+        </div>
+      </div>
+    </>
+  );
 }

@@ -222,8 +222,9 @@ suite never touches development files. Production points them at Backblaze B2
 
 ### `APP_ORIGIN`
 
-The one place the frontend is served from — `http://localhost:5173` by default,
-the real domain in production. Two things read it:
+The one place the frontend is served from — `http://localhost:3100` by default,
+which is where `farhand-web` runs, and the real domain in production. Two
+things read it:
 
 - **CORS** allows that origin and no other. Requests from anywhere else get no
   `Access-Control-Allow-Origin` header at all, so the browser refuses to hand
@@ -235,8 +236,13 @@ is the requirement, and a list is how that quietly becomes "and whatever else we
 forgot to take out". Two environments that need two values are what two `.env`
 files are for.
 
+**The default is the WEB APP, not the API.** It was `http://localhost:5173`
+until #156 — a Vite dev server that was never built — and a value that is not
+the frontend’s own address makes every form answer `403 Cross-site request
+refused`, which reads like a bug in the frontend and is not one.
+
 **This is why `curl` gets a `403` on a write.** A browser always sends `Origin`;
-the command line does not. Add `-H "Origin: http://localhost:5173"`, or set
+the command line does not. Add `-H "Origin: http://localhost:3100"`, or set
 `CSRF_ENABLED=false` while you are poking about by hand.
 
 ## Git and GitHub

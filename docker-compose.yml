@@ -80,7 +80,10 @@ services:
       # `db`, not localhost: inside the compose network, the database answers
       # to its service name. localhost here would be the API's own container.
       DATABASE_URL: postgresql://farhand:farhand@db:5432/farhand
-      APP_ORIGIN: http://localhost:5173
+      # The WEB APP's address, not this container's. farhand-web runs on 3100,
+      # and an origin that is not the frontend's own makes every form answer
+      # 403 "Cross-site request refused" (#156).
+      APP_ORIGIN: http://localhost:3100
       LOG_LEVEL: info
     ports:
       - "3000:3000"
