@@ -1,34 +1,95 @@
 /*
- * Plain CSS, and no dependency for it.
+ * The design system, as tokens (screens 1.1, 1.2, 1.3).
  *
- * One screen does not need a styling framework, and the choice is easier to
- * make once there are enough screens for it to be about something. What is
- * here is the little that every screen will want: a column, a readable size,
- * and colours that answer to the reader's own light-or-dark setting.
+ * Transcribed from the Figma file rather than invented, hex by hex, including
+ * the contrast ratios — they are in the comments because they are the reason
+ * a colour may be used in one place and not another, and a ratio nobody wrote
+ * down is a rule somebody will break.
+ *
+ * STILL PLAIN CSS, STILL NO FRAMEWORK. #93 deferred that choice until there
+ * were enough screens for it to be about something. Three forms is not enough
+ * either, and a system this small — five colours, two faces, one control
+ * shape — is cheaper as variables than as a dependency.
+ *
+ * NO DARK MODE, and that is a change from #93. The scaffold answered the
+ * reader's light-or-dark setting because it had invented its own colours and
+ * could afford to. These colours are a designed palette with measured
+ * contrast; a dark version of it is design work that has not been done, and
+ * guessing one would mean shipping pairs nobody checked. `color-scheme: light`
+ * says so to the browser rather than leaving form controls to improvise.
  */
 
 :root {
-  --ground: #f5f7fa;
-  --surface: #ffffff;
-  --ink: #18202c;
-  --muted: #586374;
-  --line: #dde2ea;
-  --accent: #2446a8;
-  --red: #b8313a;
+  color-scheme: light;
 
-  color-scheme: light dark;
-}
+  /* --- The five named colours (1.1) --- */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ground: #11151c;
-    --surface: #19202a;
-    --ink: #e5e9f0;
-    --muted: #9ba5b4;
-    --line: #2a323e;
-    --accent: #93acff;
-    --red: #ff848a;
-  }
+  /* Page background. */
+  --cream: #f2ede1;
+  /* Text, primary buttons. Cream on Pine is 10.4:1. */
+  --pine: #1f3b34;
+  /* Soft surfaces, selected states. PINE TEXT ONLY — 5.3:1. */
+  --sage: #a3b18a;
+  /* Need cards, badges, "Post a need". White on Blue is 10.9:1. */
+  --blue: #2f3e51;
+  /* Offer cards, badges, "Post an offer". WHITE ONLY WHEN BOLD OR LARGE —
+     3.7:1, which is below 4.5 and therefore not for body text, ever. */
+  --terracotta: #c86a4a;
+
+  /* --- Support tints (1.1) --- */
+  --card: #fbf8f1;
+  --sage-tint: #e3e7d9;
+  --need-tint: #e2e6ec;
+  --need-ink: #2f3e51;
+  --offer-tint: #f4e0d6;
+  --offer-ink: #8e3e22;
+
+  /* --- System states: quiet, and never blue or terracotta, because those
+         two already mean "need" and "offer" (1.1) --- */
+  --success-tint: #ddebdd;
+  --success-ink: #25573a;
+  --warning-tint: #f5e8c4;
+  --warning-ink: #5c430a;
+  --error-tint: #f6dcdd;
+  --error-ink: #9a2530;
+  --paused-tint: #e7e3ef;
+  --paused-ink: #4a3f6b;
+
+  /* Derived, not designed: a hairline that is Pine at low opacity rather
+     than a sixth colour nobody chose. */
+  --line: rgb(31 59 52 / 0.16);
+  --muted: rgb(31 59 52 / 0.66);
+
+  /* --- Type (1.2). Libre Baskerville brands, Inter works. --- */
+  --serif: var(--font-serif), Georgia, "Times New Roman", serif;
+  --sans: var(--font-sans), system-ui, -apple-system, sans-serif;
+
+  --display: 700 48px/56px var(--serif);
+  --page-title: 700 36px/44px var(--serif);
+  --heading: 700 24px/32px var(--serif);
+  --card-title: 700 17px/24px var(--serif);
+  --price: 400 32px/40px var(--serif);
+  --quiet: italic 400 15px/24px var(--serif);
+
+  --lead: 400 18px/28px var(--sans);
+  --body: 400 15px/24px var(--sans);
+  --button-type: 600 14px/20px var(--sans);
+  --label: 600 13px/20px var(--sans);
+  --caption: 400 12px/18px var(--sans);
+  --badge: 600 11px/16px var(--sans);
+
+  /* --- Shape --- */
+  --radius: 6px;
+  --radius-pill: 999px;
+  --gutter: 16px;
+  --column: 1140px;
+
+  /* TODO(#156): #93's invented names, pointed at the real palette so the
+     browse screen keeps its colours while it waits for its own issue. They
+     go when that screen is redrawn, and nothing new may use them. */
+  --ground: var(--cream);
+  --surface: var(--card);
+  --red: var(--error-ink);
 }
 
 * {
@@ -37,25 +98,46 @@
 
 body {
   margin: 0;
-  background: var(--ground);
-  color: var(--ink);
-  font:
-    17px/1.6 -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  background: var(--cream);
+  color: var(--pine);
+  font: var(--body);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--serif);
+  margin: 0;
 }
 
 main {
-  max-width: 820px;
+  max-width: var(--column);
   margin: 0 auto;
-  padding: 32px 16px 80px;
+  padding: 32px var(--gutter) 80px;
 }
+
+/* ------------------------------------------------------------------ *
+ * TODO(#156): everything below is the scaffold's old styling, kept so
+ * the browse screen still renders while the shape is argued about. It
+ * is replaced by the control styles from 1.3 — button (primary, need,
+ * offer, secondary, quiet, destructive, loading), input (rest, focus,
+ * error, disabled), select, and the labelled field — once the skeleton
+ * is agreed. The masthead rules move with it.
+ * ------------------------------------------------------------------ */
 
 .masthead {
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--card);
+}
+
+.masthead-row {
+  max-width: var(--column);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px var(--gutter);
 }
 
 /* The one decorative thing, and it belongs to the subject: air mail. */
@@ -63,21 +145,19 @@ main {
   height: 6px;
   background: repeating-linear-gradient(
     -45deg,
-    var(--red) 0 14px,
+    var(--terracotta) 0 14px,
     transparent 14px 22px,
-    var(--accent) 22px 36px,
+    var(--blue) 22px 36px,
     transparent 36px 44px
   );
   opacity: 0.85;
 }
 
 .wordmark {
-  max-width: 820px;
-  margin: 0 auto;
-  padding: 14px 16px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font: 700 20px/1 var(--serif);
+  letter-spacing: 0.02em;
+  color: var(--terracotta);
+  text-decoration: none;
 }
 
 code {

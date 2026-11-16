@@ -148,3 +148,36 @@ export async function apiGet<T>(
 
   return body as T;
 }
+
+/** The methods that carry a body. `GET` has `apiGet`; nothing here is a `PUT`
+ *  by accident. */
+export type SendMethod = "POST" | "PATCH" | "DELETE";
+
+/**
+ * Writes something to the API (#156).
+ *
+ * Everything `apiGet` is careful about applies unchanged — the relative path
+ * that keeps the request same-site, `credentials: "same-origin"`, the single
+ * reading of the error envelope, the abort that is not a failure. So this
+ * must NOT be a second copy of it.
+ *
+ * TODO(#156): lift the fetch-and-read core out of `apiGet` into a private
+ * `request(path, init, options)` and have both call it. Two near-identical
+ * copies is how `credentials` ends up right on reads and wrong on writes,
+ * which would fail in exactly one place — a deployed browser — and nowhere a
+ * test would look.
+ *
+ * TODO(#156): a `204` has no body. `response.json()` on an empty body throws,
+ * which the `.catch(() => null)` already swallows — but the cast then hands
+ * back `null` as a `T`. `POST /auth/logout` is the first endpoint here that
+ * does this, so the type has to admit it rather than lie.
+ */
+export function apiSend<T>(
+  _method: SendMethod,
+  _path: string,
+  _body?: unknown,
+  _options: Options = {},
+): Promise<T> {
+  // TODO(#156): the underscores come off when there is a body to write.
+  return Promise.reject(new Error("apiSend is not written yet"));
+}
