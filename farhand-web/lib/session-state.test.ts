@@ -85,7 +85,10 @@ describe("how long it is willing to wait", () => {
       (delay, i) => i === 0 || delay > (RETRY_DELAYS_MS[i - 1] ?? 0),
     );
 
-    expect(RETRY_DELAYS_MS.length).toBeGreaterThan(0);
+    // Several waits, not one long one. A single 60-second delay would satisfy
+    // the sum below and show somebody a blank header for a minute, when the
+    // API may well have woken in ten seconds.
+    expect(RETRY_DELAYS_MS.length).toBeGreaterThanOrEqual(3);
     expect(rising).toBe(true);
   });
 
