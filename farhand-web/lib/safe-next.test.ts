@@ -99,7 +99,17 @@ describe("addresses that are nothing", () => {
   it("sends something unparseable home instead of throwing", () => {
     expect(() => safeNext("http://[", US)).not.toThrow();
     expect(safeNext("http://[", US)).toBe(HOME);
-    expect(safeNext("%", US)).toBe(HOME);
+  });
+
+  /**
+   * A lone "%" is invalid percent-encoding, and the URL parser lets it
+   * through rather than throwing — it resolves to the same-origin path "/%".
+   * Kept as a test because the obvious reading is that it should be refused,
+   * and it should not: the check this module owes is "is it ours", not "is it
+   * tidy". A 404 on our own site is not a security problem.
+   */
+  it("keeps a same-origin path even when it is ugly", () => {
+    expect(safeNext("%", US)).toBe("/%");
   });
 });
 

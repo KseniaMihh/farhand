@@ -9,6 +9,8 @@
  * link, and getting it wrong is invisible until the API has a slow morning.
  */
 
+import { ApiFailure } from "./api";
+
 /** `AccountStatus` in schema.prisma. `DELETED` cannot sign in, but the type
  *  is the database's and not a subset invented here. */
 export type AccountStatus = "ACTIVE" | "SUSPENDED" | "BANNED" | "DELETED";
@@ -94,32 +96,43 @@ export const RETRY_DELAYS_MS: readonly number[] = [
 /**
  * Reads a failure from `GET /auth/me`.
  *
- * TODO(#156):
- *   - `401` → "signed-out". THE ONLY ANSWER THAT PRODUCES IT. Not a failure
- *     at all: it is what the API says to every visitor who has never signed
- *     in, and it must never reach a screen as an error.
- *   - status `0` (`UNREACHABLE`) or any `5xx` → "retry". The API is probably
- *     waking up, and the right response to that is to wait.
- *   - anything else, including a failure that is not an `ApiFailure` at all
- *     → "unknown". The app cannot claim a session it could not confirm, and
- *     it must not deny one either.
+ * The order of these three checks is the whole module, and the default is
+ * what makes it safe: anything unrecognised lands on "unknown", which costs
+ * a neutral header, while anything unrecognised landing on "signed-out"
+ * would cost somebody their session over a status nobody anticipated.
  */
-export function outcomeFor(_error: unknown): MeOutcome {
-  // TODO(#156): narrow with `instanceof ApiFailure` from ./api.
+export function outcomeFor(error: unknown): MeOutcome {
+  // Not something lib/api.ts threw — a bug in our own code, a stray throw
+  // from somewhere. It says nothing about who is signed in.
+  if (!(error instanceof ApiFailure)) return "unknown";
+
+  // THE ONLY ANSWER THAT MEANS SIGNED OUT. Not a failure at all: it is what
+  // the API says to every visitor who has never signed in, and it must never
+  // reach a screen as an error.
+  if (error.status === 401) return "signed-out";
+
+  // Status 0 is `UNREACHABLE` — no answer arrived. A 5xx is an answer, but
+  // not from anything that looked at the cookie: a free instance waking up,
+  // a proxy with nothing behind it yet. Both are "ask again in a moment".
+  if (error.status === 0 || error.status >= 500) return "retry";
+
+  // Everything else — 403, 404, 429, anything — is strange rather than
+  // signed out. A 429 in particular must NOT retry: asking again is what it
+  // is complaining about.
   return "unknown";
 }
 
 /**
  * Whether a screen may act on the session yet.
  *
- * TODO(#156): nothing in this issue is behind a sign-in wall, so nothing
- * calls this. It is here because the first screen that IS — "my needs", in a
- * later issue — will reach for `status !== "signed-in"` and redirect, which
- * sends somebody with a valid session to /sign-in every time the API is cold.
- * A guard that has to be remembered is one that will not be. The rule:
- * redirect only on `signed-out`; wait on `checking` and `unknown`.
+ * Nothing in this issue is behind a sign-in wall, so nothing calls this. It
+ * is here because the first screen that IS — "my needs", in a later issue —
+ * will reach for `status !== "signed-in"` and redirect, which sends somebody
+ * with a perfectly good session to /sign-in every time the API is cold. A
+ * guard that has to be remembered is one that will not be.
+ *
+ * The rule: redirect only on `signed-out`; WAIT on `checking` and `unknown`.
  */
-export function isSettled(_session: Session): boolean {
-  // TODO(#156)
-  return false;
+export function isSettled(session: Session): boolean {
+  return session.status === "signed-in" || session.status === "signed-out";
 }
