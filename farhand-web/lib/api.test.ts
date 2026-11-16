@@ -330,6 +330,22 @@ describe("what it does with an answer to a write", () => {
     await expect(apiSend("POST", "/auth/logout")).rejects.toThrow();
   });
 
+  /**
+   * Whether there is a body is decided by the STATUS, not by whether parsing
+   * happened to fail — and this is the case that tells the two apart. A 204
+   * means no body by definition, so a proxy or a middlebox that adds one
+   * does not make it a reply with something to read.
+   *
+   * The same choice protects the opposite case: reading "did not parse" as
+   * "was empty" would quietly call a TRUNCATED answer empty, which is a
+   * different thing and a worse one.
+   */
+  it("believes the status over the body when a 204 arrives with one", async () => {
+    answering(204, { surprise: true });
+
+    await expect(apiSendEmpty("POST", "/auth/logout")).resolves.toBeUndefined();
+  });
+
   it("reads the error envelope the same way a read does", async () => {
     answering(422, {
       error: {

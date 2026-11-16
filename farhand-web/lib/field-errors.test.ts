@@ -109,6 +109,38 @@ describe("what it makes of everything else", () => {
     expect(fieldErrorsIn(blaming({ email: "nope" }))).toEqual({});
     expect(fieldErrorsIn(blaming("nope"))).toEqual({});
   });
+
+  /**
+   * Field names come from the API, which means they come from whatever a
+   * later endpoint calls its columns. Two of them are booby traps on a plain
+   * object: `"toString" in errors` is true before anything is added, so a
+   * first-wins check would silently drop that field, and assigning
+   * `__proto__` sets the prototype instead of a key.
+   *
+   * No endpoint has a field called either today. The test is here because
+   * the defence — building through a Map — is invisible, and an invisible
+   * defence with no test is one somebody simplifies away.
+   */
+  it("handles a field named after something on Object's prototype", () => {
+    const errors = fieldErrorsIn(
+      blaming([
+        { field: "toString", message: "Not a valid name" },
+        { field: "constructor", message: "Nor that" },
+        { field: "__proto__", message: "Nor that either" },
+      ]),
+    );
+
+    // Read as entries rather than by property access: `errors.toString`
+    // would resolve to Object's own method before it reached the key, which
+    // is the very confusion this test is about.
+    const entries = Object.entries(errors);
+
+    expect(entries).toContainEqual(["toString", "Not a valid name"]);
+    expect(entries).toContainEqual(["constructor", "Nor that"]);
+    expect(entries).toContainEqual(["__proto__", "Nor that either"]);
+    // An ordinary object, not one whose prototype has been replaced.
+    expect(Object.getPrototypeOf(errors)).toBe(Object.prototype);
+  });
 });
 
 /**
