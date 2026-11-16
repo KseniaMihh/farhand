@@ -100,26 +100,57 @@ function errorIn(body: unknown): ApiError | null {
 }
 
 /**
- * Reads something from the API.
+ * Nothing came back, and nothing was supposed to.
  *
- * Throws `ApiFailure` for anything that is not a success, including the
- * failures that never reached the API. Nothing else in this app is allowed to
- * know that the error body has an `error` key.
+ * A symbol rather than `null` or `undefined`, because both of those are also
+ * valid JSON bodies: `null` is what a failed parse already produces here, and
+ * the whole point of this value is to be distinguishable from one.
  */
-export async function apiGet<T>(
+const NO_BODY = Symbol("no body");
+
+/**
+ * One request, and the only place in this app that calls `fetch`.
+ *
+ * Both `apiGet` and `apiSend` go through here, which is the point. Two
+ * near-identical copies is how `credentials` ends up right on reads and wrong
+ * on writes — and that would fail in exactly one place, a deployed browser,
+ * and nowhere a test would look.
+ *
+ * Returns the parsed body, or `NO_BODY` when the status says there is none.
+ * Throws `ApiFailure` for everything that is not a success, including the
+ * failures that never reached the API; lets an `AbortError` through as
+ * itself.
+ */
+async function request(
+  method: string,
   path: string,
-  options: Options = {},
-): Promise<T> {
+  body: unknown,
+  options: Options,
+): Promise<unknown> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+
+  // THE HEADER THAT COSTS AN AFTERNOON WHEN IT IS MISSING: without it
+  // Express's JSON parser does not run, `req.body` is empty, and the API
+  // answers 422 naming every field as required — which reads like a bug in
+  // the form and is nothing of the kind.
+  //
+  // Only when there is something to describe. Announcing a JSON body that is
+  // not there is a small lie, and some proxies treat a declared body of
+  // length zero as a parse error.
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+
   let response: Response;
 
   try {
     response = await fetch(urlFor(path, options.query), {
+      method,
       // The cookie is why the proxy exists. "same-origin" rather than
       // "include": after the rewrite there is no other origin, and asking for
       // credentials we do not need is how a client ends up working only while
       // third-party cookies are allowed.
       credentials: "same-origin",
-      headers: { Accept: "application/json" },
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch (cause) {
@@ -134,17 +165,103 @@ export async function apiGet<T>(
     });
   }
 
-  const body: unknown = await response.json().catch(() => null);
+  // Decided by the STATUS, not by whether parsing happened to fail. A 204
+  // has no body by definition, and `response.json()` on an empty one
+  // rejects; reading "it did not parse" as "it was empty" would also call a
+  // truncated answer empty, which is a different thing entirely.
+  const empty = response.status === 204 || response.status === 205;
+  const parsed: unknown = empty
+    ? null
+    : await response.json().catch(() => null);
 
   if (!response.ok) {
     throw new ApiFailure(
       response.status,
-      errorIn(body) ?? {
+      // `errorIn` keeps `requestId` — the only thing tying what somebody saw
+      // on a screen to a line in the API's log. A body that is not our shape
+      // at all (a proxy's HTML, a sleeping platform's error page) is
+      // UNREACHABLE: it did not come from anything that read the request.
+      errorIn(parsed) ?? {
         code: UNREACHABLE,
         message: `Farhand answered ${String(response.status)} without saying why.`,
       },
     );
   }
 
+  return empty ? NO_BODY : parsed;
+}
+
+/**
+ * Reads something from the API.
+ *
+ * Throws `ApiFailure` for anything that is not a success, including the
+ * failures that never reached the API. Nothing else in this app is allowed to
+ * know that the error body has an `error` key.
+ */
+export async function apiGet<T>(
+  path: string,
+  options: Options = {},
+): Promise<T> {
+  const body = await request("GET", path, undefined, options);
+
+  if (body === NO_BODY) {
+    throw new Error(`GET ${path} answered with no body, and one was expected.`);
+  }
+
   return body as T;
+}
+
+/** The methods that carry a body. `GET` has `apiGet`; nothing here is a `PUT`
+ *  by accident. */
+export type SendMethod = "POST" | "PATCH" | "DELETE";
+
+/**
+ * Writes something to the API, and reads what comes back (#156).
+ *
+ * Everything `apiGet` is careful about applies unchanged, because it is the
+ * same `request` underneath: the relative path that keeps the request
+ * same-site, the cookie, the single reading of the error envelope, the abort
+ * that is not a failure.
+ */
+export async function apiSend<T>(
+  method: SendMethod,
+  path: string,
+  body?: unknown,
+  options: Options = {},
+): Promise<T> {
+  const answer = await request(method, path, body, options);
+
+  // Refused rather than returned. The quiet version of this bug is the
+  // reason the symbol exists: hand back the failed parse's `null`, cast it
+  // to `T`, and the caller holds a value the type system swears is there and
+  // the runtime says is not — a crash two screens away from the mistake.
+  if (answer === NO_BODY) {
+    throw new Error(
+      `${method} ${path} answered with no body. Use apiSendEmpty for a write that returns nothing.`,
+    );
+  }
+
+  return answer as T;
+}
+
+/**
+ * A write with nothing to read back — a `204`, like `POST /auth/logout`.
+ *
+ * Separate from `apiSend<void>` on purpose. A caller writing `apiSend<void>`
+ * is ASSERTING the response is empty; a caller writing `apiSendEmpty` is
+ * asking for it, and gets told when it is not.
+ */
+export async function apiSendEmpty(
+  method: SendMethod,
+  path: string,
+  body?: unknown,
+  options: Options = {},
+): Promise<void> {
+  const answer = await request(method, path, body, options);
+
+  if (answer !== NO_BODY) {
+    throw new Error(
+      `${method} ${path} answered with a body, which nothing will read. Use apiSend.`,
+    );
+  }
 }

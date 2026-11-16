@@ -72,8 +72,14 @@ const envSchema = z.object({
    * value rather than a list, because "the intended frontend origin only" is
    * the requirement, and a list is how that turns into "whatever we forgot to
    * take out".
+   *
+   * THE DEFAULT IS THE WEB APP'S DEV ADDRESS, not the API's. farhand-web runs
+   * on 3100 (farhand-web/package.json). It said 5173 until #156 — a Vite dev
+   * server that was never built — so the first developer to run the two
+   * together would have had every form answer 403 "Cross-site request
+   * refused", which reads like a bug in the frontend and is not one.
    */
-  APP_ORIGIN: z.url().default("http://localhost:5173"),
+  APP_ORIGIN: z.url().default("http://localhost:3100"),
 
   /**
    * Where unexpected errors are reported, when there is anywhere to report

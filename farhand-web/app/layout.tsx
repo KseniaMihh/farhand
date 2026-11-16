@@ -1,6 +1,31 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Inter, Libre_Baskerville } from "next/font/google";
+import { SessionProvider } from "@/lib/session";
 import "./globals.css";
+
+/**
+ * The two faces the design names (1.2): Libre Baskerville for the brand,
+ * titles and prices, Inter for everything that is interface.
+ *
+ * `next/font` downloads and self-hosts them at build time, so there is no
+ * request to Google from a visitor's browser — which keeps the one-origin
+ * story of decision 0031 true for fonts as well as for data, and means no
+ * third party learns who reads Farhand.
+ */
+const serif = Libre_Baskerville({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-serif",
+  display: "swap",
+});
+
+const sans = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Farhand",
@@ -9,23 +34,23 @@ export const metadata: Metadata = {
 };
 
 /**
- * The shell every screen sits in.
+ * The shell every screen sits in — and nothing more than a shell.
  *
- * Deliberately almost empty: there is one screen, and a navigation bar with
- * one link in it would be a guess about the other screens
- * (farhand-web/README.md says what is coming). The project's rule applies to
- * the frontend too — version 1's issues were good because they were not
- * guesses.
+ * The header and the banner are NOT here, because the account screens do not
+ * have them: 3.1, 3.2 and 3.3 are a full-bleed split with the wordmark inside
+ * the dark panel. Two route groups settle it — `(site)` wears the furniture,
+ * `(auth)` does not — and neither changes a URL.
+ *
+ * What is left here is the one thing both need: the session. It wraps
+ * everything because the header, the banner and a form all ask the same
+ * question, and asking `GET /auth/me` once per asker would make the answer a
+ * race.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${serif.variable} ${sans.variable}`}>
       <body>
-        <header className="masthead">
-          <div className="airmail" aria-hidden="true" />
-          <p className="wordmark">Farhand</p>
-        </header>
-        <main>{children}</main>
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );
