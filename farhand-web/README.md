@@ -1,7 +1,7 @@
 # farhand-web
 
-The frontend. Next.js, App Router, TypeScript — one screen so far, pointed at
-the deployed API.
+The frontend. Next.js, App Router, TypeScript. Browsing, and the way in:
+register, confirm an email, sign in.
 
 ## Running it
 
@@ -65,28 +65,83 @@ anybody can catch, including the failures that never reached the API at all —
 a sleeping free-plan service answers with the platform's HTML, not with our
 JSON. `lib/api.test.ts` is the specification for that.
 
+## Who is signed in
+
+`lib/session.tsx` asks `GET /auth/me` once, in the browser, and the header,
+the banner and every form share the answer. Why the browser and not a server
+component — the short version is that a server component would not go through
+the rewrite, so it would need an absolute API URL and would have to move the
+cookie by hand, which is a second way of talking to the API in an app whose
+one architectural decision is that there is exactly one. The full argument is
+[decision 0032](../docs/10-decisions/0032-the-session-is-read-in-the-browser.md).
+
+**A session has four states, and the fourth is the point.** `checking`,
+`signed-in`, `signed-out`, and `unknown` — the API did not answer. Only a
+`401` means signed out. On the free plan the API sleeps after fifteen quiet
+minutes, so treating silence as "signed out" would show a signed-in person
+"Sign in" on their first visit of the day. `UNREACHABLE` and any `5xx` retry
+with a backoff and land on `unknown`, which the header draws exactly like
+`checking`.
+
+What a session _is_ lives in `lib/session-state.ts`, with no React in it, so
+that rule is pinned by ordinary unit tests. `session.tsx` is a `useState`, a
+`useEffect` and a context.
+
+## The small modules, and why each is its own file
+
+|                        |                                                                                                                                                                                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/api.ts`           | The only thing that calls `fetch` or knows what an API error looks like. `apiGet`, `apiSend` and `apiSendEmpty` share one `request`, because two copies drift in the cookie and the content type — and both of those fail in a deployed browser and nowhere a test would look |
+| `lib/field-errors.ts`  | A `422`'s `details` turned into "what is wrong with THIS input". The one part of the error envelope `api.ts` does not validate, so every entry is checked here                                                                                                                |
+| `lib/safe-next.ts`     | Where `?next=` may send somebody. It parses rather than inspecting: `/\evil.example` starts with one slash, is not `//`, and still resolves to another origin                                                                                                                 |
+| `lib/session-state.ts` | What a session is, and how to read a failed `/auth/me`                                                                                                                                                                                                                        |
+| `lib/pending-email.ts` | The address `/register` leaves for `/verify`, in `sessionStorage` rather than the URL, where it would live in history and in every later `Referer`                                                                                                                            |
+| `lib/countries.ts`     | 249 ISO 3166-1 alpha-2 codes. The API validates `/^[A-Z]{2}$/` and lists nothing, and no browser exposes region codes — `Intl.DisplayNames` names them, it does not enumerate them                                                                                            |
+
+## Routes
+
+Two route groups, neither of which changes a URL. `(site)` wears the header
+and the banner; `(auth)` is the split screen, with the wordmark inside the
+dark panel, because the account screens have no header in the design. The
+session provider sits in the root layout, above both, so the header, the
+banner and a form all read one answer rather than racing for three.
+
+`app/not-found.tsx` catches the header's forward links. The header draws the
+whole product on one line and five of those screens are not built; each href
+is where that screen will live, so the issue that builds it adds a route and
+the header does not change.
+
 ## What is here, and what is next
 
-Here: browse open needs, and the one error path.
+Here: browse open needs, register, confirm an email, sign in, the header in
+its three states and the banner in both of its.
 
 Not here, and deliberately not guessed at — the screens come as their own
 issues, in roughly this order:
 
-1. **Deploying this app**, which carries three things that belong together:
-   `APP_ORIGIN` on Render, the serverless region (a function in the United
-   States proxying to Frankfurt would add a transatlantic hop to every
-   request), and re-measuring the API's `trust proxy` hop count, because this
-   app becomes another machine in front of it
-   ([#145](https://github.com/KseniaMihh/farhand/issues/145)).
+1. **Deploying this app**
+   ([#152](https://github.com/KseniaMihh/farhand/issues/152)), which carries
+   three things that belong together: `APP_ORIGIN` on Render, the serverless
+   region (a function in the United States proxying to Frankfurt would add a
+   transatlantic hop to every request), and re-measuring the API's
+   `trust proxy` hop count, because this app becomes another machine in front
+   of it ([#145](https://github.com/KseniaMihh/farhand/issues/145)). Its
+   sharpest criterion — sign in, reload, still signed in — is answerable now.
 2. **One need's own page** — the whole description, every photo, who is asking.
-3. **Signing in**, which is the first screen that needs the cookie this whole
-   arrangement exists for, and the first that must run against a local API
-   while it is being built.
-4. **Posting a need**, including the prohibited-items tick that
+3. **Posting a need**, including the prohibited-items tick that
    [#87](https://github.com/KseniaMihh/farhand/issues/87) made a condition of
    publishing anything.
-5. **Offering to help, and a deal's own page** — the lifecycle in
-   `docs/04-deal-lifecycle.md` as something a person can look at.
+4. **Offering to help, and accepting** — the moment two accounts touch.
+5. **A deal's own page** — the lifecycle in `docs/04-deal-lifecycle.md` as
+   something a person can look at. The hard one: nine statuses, and who may
+   act differs per status. It needs
+   [#155](https://github.com/KseniaMihh/farhand/issues/155) first.
+6. **Messages.**
 
-The order is a suggestion. What it is not is a plan to build all five before
+The order is a suggestion. What it is not is a plan to build all six before
 anybody uses one.
+
+Screens the API supports and nothing here draws — moderation, reports, saved
+searches, browse offers, reviews, settings — are a deliberate omission rather
+than an oversight. They each cost a screen and earn nothing until somebody is
+using the six above.
