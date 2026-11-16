@@ -27,10 +27,23 @@ export default function SignIn() {
   // on 3.6 is where that is said.
   //
   // TODO(#156): "where they were going" needs a decision. A `?next=` param is
-  // the usual answer and is an open redirect if it is not checked. Accept
-  // only a path starting with a single "/" — never "//host", never a scheme —
-  // or send them home. No screen in this issue sets it; the guard is written
-  // now because the first screen that does will not think about it.
+  // the usual answer and is an open redirect if it is not checked.
+  //
+  // CHECK IT BY PARSING, NOT BY LOOKING AT THE FIRST CHARACTERS:
+  //
+  //     const target = new URL(next, window.location.origin);
+  //     if (target.origin !== window.location.origin) → home
+  //     otherwise use target.pathname + target.search + target.hash
+  //
+  // A "starts with one slash, not two" test looks equivalent and is not.
+  // Browsers normalise a backslash to a slash in the authority position, so
+  // `/\evil.com` passes that test and navigates to `//evil.com`. Letting the
+  // URL parser decide means the thing that resolves the address is the same
+  // thing that judged it, which is the only version of this check that stays
+  // true as browsers change.
+  //
+  // No screen in this issue sets `next`; the guard is written now because the
+  // first screen that does will not think about it.
 
   return null;
 }

@@ -28,6 +28,15 @@ cp .env.example .env.local           # the other: set FARHAND_API_URL=http://loc
 npm run dev
 ```
 
+**The local API's `APP_ORIGIN` must be this app's address**, `http://localhost:3100`
+— not the API's own. The origin guard that correctly refuses writes from a
+laptop to production refuses them locally too, by the same rule, and answers
+`403 Cross-site request refused`. Every form on every screen fails the same
+way, which reads like a frontend bug and is not one.
+`farhand-api/.env.example` ships with the right value; a `.env` copied before
+[#156](https://github.com/KseniaMihh/farhand/issues/156) may still say `5173`,
+left over from a Vite dev server that was never built.
+
 |                        |                                                  |
 | ---------------------- | ------------------------------------------------ |
 | `npm run dev`          | Next's dev server, port 3100                     |

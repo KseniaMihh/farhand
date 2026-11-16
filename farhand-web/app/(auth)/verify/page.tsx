@@ -23,23 +23,38 @@
 export default function Verify() {
   // TODO(#156): one field, prefilled from useSearchParams().get("token").
   //
-  //   200 → refresh() the session, then home. The banner stops showing
-  //         because /auth/me now says emailVerified.
+  //   200 → VERIFYING DOES NOT SIGN ANYBODY IN. It sets `emailVerifiedAt` and
+  //         nothing else; the session is whatever it already was. So:
+  //         signed in → refresh(), then home, and the banner stops showing.
+  //         Signed out → /sign-in, which is the next thing they need.
   //   422 → "That code didn't work or has expired. Send a new one." —
   //         which is the design's wording AND the API's position: unknown,
   //         used, expired and wrong-kind all answer the same, because
   //         telling them apart helps nobody who legitimately holds a code.
   //         Say what the API said; do not guess which of the four it was.
   //
-  // TODO(#156): "send a new code" needs an address, and somebody who arrived
-  // from an email may not be signed in. Signed in → use the session's email
-  // and POST /auth/resend-verification. Signed out → send them to /sign-in
-  // rather than asking for the address again on this page; a form that takes
-  // an email and says nothing back is a way to test which addresses exist.
+  // TODO(#156): verifying while signed out is allowed by the API and must
+  // stay allowed here — the token is the proof, not the cookie. Somebody
+  // reaching this page from an inbox on another device has no session at all.
   //
-  // TODO(#156): verifying while signed out is allowed by the API and should
-  // stay allowed here — the token is the proof, not the cookie. Afterwards,
-  // point them at /sign-in.
+  // TODO(#156): "send a new code" needs an address, and after a reload this
+  // page may not have one. Three sources, in order:
+  //
+  //   1. the session, when there is one
+  //   2. sessionStorage, written by /register right after a 201 and cleared
+  //      once verification succeeds
+  //   3. an email field on this page, as the fallback
+  //
+  // NOT THE URL. A querystring lives in history, in the referrer header of
+  // every link clicked afterwards, and in whatever logs the address passes
+  // through; an email address does not belong in any of them. sessionStorage
+  // dies with the tab, which is the right lifetime for a value that only
+  // bridges one redirect.
+  //
+  // Whichever source it comes from, POST /auth/resend-verification answers
+  // identically for an address that exists and one that does not (#41), so
+  // the confirmation says "if that address has an account…" and the fallback
+  // field gives nothing away.
 
   return null;
 }

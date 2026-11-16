@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Inter, Libre_Baskerville } from "next/font/google";
 import { Header } from "@/components/header";
-import { VerifyBanner } from "@/components/verify-banner";
+import { AccountBanner } from "@/components/account-banner";
 import { SessionProvider } from "@/lib/session";
 import "./globals.css";
 
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
  * #93 left this almost empty on purpose — a navigation bar with one link in
  * it would have been a guess. #156 is the issue that stops it being a guess:
  * there is a session now, so there is a header with two sides to it, and a
- * banner that only an unverified account sees.
+ * banner that an unverified or suspended account sees.
  *
  * The provider wraps everything because the header and the banner both ask
  * the same question, and asking `GET /auth/me` twice per page load would make
@@ -53,7 +53,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <SessionProvider>
           <Header />
-          <VerifyBanner />
+          <AccountBanner />
           <main>{children}</main>
         </SessionProvider>
       </body>

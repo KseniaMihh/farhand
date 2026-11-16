@@ -17,7 +17,7 @@ import { createContext, useContext, type ReactNode } from "react";
  * cookie out of the incoming request and re-attach it by hand. That is a
  * second way of talking to the API, with its own rules about which cookie
  * goes where, in an app whose one architectural decision (0031) is that there
- * is exactly one way.
+ * is exactly one.
  *
  * The cost of choosing the browser is honest and visible: the first paint
  * does not know who you are, so the header renders a third state —
@@ -25,15 +25,42 @@ import { createContext, useContext, type ReactNode } from "react";
  * why `Session` has three cases and not two.
  */
 
-/** What `GET /auth/me` answers. Only the fields a screen in this issue draws. */
+/** `AccountStatus` in schema.prisma. `DELETED` cannot sign in, but the type
+ *  is the database's and not a subset invented here. */
+export type AccountStatus = "ACTIVE" | "SUSPENDED" | "BANNED" | "DELETED";
+
+/**
+ * What `GET /auth/me` answers, trimmed to what the screens in this issue
+ * draw. The API sends more (`role`, `emailNotifications`); a field arrives
+ * here when a screen needs it, the same habit as `NeedCard` in app/page.tsx.
+ *
+ * `status` and `suspendedUntil` ARE here, and the API put them there for this
+ * exact purpose — routes/auth.ts says so: "so the frontend can show 'your
+ * account is suspended until …'". What is deliberately absent from a profile
+ * is the PUBLIC one, `GET /users/:id`; this is the caller's own account and
+ * holds more.
+ *
+ * `profile` is nullable because the API types it that way. Registering always
+ * makes one, so this is a case nothing here can produce — which is exactly
+ * why it must not be asserted away.
+ */
 export interface Me {
   id: string;
   email: string;
   emailVerified: boolean;
+  status: AccountStatus;
+  /** ISO 8601, or null. Null with `SUSPENDED` means "until a moderator lifts
+   *  it", not "not suspended" — the status is what says that. */
+  suspendedUntil: string | null;
   profile: {
     displayName: string;
     countryCode: string;
-  };
+  } | null;
+}
+
+/** The envelope. Every reply in this API is a named object, never a bare one. */
+export interface MeResponse {
+  user: Me;
 }
 
 /**

@@ -22,8 +22,10 @@
 export default function Register() {
   // TODO(#156): controlled form → apiSend("POST", "/auth/register", {...}).
   //
-  //   201 → router.push("/verify"), carrying nothing. The token arrives by
-  //         email; the page asks for it.
+  //   201 → write the email to sessionStorage, then router.push("/verify").
+  //         The token arrives by email and that page asks for it; the address
+  //         is only there so "send a new code" works after a reload. Not in
+  //         the URL — see the note on /verify for why.
   //   422 → fieldErrorsIn(error) onto the four fields. The API's top-level
   //         message is the fallback when `details` blames nothing.
   //   429 → the API's own sentence. Registration is limited to 5 an hour per

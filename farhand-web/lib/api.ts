@@ -167,10 +167,30 @@ export type SendMethod = "POST" | "PATCH" | "DELETE";
  * which would fail in exactly one place — a deployed browser — and nowhere a
  * test would look.
  *
- * TODO(#156): a `204` has no body. `response.json()` on an empty body throws,
- * which the `.catch(() => null)` already swallows — but the cast then hands
- * back `null` as a `T`. `POST /auth/logout` is the first endpoint here that
- * does this, so the type has to admit it rather than lie.
+ * The core owes three things, and each is a place a second copy would drift:
+ *
+ *   1. A `204` HAS NO BODY. `response.json()` on an empty one throws, which
+ *      the `.catch(() => null)` already swallows — but the cast then hands
+ *      back `null` dressed as a `T`. `POST /auth/logout` is the first
+ *      endpoint here that does it, so the signature must return NOTHING for
+ *      those rather than a lie the caller cannot see. Hence the `void`
+ *      overload below.
+ *   2. The error envelope, `requestId` included. It is the only thing that
+ *      ties what somebody saw on a screen to a line in the API's log, so it
+ *      survives all the way to the component that renders it (app/page.tsx
+ *      already does this).
+ *   3. "The server did not answer" is ITS OWN CASE, not a `4xx` with an
+ *      invented number. A free-tier API cold-starting, a dropped connection
+ *      and a proxy answering its own HTML all arrive here with no error
+ *      shape; `UNREACHABLE` at status `0` keeps them distinguishable from
+ *      anything the API itself decided, because they call for a different
+ *      sentence — "try again" rather than "fix this field".
+ *
+ * TODO(#156): lift the fetch-and-read core out of `apiGet` into a private
+ * `request(path, init, options)` and have both call it. Two near-identical
+ * copies is how `credentials` ends up right on reads and wrong on writes,
+ * which would fail in exactly one place — a deployed browser — and nowhere a
+ * test would look.
  */
 export function apiSend<T>(
   _method: SendMethod,
@@ -180,4 +200,22 @@ export function apiSend<T>(
 ): Promise<T> {
   // TODO(#156): the underscores come off when there is a body to write.
   return Promise.reject(new Error("apiSend is not written yet"));
+}
+
+/**
+ * A write with nothing to read back — a `204`.
+ *
+ * TODO(#156): make this the real signature rather than `apiSend<void>`. A
+ * caller that writes `apiSend<void>(…)` is asserting the response is empty;
+ * a caller that writes `apiSendEmpty(…)` is asking for it, and the core
+ * refuses a body that turns up anyway instead of discarding it quietly.
+ */
+export function apiSendEmpty(
+  _method: SendMethod,
+  _path: string,
+  _body?: unknown,
+  _options: Options = {},
+): Promise<void> {
+  // TODO(#156)
+  return Promise.reject(new Error("apiSendEmpty is not written yet"));
 }
