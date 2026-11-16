@@ -22,22 +22,27 @@ import { useSession } from "@/lib/session";
 export function Header() {
   const { session: _session } = useSession();
 
-  // TODO(#156): three branches.
+  // TODO(#156): three branches over four states.
   //
-  //   checking   a NEUTRAL PLACEHOLDER of the same width as the widest of
-  //              the two real states — empty, not "Sign in". Reserving the
-  //              space is only half of it: drawing the signed-out controls
-  //              while the answer is unknown is a guess that is wrong for
-  //              everybody who is signed in, and they are the ones who load
-  //              this page most. `aria-hidden` and `visibility: hidden` on a
-  //              copy of the wider state keeps the measurement honest without
-  //              announcing furniture that is not there yet.
+  //   checking   A NEUTRAL PLACEHOLDER — empty, not "Sign in". Reserving the
+  //   unknown    width is only half of it: drawing the signed-out controls
+  //              while the answer is not known is a guess that is wrong for
+  //              everybody who IS signed in, and they are the ones who load
+  //              this page most. On a free instance "unknown" happens on
+  //              every cold start, so the two share this branch.
+  //
+  //              Keep the measurement honest with a copy of the wider real
+  //              state under `visibility: hidden` and `aria-hidden`, so the
+  //              layout does not jump and nothing is announced that is not
+  //              there.
+  //
   //   signed-out "Sign in" (quiet) and "Create account" (primary)
+  //
   //   signed-in  "Needs", then the display name with a menu holding
-  //              "Sign out". The avatar circle in the design is the
-  //              initial — avatars are #80 and have no screen here.
-  //              `profile` can be null, so fall back to the email rather
-  //              than asserting it away.
+  //              "Sign out". The avatar circle in the design is the initial —
+  //              avatars are #80 and have no screen here. `profile` can be
+  //              null, so fall back to the email rather than asserting it
+  //              away.
   return (
     <header className="masthead">
       <div className="airmail" aria-hidden="true" />

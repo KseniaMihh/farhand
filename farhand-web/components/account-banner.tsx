@@ -30,7 +30,12 @@ export function AccountBanner() {
   //   status === "SUSPENDED"
   //     "Your account is suspended until {date}. You can read, but not post,
   //      propose or message." — the design's wording, with the Paused tint
-  //      (#E7E3EF on #4A3F6B), and "Read the community rules".
+  //      (#E7E3EF on #4A3F6B).
+  //
+  //      WITHOUT the design's "Read the community rules" link. There is no
+  //      such page, and this skeleton's own rule is that a dead link is worse
+  //      than a missing one. It goes in when something exists to point at —
+  //      `GET /prohibited-items` is a list, not a page, and is not it.
   //
   //      suspendedUntil === null is NOT "not suspended" — the status already
   //      said it is. It means no end date, so say "until a moderator lifts

@@ -32,6 +32,10 @@ export default function Verify() {
   //         used, expired and wrong-kind all answer the same, because
   //         telling them apart helps nobody who legitimately holds a code.
   //         Say what the API said; do not guess which of the four it was.
+  //   429 → this endpoint has a limiter of its own: 30 per IP per 15 minutes
+  //         (`RATE_LIMITS.token`), keyed by address alone because a token
+  //         has no account to key on. Somebody pasting a code wrong a few
+  //         times will not meet it; somebody guessing will.
   //
   // TODO(#156): verifying while signed out is allowed by the API and must
   // stay allowed here — the token is the proof, not the cookie. Somebody

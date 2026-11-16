@@ -32,10 +32,13 @@ export default function Register() {
   //         account and 10 per IP, and there is nothing useful to add to it.
   //
   // TODO(#156): the country picker. The API takes any valid ISO 3166-1
-  // alpha-2 code; there is no endpoint listing countries, so the list is the
-  // frontend's own. `Intl.DisplayNames` turns a code into a name in the
-  // browser, which beats shipping a table of 249 strings — and the design's
-  // dropdown shows names, not codes.
+  // alpha-2 code and there is no endpoint listing countries, so THE LIST OF
+  // CODES LIVES HERE — about 249 two-letter strings, in one module.
+  // `Intl.DisplayNames` is not a way out of shipping it: it turns a code into
+  // a name in the reader's own language, which is worth having, but no
+  // browser exposes the set of region codes (`Intl.supportedValuesOf` covers
+  // calendars, currencies, collations, numbering systems, time zones and
+  // units — not regions). So: our array of codes, their names.
   //
   // TODO(#156): the password field needs the design's "Show" toggle, which
   // is `type` flipping between "password" and "text" and an aria-pressed

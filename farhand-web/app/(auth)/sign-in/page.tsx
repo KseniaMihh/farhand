@@ -17,14 +17,23 @@ export default function SignIn() {
   // TODO(#156): two fields → apiSend("POST", "/auth/login", {...}).
   //
   //   200 → refresh(), then router.replace() to where they were going.
-  //   401 → the one sentence above the form. No field marks.
-  //   429 → 3.3b. The real rule is 20 an hour per IP and 10 per account over
-  //         a 15-minute window, so the design's "wait 15 minutes" is right.
+  //   401 → the one sentence above the form. No field marks. Covers an
+  //         unknown email, a wrong password AND a deleted account, which the
+  //         API folds together on purpose.
+  //   403 → "This account has been banned", and it needs its own sentence.
+  //         The API checks this AFTER the password (routes/auth.ts) so that
+  //         only the account's owner can learn it — folding it into a generic
+  //         failure would throw away the one thing that care bought.
+  //   422 → an empty field. The browser's `required` catches most of it; the
+  //         API still answers, and `details` still names the field.
+  //   429 → 3.3b. 20 per IP and 10 per account, both over FIFTEEN MINUTES
+  //         (rate-limit.ts) — so the design's "wait 15 minutes" is right.
   //         Show what the API said and offer "Reset password", as 3.3b does.
   //
   // TODO(#156): an unverified account signs in SUCCESSFULLY — requireVerified
   // guards posting, not logging in. Do not special-case it here; the banner
-  // on 3.6 is where that is said.
+  // on 3.6 is where that is said. A BANNED one does not get that far, and a
+  // DELETED one is a 401.
   //
   // TODO(#156): "where they were going" needs a decision. A `?next=` param is
   // the usual answer and is an open redirect if it is not checked.

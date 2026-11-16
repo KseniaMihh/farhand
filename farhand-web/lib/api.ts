@@ -167,7 +167,13 @@ export type SendMethod = "POST" | "PATCH" | "DELETE";
  * which would fail in exactly one place — a deployed browser — and nowhere a
  * test would look.
  *
- * The core owes three things, and each is a place a second copy would drift:
+ * The core owes four things, and each is a place a second copy would drift:
+ *
+ *   0. `Content-Type: application/json` on anything with a body. Without it
+ *      Express's JSON parser does not run, `req.body` is empty, and the API
+ *      answers `422` naming every field as required — a failure that reads
+ *      like a validation bug in the form and is nothing of the kind. It is
+ *      first in this list because it is the one that costs an afternoon.
  *
  *   1. A `204` HAS NO BODY. `response.json()` on an empty one throws, which
  *      the `.catch(() => null)` already swallows — but the cast then hands
