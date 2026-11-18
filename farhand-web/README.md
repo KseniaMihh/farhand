@@ -46,6 +46,71 @@ left over from a Vite dev server that was never built.
 | `npm run format:check` | What CI runs                                     |
 | `npm test`             | Vitest, for `lib/`                               |
 
+## Deploying it
+
+**Vercel, with the function region pinned to `fra1`** (`vercel.json`). The
+reasoning for the region is in `next.config.ts`, beside the rewrite it is
+about; the reasoning for Vercel over Render is
+[#152](https://github.com/KseniaMihh/farhand/issues/152).
+
+Three settings, and the app is wrong without any one of them:
+
+| Where  | Setting           | Value                    |
+| ------ | ----------------- | ------------------------ |
+| Vercel | Root directory    | `farhand-web`            |
+| Vercel | `FARHAND_API_URL` | the Render API's address |
+| Render | `APP_ORIGIN`      | **the Vercel address**   |
+
+`APP_ORIGIN` is the one that catches people. It is the **frontend's** address,
+never the API's and never `localhost` — the local default is
+`http://localhost:3100` and production's is not. Point it anywhere else and
+the origin guard refuses every real write while still accepting one from a
+developer's laptop, which is precisely backwards.
+
+### The check that matters after the first deploy
+
+A request made through the deployed site must reach the API carrying **the
+visitor's** address, not Vercel's. If it does not, every by-address rate
+limit counts every visitor into one shared bucket: ten people signing in from
+ten countries exhaust a limit meant for one, and the symptom — "signing in
+sometimes says too many attempts" — looks nothing like its cause.
+
+1. Find your own address: <https://api.ipify.org>
+2. Sign in through the deployed site, in a browser.
+3. Read the newest session back:
+
+   ```sql
+   SELECT "ipAddress", "createdAt" FROM "Session" ORDER BY "createdAt" DESC LIMIT 1;
+   ```
+
+4. They must match. A Vercel address, or anything in `10.x`, is a failure.
+
+**Do not write the address into the repository.** The result is "the caller's
+own address" or "a proxy's" — never the number.
+
+Two more checks, both already built and both cheaper:
+
+- The `ratelimit-policy` response header carries `pk`, a hash of the bucket a
+  request was counted in. Two requests from two different machines must land
+  in **different** buckets.
+- `createCallerAddressCheck` writes one `error` line per process if the
+  address it resolves is private. Silence is the expected answer.
+
+### If the address does not arrive
+
+`TRUSTED_PROXY_HOPS` in `farhand-api/src/middleware/caller-address.ts` is
+**3**, measured in #145 as caller → Cloudflare → Render's balancer. Vercel in
+front plausibly makes it 4 — and plausibly is not a number. Decision 0029
+records why it has to be measured: a count that is too _large_ resolves to a
+proxy's own public address and passes every check above.
+
+If the chain is right and the address still does not arrive, Vercel is not
+forwarding it, and the fallback is a route handler at
+`app/api/[...path]/route.ts` that proxies and sets `X-Forwarded-For` itself.
+That costs a function invocation on every API call — which is what the pinned
+region is for — and it widens decision 0031, because the proxy stops living
+in one file. Not to be built on suspicion.
+
 ## How it talks to the API
 
 Every request goes to this app's own `/api/...`, and `next.config.ts` rewrites

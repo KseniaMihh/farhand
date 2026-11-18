@@ -17,6 +17,16 @@ import type { NextConfig } from "next";
  * this app before it reaches the API. That is the price, and it is also why
  * the deploy issue has to re-measure the API's `trust proxy` hop count: this
  * app becomes another machine in front of it (#145).
+ *
+ * WHERE THE HOP HAPPENS, and why vercel.json pins a region anyway (#152).
+ * A rewrite with an external destination is handled by Vercel's routing
+ * layer rather than by a serverless function, so the function region should
+ * not apply to it at all. The region is pinned to `fra1` regardless, because
+ * "should not apply" is not a thing to deploy on: anything that DOES invoke
+ * a function — a server component, a route handler added later — would
+ * otherwise default to Washington, and a function in the United States
+ * forwarding to an API in Frankfurt puts the Atlantic in every request on
+ * the page. One line, and the default is gone.
  */
 const api = process.env.FARHAND_API_URL ?? "https://farhand-api.onrender.com";
 
