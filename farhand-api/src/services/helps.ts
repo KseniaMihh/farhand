@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { Help, HelpStatus, User } from "@prisma/client";
+import { CATEGORY_FACTS } from "./categories.js";
 import { prisma } from "../db.js";
 import { HttpError } from "../errors.js";
 import { queueMatching } from "./saved-searches.js";
@@ -64,7 +65,10 @@ export type HelpWithCategories = Help & {
 
 /** Always return categories with an offer: an offer without them is half a listing. */
 const withCategories = {
-  categories: { select: { id: true, slug: true, name: true } },
+  // The shape itself comes from ../services/categories.js, which is also what
+  // GET /categories answers with. Two spellings of a three-field select look
+  // harmless and are how one of them grows a field the other does not (#159).
+  categories: { select: CATEGORY_FACTS },
 } as const;
 
 /**

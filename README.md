@@ -348,6 +348,7 @@ one arrives without it (#92).
 | `tests/helps/browse.test.ts` | Browsing offers: filters, ships-anywhere matching every search, paging, and what EXPLAIN says about the GIN index |
 | `tests/proposals/proposals.test.ts` | Proposals: who may send one, one per helper per need whatever became of it, declining and withdrawing |
 | `tests/proposals/accept.test.ts` | Accepting: the one transaction that makes a deal, the need it matches, and the other proposals it does not touch |
+| `tests/categories/categories.test.ts` | Listing the categories: no session needed, the shape an offer already carries, sorted by name, unpaged, and the first publicly cacheable answer |
 | `tests/conversations/conversations.test.ts` | Threads and messages: who may read one, what unread means, and the moderator rule |
 | `tests/conversations/rate-limit.test.ts` | The limit on sending messages, counted per signed-in sender rather than per address |
 | `tests/deals/transitions.test.ts` | The deal state machine: all 81 moves, who may make each one, and what each leaves in the event log |
@@ -518,6 +519,7 @@ farhand/
 │   │   │   └── common.ts       field rules more than one router needs
 │   │   ├── services/
 │   │   │   ├── shared.ts       paging, cursors, and the pieces several services use
+│   │   │   ├── categories.ts   the one shape a category is read in, and the whole list
 │   │   │   ├── needs.ts        who may create, edit and close a need
 │   │   │   ├── helps.ts        the same, for offers to carry something
 │   │   │   ├── need-photos.ts  a need's photos, and the one query a page of them costs
@@ -542,6 +544,7 @@ farhand/
 │   │       ├── health.ts       liveness, readiness, and the commit it reports
 │   │       ├── auth.ts         register, verify email, log in and out, me, reset password
 │   │       ├── profiles.ts     public profile, own profile, avatar, delete account
+│   │       ├── categories.ts  every category, unpaged and publicly cacheable
 │   │       ├── needs.ts        create, edit, delete and browse needs; photos
 │   │       ├── helps.ts        create, edit, delete and browse offers
 │   │       ├── proposals.ts    send, accept, decline, withdraw; messages on a proposal
