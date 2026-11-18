@@ -104,12 +104,22 @@ front plausibly makes it 4 — and plausibly is not a number. Decision 0029
 records why it has to be measured: a count that is too _large_ resolves to a
 proxy's own public address and passes every check above.
 
-If the chain is right and the address still does not arrive, Vercel is not
-forwarding it, and the fallback is a route handler at
-`app/api/[...path]/route.ts` that proxies and sets `X-Forwarded-For` itself.
-That costs a function invocation on every API call — which is what the pinned
-region is for — and it widens decision 0031, because the proxy stops living
-in one file. Not to be built on suspicion.
+**This happened on the first deploy, and `middleware.ts` is the answer.** A
+rewrite declared in `next.config.ts` is performed by Vercel's routing layer,
+which makes the outbound request as though it were the client: three entries
+in `X-Forwarded-For`, Vercel's leftmost, the visitor's nowhere — and not
+under another header name either. The middleware puts it back deliberately,
+forwarding only the entry the nearest proxy vouched for.
+
+The hop count was **not** the problem, and raising it would have made things
+worse by resolving further left into the part of the header a caller writes
+for themselves. `TRUSTED_PROXY_HOPS` stays at 3.
+
+If the middleware ever stops being enough, the escalation is a catch-all
+route handler at `app/api/[...path]/route.ts`. It costs more than middleware
+— the body no longer streams by itself, and `Set-Cookie` has to be copied by
+hand, which is the one thing decision 0031 exists to protect. Not to be built
+on suspicion.
 
 ## How it talks to the API
 

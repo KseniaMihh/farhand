@@ -28,18 +28,20 @@ import type { NextConfig } from "next";
  * forwarding to an API in Frankfurt puts the Atlantic in every request on
  * the page. One line, and the default is gone.
  */
-const api = process.env.FARHAND_API_URL ?? "https://farhand-api.onrender.com";
-
-const nextConfig: NextConfig = {
-  // Next asks for a promise here; there is nothing to wait for, so it is
-  // resolved rather than written `async` with no `await` in it.
-  rewrites: () =>
-    Promise.resolve([
-      {
-        source: "/api/:path*",
-        destination: `${api}/:path*`,
-      },
-    ]),
-};
+/**
+ * THE REWRITE MOVED TO middleware.ts (#152), and this file is left saying so
+ * because the first place anybody looks for a rewrite is here.
+ *
+ * It was declared here until the first deploy measured what that produced:
+ * a rewrite in this file is performed by Vercel routing layer, which makes
+ * the outbound request as though it were the client, and the visitor address
+ * never reached the API at all. The middleware sets it deliberately.
+ *
+ * There is deliberately no rewrite left here as a fallback. Two mechanisms
+ * for one job means the quiet one wins when the other breaks, and the quiet
+ * one here is the one that drops the address. A 404 is a louder failure than
+ * a rate limit everybody shares.
+ */
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
