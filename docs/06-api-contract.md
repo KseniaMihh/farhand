@@ -717,6 +717,89 @@ safe; storing the link it redirects to is not.
 the profile, `avatarUrl` now `null`. Having no avatar already is not an error:
 the answer is the same.
 
+## Categories
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/categories` | — | Every category, by name. Unpaged, and cacheable |
+
+A need has one category and an offer has between one and ten, both given as
+ids. Until #159 nothing handed the list over: a category appeared in this
+document only as a **filter** on the two browse endpoints, which presumes the
+caller already has an id. The only place to get one was the database.
+
+### `GET /categories`
+
+Public: no session is read at all. A category picker sits on the screens
+somebody fills in before they have posted anything, and the browse filters are
+public outright. Returns `200`:
+
+```json
+{
+  "categories": [
+    { "id": "cm1…", "slug": "beauty-care", "name": "Beauty & care" }
+  ]
+}
+```
+
+**The same three fields an offer carries.** `GET /helps` has returned
+`{ id, slug, name }` inside every offer since #17, and this endpoint does not
+invent a second spelling of a category — both read the one selector in
+`src/services/categories.ts`.
+
+**Sorted by `name`, not by `slug`.** The two look interchangeable —
+`beauty-care` and `Beauty & care` — and a slug sorts on its punctuation, which
+is not something a reader can see. It is Postgres's byte order rather than a
+locale-aware one; for eleven English names that is the same answer.
+
+**Unpaged, which is the exception here.** Every other list in this document
+takes `limit` and `cursor`, because every other list grows with use. This one
+has eleven rows and cannot grow without a migration, so a cursor would be
+furniture with nothing behind it. There is no `nextCursor` in the reply.
+
+**An empty table is `{ "categories": [] }` and `200`**, not an error. A
+database nobody has seeded is a deployment that is not finished, and the shape
+of the answer is the wrong place to say so.
+
+#### It may be cached, and that is new
+
+```
+Cache-Control: public, max-age=3600
+```
+
+**The first `public` cache header this API sets.** `GET /files/:id` has sent
+`private, max-age=…` on its redirect since #79, so the mechanism is not new —
+but `private` means *this answer was for one caller*. This one is the same for
+everybody, and `public` is a different promise: a shared cache, including one
+we do not control, may keep it and hand it to somebody else.
+
+An hour. A renamed category shows its old name for at most that long and
+nobody is hurt by it; the list changes about once a year. Short enough that
+there is no need for a way to clear it, which would otherwise be the next
+thing somebody built.
+
+**The promise holds only while nothing here depends on who is asking.** The
+day this endpoint learns to say something per-caller — a hidden category, a
+count of somebody's own needs — `public` stops being an optimisation and
+becomes a leak. There is a test that two different signed-in callers get
+byte-for-byte the same answer; that is the one that would notice.
+
+#### What it deliberately does not carry
+
+**A count of open needs per category.** Not in the design (screen 2.1 shows
+plain names), so version 1 scope does not grow to meet it. It would also
+contradict the caching above: a count changes every time somebody posts, so an
+hour-old answer would be wrong rather than merely stale.
+
+Worth writing down for whoever adds it in version 2, because the obvious fear
+is the wrong one: **it is not a query per category.** Prisma's `_count` with a
+filter, or a single `GROUP BY`, does the whole thing in one round trip. The
+reason to leave it out is scope and caching, not cost.
+
+**A `?category=beauty-care` filter on `GET /needs`.** Filtering by id already
+works, so a readable URL is a nicety rather than a gap — a version 2 idea, and
+one that belongs to the browse screen rather than to this endpoint.
+
 ## Needs
 
 | Method | Path | Auth | Notes |
