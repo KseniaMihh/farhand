@@ -87,6 +87,36 @@ What a session _is_ lives in `lib/session-state.ts`, with no React in it, so
 that rule is pinned by ordinary unit tests. `session.tsx` is a `useState`, a
 `useEffect` and a context.
 
+## Styling
+
+**Tailwind v4, plus a short layer of component classes.** The split is a rule
+rather than a habit, and it is
+[decision 0033](../docs/10-decisions/0033-tailwind-for-arrangement-classes-for-the-rules.md):
+
+|               |                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Utilities** | Arrangement — layout, spacing, flex and grid, responsive                                                                |
+| **Classes**   | Anything carrying a rule: `.btn` and its variants, `.input`, `.badge`, `.avatar`, `.wordmark`, the four `.tint-*` pairs |
+
+A class earns its name when it encodes a decision, and does not when it only
+means sixteen pixels of padding. `btn btn-offer` enforces "white on
+Terracotta is bold-or-large only, 3.7:1"; `bg-terracotta text-white` does
+not, and the ratio came out of the design sheet rather than out of taste.
+
+**Everything is in `app/globals.css`**, in three parts: `@theme` (the
+palette, the two faces, the type scale, all with their contrast ratios in the
+comments), `@layer base`, and `@layer components` for the classes above.
+There is no `tailwind.config.js` — v4 made configuration CSS, which is why
+the design tokens moved across as a rename.
+
+To change a colour everywhere, change it in `@theme`. The two ratios that
+constrain where a colour may go are written next to the colours they
+constrain; darkening either one makes them untrue.
+
+**Phone width is not finished.** The responsive classes are written and
+nobody has looked at them: the priority is the desktop view until the screens
+exist. Do not read "it is responsive" off this file.
+
 ## The small modules, and why each is its own file
 
 |                        |                                                                                                                                                                                                                                                                               |
