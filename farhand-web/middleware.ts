@@ -17,12 +17,13 @@ import { NextResponse, type NextRequest } from "next/server";
  * symptom — "signing in sometimes says too many attempts" — that looks
  * nothing like its cause.
  *
- * Worth recording that the obvious fix was wrong. The chain looked one short,
- * so raising the hop count to four was the plausible answer; it would have
- * resolved one step FURTHER left, into the part of the header a caller can
- * write for themselves. Decision 0029 says a count is a fact about somebody
- * else's infrastructure and has to be measured. It was, and it said something
- * different from the story.
+ * Worth recording that two obvious fixes were wrong. Raising the hop count to
+ * four would have resolved one step FURTHER left, into the part of the header
+ * a caller can write for themselves. Reading the rightmost entry of
+ * `x-forwarded-for` reached production and delivered a Vercel address again,
+ * because Vercel appends its own internal hop after the client's. Decision
+ * 0029 says a count — and, it turns out, an end of a header — is a fact about
+ * somebody else's infrastructure, to be measured rather than reasoned about.
  *
  * WHY MIDDLEWARE RATHER THAN A ROUTE HANDLER. #152 wrote down a catch-all
  * proxy at `app/api/[...path]/route.ts` as the fallback. This is smaller and
@@ -47,36 +48,78 @@ export function middleware(request: NextRequest) {
   const headers = new Headers(request.headers);
 
   /**
-   * SET, NEVER APPEND. Vercel fills `x-forwarded-for` on the way IN to this
-   * function with the address it saw, which is the visitor's. Forwarding that
-   * value wholesale is what puts the visitor back at the left of the chain.
+   * WHICH HEADER THE PLATFORM VOUCHES FOR, rather than which end of
+   * `x-forwarded-for` looks right.
    *
-   * Appending to whatever the caller sent would hand an attacker the ability
-   * to lengthen the chain and shift which entry the API's count lands on —
-   * the exact attack the count protects against by reading from the right.
-   * Overwriting leaves nothing of theirs in it.
+   * Two readings of that header have now been wrong on this platform. The
+   * first copied it wholesale and forwarded a forgery; the second took the
+   * rightmost entry — on the rule that a proxy appends, so the last entry is
+   * the one the nearest proxy stands behind — and that reached production
+   * and delivered a Vercel address again, a different one. Vercel appends
+   * its own internal hop AFTER the client, so the rightmost entry is
+   * Vercel's and the leftmost is the visitor's.
+   *
+   * The leftmost would therefore be right, and is not safe to take: it is
+   * only the visitor's address if Vercel REPLACES a client-supplied header
+   * rather than appending to it, and if it appends, the leftmost is whatever
+   * the caller typed. Shipping that to find out would trade a shared rate
+   * limit for a forgeable one, which is the worse of the two.
+   *
+   * So: one header, and only the one the platform RESERVES.
+   * `x-vercel-forwarded-for` is in Vercel own namespace, which it strips from
+   * anything a client sends, so a caller cannot put a value in it. It also
+   * carries a single address rather than a chain to pick an end of.
+   *
+   * REJECTED: `x-real-ip` as a fallback. It was in this file for about ten
+   * minutes and a local test forged it — a made-up address went straight to
+   * the API. It is not a reserved name, so its safety rests entirely on
+   * Vercel overwriting it, which is exactly the kind of assumption that has
+   * been wrong twice here already. Having no address is a shared rate-limit
+   * bucket, which is todays bug; having a forgeable one is worse than today.
+   *
+   * If the probe below says this header is absent in production, the next
+   * thing to try is `ipAddress()` from `@vercel/functions` — the platform own
+   * helper, which exists because this is hard to get right by hand.
    */
-  const seen = request.headers.get("x-forwarded-for");
-  // THE RIGHTMOST ENTRY, not the whole header. A proxy APPENDS the address it
-  // saw, so the last entry is the one the nearest proxy vouches for and
-  // everything to its left is whatever the caller chose to write. Copying the
-  // header wholesale forwards the forgery — which a local test did, with a
-  // made-up address sailing through to the API.
-  //
-  // This holds whichever way Vercel behaves: if it replaces the header there
-  // is one entry and it is the right one; if it appends, the one it appended
-  // is last. The same reading as the API own count, for the same reason.
-  const vouched = seen?.split(",").pop()?.trim();
+  const vouched = request.headers.get("x-vercel-forwarded-for");
 
-  if (vouched !== undefined && vouched !== "") {
-    headers.set("x-forwarded-for", vouched);
+  if (vouched !== null && vouched.trim() !== "") {
+    // One address, already the visitor's. The API counts hops from its own
+    // socket backwards, so this becomes the leftmost entry of the chain it
+    // sees — which is where #145 expects to find a caller.
+    headers.set("x-forwarded-for", vouched.trim());
   } else {
-    // Nothing vouched for it, so claim nothing. Whatever is forwarding may
-    // still add its own — Next's dev server puts the socket address in, which
-    // is `::1` locally — and that is correct, because it is the one address
-    // that was actually observed rather than asserted.
+    // Nothing the platform stands behind, so claim nothing rather than
+    // guessing at an end of `x-forwarded-for`. Whatever forwards this may
+    // still add its own — Next's dev server puts the socket address in,
+    // `::1` locally — and that is honest, because it was observed.
     headers.delete("x-forwarded-for");
   }
+
+  /**
+   * TEMPORARY, AND #163 REMOVES IT.
+   *
+   * Says which headers were available, never their values. The API logs every
+   * request header, so this turns the next deploy into evidence instead of
+   * another guess: if the address is still wrong, this says whether the
+   * platform offered anything at all and how long the chain was.
+   *
+   * Names and a count only. An address in a log is the thing decision 0029's
+   * runs are careful not to write down.
+   */
+  headers.set(
+    "x-farhand-probe",
+    [
+      `real-ip=${request.headers.has("x-real-ip") ? "y" : "n"}`,
+      `vercel-ffor=${request.headers.has("x-vercel-forwarded-for") ? "y" : "n"}`,
+      `xff-entries=${String(
+        (request.headers.get("x-forwarded-for") ?? "")
+          .split(",")
+          .filter((part) => part.trim() !== "").length,
+      )}`,
+      `used=${vouched !== null && vouched.trim() !== "" ? "platform" : "none"}`,
+    ].join(" "),
+  );
 
   return NextResponse.rewrite(destination, { request: { headers } });
 }
