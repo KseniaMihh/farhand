@@ -115,18 +115,27 @@ describe("what comes back", () => {
    * interchangeable — "beauty-care" and "Beauty & care" — and a slug sorts on
    * its punctuation, which is not a thing a reader can see.
    */
-  it("sorts by the name a person reads", async () => {
-    await createCategory("snacks");
-    await createCategory("books");
-    await createCategory("electronics");
+  it("sorts by the name a person reads, not by the slug", async () => {
+    // THE NAMES AND THE SLUGS DISAGREE ON PURPOSE, and the first version of
+    // this test did not: `createCategory` derives "Books" from "books", so
+    // the two orders came out identical and sorting by slug passed. Found by
+    // breaking it deliberately. Real data disagrees the same way —
+    // "home-kitchen" is "Home & kitchen" — so this is the ordinary case
+    // rather than a contrived one.
+    await prisma.category.createMany({
+      data: [
+        { slug: "a-sorts-first", name: "Zebra" },
+        { slug: "z-sorts-last", name: "Apple" },
+        { slug: "m-sorts-middle", name: "Mango" },
+      ],
+    });
 
     const response = await request(app).get("/categories");
     const names = (response.body as CategoriesBody).categories.map(
       (category) => category.name,
     );
 
-    expect(names).toEqual([...names].sort());
-    expect(names[0]).toBe("Books");
+    expect(names).toEqual(["Apple", "Mango", "Zebra"]);
   });
 
   /**
