@@ -1,3 +1,16 @@
+/*
+ * The browse screen, which is the one screen with styling of its own.
+ *
+ * KEPT AS A MODULE on purpose (#158). The rule for the split is that shared
+ * things live in globals.css and one screen's things live beside that
+ * screen; a card layout nothing else draws yet is the second kind. It will
+ * most likely become a shared `.card` the moment a second screen wants one,
+ * and that is the issue that should move it — not this one, which is only
+ * meant to change how styling is written and nothing about how it looks.
+ *
+ * The variables are the theme's, so a colour changed in `@theme` changes
+ * here too.
+ */
 .heading {
   font-size: 1.6rem;
   margin: 0 0 20px;
@@ -5,14 +18,14 @@
 }
 
 .quiet {
-  color: var(--muted);
+  color: var(--color-muted);
 }
 
 .failed {
-  border: 1px solid var(--red);
+  border: 1px solid var(--color-error-ink);
   border-radius: 10px;
   padding: 16px 18px;
-  background: var(--surface);
+  background: var(--color-card);
 }
 
 .failed p {
@@ -31,8 +44,8 @@
   display: grid;
   grid-template-columns: 96px 1fr;
   gap: 16px;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: var(--color-card);
+  border: 1px solid var(--color-line);
   border-radius: 10px;
   padding: 14px;
 }
@@ -43,8 +56,8 @@
   height: 96px;
   border-radius: 8px;
   object-fit: cover;
-  background: var(--ground);
-  border: 1px solid var(--line);
+  background: var(--color-cream);
+  border: 1px solid var(--color-line);
 }
 
 .body {
@@ -58,7 +71,7 @@
 
 .route {
   margin: 0 0 8px;
-  color: var(--muted);
+  color: var(--color-muted);
   font-size: 0.92rem;
 }
 

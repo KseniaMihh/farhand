@@ -12,5 +12,9 @@ import type { ReactNode } from "react";
  * its own `<AuthPanel>` and this holds the shape around it.
  */
 export default function AuthLayout({ children }: { children: ReactNode }) {
-  return <div className="auth-split">{children}</div>;
+  return (
+    <div className="grid min-h-screen grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      {children}
+    </div>
+  );
 }

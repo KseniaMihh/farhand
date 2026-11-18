@@ -15,7 +15,7 @@ export default function SiteLayout({ children }: { children: ReactNode }) {
     <>
       <Header />
       <AccountBanner />
-      <main>{children}</main>
+      <main className="mx-auto max-w-column px-4 pt-8 pb-20">{children}</main>
     </>
   );
 }

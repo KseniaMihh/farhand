@@ -30,10 +30,12 @@ export default defineConfig(
       // API's does not.
       globals: { ...globals.browser, ...globals.node },
       parserOptions: {
-        // No `allowDefaultProject` here, unlike the API's: this tsconfig
-        // includes every .ts in the project, so next.config.ts and
-        // vitest.config.ts are already type-checked members of it.
-        projectService: true,
+        // The tsconfig includes every .ts in the project, so next.config.ts
+        // and vitest.config.ts are already type-checked members of it.
+        // postcss.config.mjs is not: `allowJs` is false and it is not a .ts
+        // file, which is how Tailwind v4 wants it (#158). Naming it here is
+        // narrower than widening the tsconfig to take JavaScript in.
+        projectService: { allowDefaultProject: ["postcss.config.mjs"] },
         tsconfigRootDir: import.meta.dirname,
       },
     },

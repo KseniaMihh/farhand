@@ -15,16 +15,22 @@ import Link from "next/link";
  *
  * No header, because the root layout holds only the session: the furniture
  * belongs to `(site)`, and a not-found outside it has none. That is a fair
- * trade for a page whose job is one sentence and one link.
+ * trade for a page whose job is one sentence and one link — but it also
+ * means this `main` centres ITSELF. A global `main { margin: 0 auto }` used
+ * to do it for every page at once, and #158 moved that into the `(site)`
+ * layout, which this page is not inside. Caught by comparing screenshots
+ * before and after, and by nothing else.
  */
 export default function NotFound() {
   return (
-    <main className="notfound">
-      <p className="notfound-mark" aria-hidden="true">
+    <main className="mx-auto max-w-[560px] px-4 py-24 text-center">
+      <p className="mb-4 text-[40px] opacity-40" aria-hidden="true">
         ✉
       </p>
-      <h1 className="notfound-title">We couldn’t find that page</h1>
-      <p className="notfound-line">
+      <h1 className="mb-2.5 font-serif text-page-title">
+        We couldn’t find that page
+      </h1>
+      <p className="mb-7 text-muted">
         It may have been closed, or the address may be wrong. Nothing has gone
         missing from your account.
       </p>

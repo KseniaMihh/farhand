@@ -119,23 +119,29 @@ function VerifyForm() {
     <>
       <AuthPanel>One last step before you can post.</AuthPanel>
 
-      <div className="auth-form">
-        <div className="auth-form-inner">
-          <h1 className="auth-title">Check your email</h1>
-          <p className="auth-lead">
+      <div className="flex items-center px-4 py-7 md:px-4 md:py-10">
+        <div className="mx-auto w-full max-w-[380px]">
+          <h1 className="mb-2 font-serif text-page-title">Check your email</h1>
+          <p className="mb-7 text-muted">
             {known === ""
               ? "We sent a code to the address you signed up with. It works for 24 hours."
               : `We sent a code to ${known}. It works for 24 hours.`}
           </p>
 
           {failure === null ? null : (
-            <p className="form-note form-note-error" role="alert">
+            <p
+              className="tint-error mb-5 rounded-control px-3.5 py-3"
+              role="alert"
+            >
               {failure}
             </p>
           )}
 
           {note === null ? null : (
-            <p className="form-note form-note-ok" role="status">
+            <p
+              className="tint-success mb-5 rounded-control px-3.5 py-3"
+              role="status"
+            >
               {note}
             </p>
           )}
@@ -167,7 +173,7 @@ function VerifyForm() {
               />
             )}
 
-            <div className="auth-actions">
+            <div className="mt-6 [&>.btn]:w-full">
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -185,14 +191,16 @@ function VerifyForm() {
             </div>
           </form>
 
-          <p className="auth-alt">
+          <p className="mt-4.5 text-center text-caption">
             Didn’t get it? Check spam, or{" "}
             <button type="button" className="btn btn-quiet" onClick={resend}>
               send a new code
             </button>
           </p>
 
-          <p className="auth-promise">You can browse while you wait.</p>
+          <p className="mt-7 text-center text-caption text-muted">
+            You can browse while you wait.
+          </p>
         </div>
       </div>
     </>

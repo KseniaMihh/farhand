@@ -75,15 +75,20 @@ export default function Register() {
     <>
       <AuthPanel>Ask someone abroad for what you can’t get at home.</AuthPanel>
 
-      <div className="auth-form">
-        <div className="auth-form-inner">
-          <h1 className="auth-title">Create your account</h1>
-          <p className="auth-lead">
+      <div className="flex items-center px-4 py-7 md:px-4 md:py-10">
+        <div className="mx-auto w-full max-w-[380px]">
+          <h1 className="mb-2 font-serif text-page-title">
+            Create your account
+          </h1>
+          <p className="mb-7 text-muted">
             Post what you need, or offer to buy where you live.
           </p>
 
           {failure === null ? null : (
-            <p className="form-note form-note-error" role="alert">
+            <p
+              className="tint-error mb-5 rounded-control px-3.5 py-3"
+              role="alert"
+            >
               {failure}
             </p>
           )}
@@ -144,7 +149,7 @@ export default function Register() {
               ))}
             </SelectField>
 
-            <div className="auth-actions">
+            <div className="mt-6 [&>.btn]:w-full">
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -162,7 +167,7 @@ export default function Register() {
             </div>
           </form>
 
-          <p className="auth-alt">
+          <p className="mt-4.5 text-center text-caption">
             Already have an account? <Link href="/sign-in">Sign in</Link>
           </p>
         </div>

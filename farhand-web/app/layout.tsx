@@ -12,18 +12,24 @@ import "./globals.css";
  * request to Google from a visitor's browser — which keeps the one-origin
  * story of decision 0031 true for fonts as well as for data, and means no
  * third party learns who reads Farhand.
+ *
+ * The variables are named `--font-*-face` rather than `--font-*` because
+ * Tailwind owns the short names: `--font-serif` in the theme is what
+ * generates `font-serif`, and it is written in terms of this one (#158). A
+ * token defined in terms of itself is a loop that renders as Times New
+ * Roman.
  */
 const serif = Libre_Baskerville({
   subsets: ["latin"],
   weight: ["400", "700"],
   style: ["normal", "italic"],
-  variable: "--font-serif",
+  variable: "--font-serif-face",
   display: "swap",
 });
 
 const sans = Inter({
   subsets: ["latin"],
-  variable: "--font-sans",
+  variable: "--font-sans-face",
   display: "swap",
 });
 

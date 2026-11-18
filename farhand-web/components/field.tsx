@@ -16,6 +16,10 @@ import {
  * hint when there is one. Written once so that the part nobody checks by eye
  * — that the label, the hint and the error are actually announced with the
  * control — is right everywhere or wrong everywhere.
+ *
+ * `.input` stays a class. It carries the focus and invalid states, which are
+ * the design's rules about how a control tells you something, and they want
+ * to be identical across every form rather than retyped per field.
  */
 
 /**
@@ -57,11 +61,11 @@ function Labelled({
     error === undefined ? (hint === undefined ? undefined : hintId) : errorId;
 
   return (
-    <div className="field">
-      <label className="field-label" htmlFor={id}>
+    <div className="mb-[18px]">
+      <label className="mb-1.5 block text-label" htmlFor={id}>
         {label}
         {note === undefined ? null : (
-          <span className="field-label-note"> {note}</span>
+          <span className="font-normal text-muted"> {note}</span>
         )}
       </label>
 
@@ -69,14 +73,18 @@ function Labelled({
 
       {error === undefined ? (
         hint === undefined ? null : (
-          <p className="field-hint" id={hintId}>
+          <p className="mt-1.5 text-caption text-muted" id={hintId}>
             {hint}
           </p>
         )
       ) : (
         // `role="alert"` because this appears after a request comes back,
         // which a screen reader is otherwise given no reason to revisit.
-        <p className="field-error" id={errorId} role="alert">
+        <p
+          className="mt-1.5 flex items-baseline gap-1.5 text-caption text-error-ink"
+          id={errorId}
+          role="alert"
+        >
           <span aria-hidden="true">!</span>
           <span>{error}</span>
         </p>
@@ -94,7 +102,7 @@ export function Field({ label, hint, error, note, ...input }: FieldProps) {
   return (
     <Labelled id={id} label={label} hint={hint} error={error} note={note}>
       {(described) => (
-        <div className="input-wrap">
+        <div className="relative flex items-center">
           <input
             id={id}
             className="input"
@@ -124,7 +132,7 @@ export function SelectField({
   return (
     <Labelled id={id} label={label} hint={hint} error={error} note={note}>
       {(described) => (
-        <div className="input-wrap">
+        <div className="relative flex items-center">
           <select
             id={id}
             className="input"
@@ -161,7 +169,7 @@ export function PasswordField({
   return (
     <Labelled id={id} label={label} hint={hint} error={error} note={note}>
       {(described) => (
-        <div className="input-wrap">
+        <div className="relative flex items-center">
           <input
             id={id}
             className="input"
@@ -172,7 +180,7 @@ export function PasswordField({
           />
           <button
             type="button"
-            className="input-trailing"
+            className="absolute right-1.5 cursor-pointer rounded px-2 py-1 text-label text-pine underline underline-offset-[3px]"
             aria-pressed={shown}
             aria-controls={id}
             onClick={() => {
