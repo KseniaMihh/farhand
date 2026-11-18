@@ -19,7 +19,16 @@ import { useSession } from "@/lib/session";
  * succeeds for an unverified account on purpose — `requireVerified` guards
  * posting, not existing — so somebody can register, sign in, browse, and have
  * nowhere the app tells them what is missing.
+ *
+ * The two tints are classes, not utilities: each is a background and an ink
+ * that were checked against each other, and splitting them into
+ * `bg-warning-tint text-warning-ink` is how half a pair gets changed.
  */
+const ROW =
+  "mx-auto flex max-w-column flex-wrap items-center gap-x-4 gap-y-2.5 px-4 py-3.5";
+const MARK =
+  "inline-flex h-7 w-7 flex-none items-center justify-center rounded-full border-[1.5px] border-current text-button";
+
 export function AccountBanner() {
   const { session } = useSession();
   const [said, setSaid] = useState<string | null>(null);
@@ -43,16 +52,16 @@ export function AccountBanner() {
           });
 
     return (
-      <div className="banner banner-suspended">
-        <div className="banner-row">
-          <span className="banner-mark" aria-hidden="true">
+      <div className="tint-paused border-b border-line">
+        <div className={ROW}>
+          <span className={MARK} aria-hidden="true">
             ❚❚
           </span>
-          <p className="banner-text">
+          <p className="m-0 flex-[1_1_320px]">
             {/* `null` is not "not suspended" — the status already said it is.
                 It means no end date was set, so say that rather than printing
                 "null" or quietly showing nothing. */}
-            <strong>
+            <strong className="font-bold">
               {until === null
                 ? "Your account is suspended until a moderator lifts it."
                 : `Your account is suspended until ${until}.`}
@@ -67,29 +76,36 @@ export function AccountBanner() {
   if (me.emailVerified) return null;
 
   return (
-    <div className="banner banner-unverified">
-      <div className="banner-row">
-        <span className="banner-mark" aria-hidden="true">
+    <div className="tint-warning border-b border-line">
+      <div className={ROW}>
+        <span className={MARK} aria-hidden="true">
           @
         </span>
 
-        <p className="banner-text">
+        <p className="m-0 flex-[1_1_320px]">
           {said ?? (
             <>
-              <strong>Confirm your email to start posting.</strong> You can
-              browse, but needs, offers and messages wait until you enter the
-              code we sent to {me.email}.
+              <strong className="font-bold">
+                Confirm your email to start posting.
+              </strong>{" "}
+              You can browse, but needs, offers and messages wait until you
+              enter the code we sent to {me.email}.
             </>
           )}
         </p>
 
-        <span className="banner-actions">
-          <Link className="btn btn-primary" href="/verify">
+        <span className="flex items-center gap-4">
+          {/* Dark enough for white at 14/600, and it is the Warning ink
+              rather than a new colour, so the strip stays one thing. */}
+          <Link
+            className="btn btn-primary bg-warning-ink text-white"
+            href="/verify"
+          >
             Enter code
           </Link>
           <button
             type="button"
-            className="btn btn-quiet"
+            className="btn btn-quiet text-inherit"
             disabled={sending}
             onClick={() => {
               setSending(true);

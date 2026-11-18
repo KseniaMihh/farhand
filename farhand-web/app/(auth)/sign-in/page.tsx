@@ -74,15 +74,18 @@ function SignInForm() {
     <>
       <AuthPanel>Welcome back.</AuthPanel>
 
-      <div className="auth-form">
-        <div className="auth-form-inner">
-          <h1 className="auth-title">Sign in</h1>
-          <p className="auth-lead">
+      <div className="flex items-center px-4 py-7 md:px-4 md:py-10">
+        <div className="mx-auto w-full max-w-[380px]">
+          <h1 className="mb-2 font-serif text-page-title">Sign in</h1>
+          <p className="mb-7 text-muted">
             Pick up where you left off — your needs, offers and deals.
           </p>
 
           {failure === null ? null : (
-            <p className="form-note form-note-error" role="alert">
+            <p
+              className="tint-error mb-5 rounded-control px-3.5 py-3"
+              role="alert"
+            >
               {failure}
             </p>
           )}
@@ -111,7 +114,7 @@ function SignInForm() {
               }}
             />
 
-            <div className="auth-actions">
+            <div className="mt-6 [&>.btn]:w-full">
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -129,7 +132,7 @@ function SignInForm() {
             </div>
           </form>
 
-          <p className="auth-alt">
+          <p className="mt-4.5 text-center text-caption">
             New to Farhand? <Link href="/register">Create an account</Link>
           </p>
         </div>

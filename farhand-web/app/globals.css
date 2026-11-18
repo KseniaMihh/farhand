@@ -1,212 +1,376 @@
+@import "tailwindcss";
+
 /*
- * The design system, as tokens (screens 1.1, 1.2, 1.3).
+ * The design system, as Tailwind's theme (screens 1.1, 1.2, 1.3) — issue #158.
  *
- * Transcribed from the Figma file rather than invented, hex by hex, including
- * the contrast ratios — they are in the comments because they are the reason
- * a colour may be used in one place and not another, and a ratio nobody wrote
- * down is a rule somebody will break.
+ * v4 made configuration CSS rather than a JavaScript file, which is why this
+ * reads like the `:root` block it replaced: `@theme` IS custom properties.
+ * `--color-pine` here is what generates `bg-pine`, `text-pine` and
+ * `border-pine`, and the hex is still the one transcribed from the Figma file.
  *
- * STILL PLAIN CSS, STILL NO FRAMEWORK. #93 deferred that choice until there
- * were enough screens for it to be about something. Three forms is not enough
- * either, and a system this small — five colours, two faces, one control
- * shape — is cheaper as variables than as a dependency.
+ * THE RATIOS ARE PART OF THE TOKEN. They are the reason a colour may be used
+ * in one place and not another, and a ratio nobody wrote down is a rule
+ * somebody will break. They are also why the buttons further down are still
+ * classes rather than utility strings — see the note above them.
  *
- * NO DARK MODE, and that is a change from #93. The scaffold answered the
- * reader's light-or-dark setting because it had invented its own colours and
- * could afford to. These colours are a designed palette with measured
- * contrast; a dark version of it is design work that has not been done, and
- * guessing one would mean shipping pairs nobody checked. `color-scheme: light`
- * says so to the browser rather than leaving form controls to improvise.
+ * NO DARK MODE. These are a designed palette with measured contrast; a dark
+ * version of it is design work nobody has done, and guessing one means
+ * shipping pairs nobody checked.
  */
-
-:root {
-  color-scheme: light;
-
+@theme {
   /* --- The five named colours (1.1) --- */
 
   /* Page background. */
-  --cream: #f2ede1;
+  --color-cream: #f2ede1;
   /* Text, primary buttons. Cream on Pine is 10.4:1. */
-  --pine: #1f3b34;
+  --color-pine: #1f3b34;
+  /* Hover only. Derived, not designed. */
+  --color-pine-lift: #2a5248;
   /* Soft surfaces, selected states. PINE TEXT ONLY — 5.3:1. */
-  --sage: #a3b18a;
+  --color-sage: #a3b18a;
   /* Need cards, badges, "Post a need". White on Blue is 10.9:1. */
-  --blue: #2f3e51;
+  --color-blue: #2f3e51;
   /* Offer cards, badges, "Post an offer". WHITE ONLY WHEN BOLD OR LARGE —
      3.7:1, which is below 4.5 and therefore not for body text, ever. */
-  --terracotta: #c86a4a;
+  --color-terracotta: #c86a4a;
 
   /* --- Support tints (1.1) --- */
-  --card: #fbf8f1;
-  --sage-tint: #e3e7d9;
-  --need-tint: #e2e6ec;
-  --need-ink: #2f3e51;
-  --offer-tint: #f4e0d6;
-  --offer-ink: #8e3e22;
+  --color-card: #fbf8f1;
+  --color-sage-tint: #e3e7d9;
+  --color-need-tint: #e2e6ec;
+  --color-need-ink: #2f3e51;
+  --color-offer-tint: #f4e0d6;
+  --color-offer-ink: #8e3e22;
 
   /* --- System states: quiet, and never blue or terracotta, because those
          two already mean "need" and "offer" (1.1) --- */
-  --success-tint: #ddebdd;
-  --success-ink: #25573a;
-  --warning-tint: #f5e8c4;
-  --warning-ink: #5c430a;
-  --error-tint: #f6dcdd;
-  --error-ink: #9a2530;
-  --paused-tint: #e7e3ef;
-  --paused-ink: #4a3f6b;
+  --color-success-tint: #ddebdd;
+  --color-success-ink: #25573a;
+  --color-warning-tint: #f5e8c4;
+  --color-warning-ink: #5c430a;
+  --color-error-tint: #f6dcdd;
+  --color-error-ink: #9a2530;
+  --color-paused-tint: #e7e3ef;
+  --color-paused-ink: #4a3f6b;
 
-  /* Derived, not designed: a hairline that is Pine at low opacity rather
-     than a sixth colour nobody chose. */
-  --line: rgb(31 59 52 / 0.16);
-  --muted: rgb(31 59 52 / 0.66);
+  /* Derived, not designed: a hairline and a quiet text, both Pine at low
+     opacity rather than two more colours nobody chose. */
+  --color-line: rgb(31 59 52 / 0.16);
+  --color-muted: rgb(31 59 52 / 0.66);
 
-  /* --- Type (1.2). Libre Baskerville brands, Inter works. --- */
-  --serif: var(--font-serif), Georgia, "Times New Roman", serif;
-  --sans: var(--font-sans), system-ui, -apple-system, sans-serif;
+  /* --- Type (1.2). Libre Baskerville brands, Inter works.
+         The faces come from next/font, which sets --font-*-face in
+         app/layout.tsx under names of their own: Tailwind owns --font-serif
+         and --font-sans here, and a token defined in terms of itself is a
+         loop. --- */
+  --font-serif: var(--font-serif-face), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-sans-face), system-ui, -apple-system, sans-serif;
 
-  --display: 700 48px/56px var(--serif);
-  --page-title: 700 36px/44px var(--serif);
-  --heading: 700 24px/32px var(--serif);
-  --card-title: 700 17px/24px var(--serif);
-  --price: 400 32px/40px var(--serif);
-  --quiet: italic 400 15px/24px var(--serif);
+  /* One token per role, as the design sheet has them. v4's `--text-x--*`
+     modifiers carry the leading and the weight along with the size, so
+     `text-lead` is the whole of "Lead 18/28" and the `font` shorthand these
+     replaced is not missed. */
+  --text-display: 48px;
+  --text-display--line-height: 56px;
+  --text-display--font-weight: 700;
 
-  --lead: 400 18px/28px var(--sans);
-  --body: 400 15px/24px var(--sans);
-  --button-type: 600 14px/20px var(--sans);
-  --label: 600 13px/20px var(--sans);
-  --caption: 400 12px/18px var(--sans);
-  --badge: 600 11px/16px var(--sans);
+  --text-page-title: 36px;
+  --text-page-title--line-height: 44px;
+  --text-page-title--font-weight: 700;
+
+  --text-heading: 24px;
+  --text-heading--line-height: 32px;
+  --text-heading--font-weight: 700;
+
+  --text-card-title: 17px;
+  --text-card-title--line-height: 24px;
+  --text-card-title--font-weight: 700;
+
+  --text-price: 32px;
+  --text-price--line-height: 40px;
+  --text-price--font-weight: 400;
+
+  --text-lead: 18px;
+  --text-lead--line-height: 28px;
+
+  --text-body: 15px;
+  --text-body--line-height: 24px;
+
+  --text-button: 14px;
+  --text-button--line-height: 20px;
+  --text-button--font-weight: 600;
+
+  --text-label: 13px;
+  --text-label--line-height: 20px;
+  --text-label--font-weight: 600;
+
+  --text-caption: 12px;
+  --text-caption--line-height: 18px;
+
+  --text-badge: 11px;
+  --text-badge--line-height: 16px;
+  --text-badge--font-weight: 600;
 
   /* --- Shape --- */
-  --radius: 6px;
-  --radius-pill: 999px;
-  --gutter: 16px;
-  --column: 1140px;
-
-  /* TODO(#156): #93's invented names, pointed at the real palette so the
-     browse screen keeps its colours while it waits for its own issue. They
-     go when that screen is redrawn, and nothing new may use them. */
-  --ground: var(--cream);
-  --surface: var(--card);
-  --red: var(--error-ink);
+  --radius-control: 6px;
+  --container-column: 1140px;
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  :root {
+    /* Said to the browser as well as to us, so form controls and scrollbars
+       are not drawn dark for somebody whose system is. */
+    color-scheme: light;
+  }
+
+  body {
+    background: var(--color-cream);
+    color: var(--color-pine);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 24px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+  }
+
+  code {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.88em;
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--cream);
-  color: var(--pine);
-  font: var(--body);
-}
+/*
+ * ------------------------------------------------------------------
+ * The classes that stay classes.
+ *
+ * THE BOUNDARY, from the issue: utilities for arrangement, classes for
+ * anything carrying a rule. `btn btn-offer` enforces "white on Terracotta is
+ * bold-or-large only"; `bg-terracotta text-white` does not, and would let
+ * somebody set white body text on terracotta next month with nothing
+ * anywhere complaining. That rule came out of the design sheet rather than
+ * out of taste, so it gets a name.
+ *
+ * In `@layer components` so a utility still wins where a caller means it to.
+ * The layer order is what makes the hybrid work rather than fight.
+ * ------------------------------------------------------------------
+ */
+@layer components {
+  /* --- Buttons: ONE PRIMARY PER SCREEN, as the design sheet says --- */
 
-h1,
-h2,
-h3 {
-  font-family: var(--serif);
-  margin: 0;
-}
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    font: 600 14px/20px var(--font-sans);
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+      background-color 0.12s ease,
+      border-color 0.12s ease;
+  }
 
-main {
-  max-width: var(--column);
-  margin: 0 auto;
-  padding: 32px var(--gutter) 80px;
-}
+  .btn:focus-visible {
+    outline: 2px solid var(--color-pine);
+    outline-offset: 2px;
+  }
 
-/* ------------------------------------------------------------------ *
- * Controls (1.3). One shape, spent everywhere.
- * ------------------------------------------------------------------ */
+  .btn-primary {
+    background: var(--color-pine);
+    color: var(--color-cream);
+  }
 
-/* --- Buttons: ONE PRIMARY PER SCREEN, as the design sheet says --- */
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-pine-lift);
+  }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 11px 20px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  font: var(--button-type);
-  text-decoration: none;
-  cursor: pointer;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease;
-}
+  /* Need and Offer carry the colours that MEAN need and offer, so they are
+     never a way to make an ordinary button look livelier. */
+  .btn-need {
+    background: var(--color-blue);
+    color: #fff;
+  }
 
-.btn:focus-visible {
-  outline: 2px solid var(--pine);
-  outline-offset: 2px;
-}
+  .btn-offer {
+    background: var(--color-terracotta);
+    /* White on Terracotta is 3.7:1 — under 4.5, so bold only, never body.
+       The button face is 600 at 14px, which is what that ratio is for. */
+    color: #fff;
+  }
 
-.btn-primary {
-  background: var(--pine);
-  color: var(--cream);
-}
+  .btn-secondary {
+    background: var(--color-card);
+    border-color: var(--color-pine);
+    color: var(--color-pine);
+  }
 
-.btn-primary:hover:not(:disabled) {
-  background: #2a5248;
-}
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--color-sage-tint);
+  }
 
-/* Need and Offer carry the colours that MEAN need and offer (1.1), so they
-   are never a way to make an ordinary button look livelier. */
-.btn-need {
-  background: var(--blue);
-  color: #fff;
-}
+  .btn-quiet {
+    padding: 4px 0;
+    background: none;
+    color: var(--color-pine);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 
-.btn-offer {
-  background: var(--terracotta);
-  /* White on Terracotta is 3.7:1 — under 4.5, so bold only, never body. The
-     button font is 600 at 14px, which is what that ratio is allowed for. */
-  color: #fff;
-}
+  .btn-danger {
+    background: var(--color-card);
+    border-color: var(--color-error-ink);
+    color: var(--color-error-ink);
+  }
 
-.btn-secondary {
-  background: var(--card);
-  border-color: var(--pine);
-  color: var(--pine);
-}
+  .btn:disabled {
+    background: #d6d3c8;
+    border-color: transparent;
+    color: #8a877d;
+    cursor: not-allowed;
+  }
 
-.btn-secondary:hover:not(:disabled) {
-  background: var(--sage-tint);
-}
+  /* The design's loading button keeps its words and gains a mark, rather
+     than emptying out — a button whose label vanishes is one you cannot find
+     again if the request fails. */
+  .btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
 
-.btn-quiet {
-  padding: 4px 0;
-  background: none;
-  color: var(--pine);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
+  /* --- Inputs --- */
 
-.btn-danger {
-  background: var(--card);
-  border-color: var(--error-ink);
-  color: var(--error-ink);
-}
+  .input {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+    background: #fff;
+    color: var(--color-pine);
+    font: 400 15px/24px var(--font-sans);
+  }
 
-.btn:disabled {
-  background: #d6d3c8;
-  border-color: transparent;
-  color: #8a877d;
-  cursor: not-allowed;
-}
+  .input::placeholder {
+    color: var(--color-muted);
+  }
 
-/* The design's loading button keeps its words and gains a mark, rather than
-   emptying out — a button whose label vanishes is a button you cannot find
-   again if the request fails. */
-.btn-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  /* The design's focus state is a thicker border rather than a glow. Done
+     with an inset shadow so the box does not grow by a pixel and shunt the
+     layout. */
+  .input:focus {
+    outline: none;
+    border-color: var(--color-pine);
+    box-shadow: inset 0 0 0 1px var(--color-pine);
+  }
+
+  .input[aria-invalid="true"] {
+    border-color: var(--color-error-ink);
+    box-shadow: inset 0 0 0 1px var(--color-error-ink);
+  }
+
+  .input:disabled {
+    background: var(--color-cream);
+    color: var(--color-muted);
+    cursor: not-allowed;
+  }
+
+  select.input {
+    appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--color-pine) 50%),
+      linear-gradient(135deg, var(--color-pine) 50%, transparent 50%);
+    background-position:
+      calc(100% - 17px) 50%,
+      calc(100% - 12px) 50%;
+    background-size:
+      5px 5px,
+      5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 34px;
+  }
+
+  /* --- The status tints, each a pair that was checked together --- */
+
+  .tint-success {
+    background: var(--color-success-tint);
+    color: var(--color-success-ink);
+  }
+
+  .tint-warning {
+    background: var(--color-warning-tint);
+    color: var(--color-warning-ink);
+  }
+
+  .tint-error {
+    background: var(--color-error-tint);
+    color: var(--color-error-ink);
+  }
+
+  .tint-paused {
+    background: var(--color-paused-tint);
+    color: var(--color-paused-ink);
+  }
+
+  /* --- Small things that are a rule rather than an arrangement --- */
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--color-pine);
+    color: var(--color-cream);
+    font: 600 11px/16px var(--font-sans);
+  }
+
+  /* Sage takes Pine text and nothing else — 5.3:1. */
+  .avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--color-sage);
+    color: var(--color-pine);
+    font: 600 13px/20px var(--font-sans);
+  }
+
+  /* Terracotta on Cream is about 2.9:1, which is only legal because this is
+     large and bold. It is the brand mark, and nothing else may use it. */
+  .wordmark {
+    font: 700 20px/1 var(--font-serif);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-terracotta);
+    text-decoration: none;
+  }
+
+  /* The one decorative thing, and it belongs to the subject: air mail. */
+  .airmail {
+    height: 6px;
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--color-terracotta) 0 14px,
+      transparent 14px 22px,
+      var(--color-blue) 22px 36px,
+      transparent 36px 44px
+    );
+    opacity: 0.85;
+  }
 }
 
 @keyframes spin {
@@ -219,563 +383,4 @@ main {
   .btn-spinner {
     animation-duration: 2s;
   }
-}
-
-/* --- Inputs --- */
-
-.field {
-  margin: 0 0 18px;
-}
-
-.field-label {
-  display: block;
-  margin-bottom: 6px;
-  font: var(--label);
-}
-
-.field-label-note {
-  font-weight: 400;
-  color: var(--muted);
-}
-
-.input-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.input {
-  width: 100%;
-  padding: 11px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
-  color: var(--pine);
-  font: var(--body);
-}
-
-.input::placeholder {
-  color: var(--muted);
-}
-
-/* The design's focus state is a thicker border rather than a glow. Done with
-   an inset shadow so the box does not grow by a pixel and shunt the layout. */
-.input:focus {
-  outline: none;
-  border-color: var(--pine);
-  box-shadow: inset 0 0 0 1px var(--pine);
-}
-
-.input[aria-invalid="true"] {
-  border-color: var(--error-ink);
-  box-shadow: inset 0 0 0 1px var(--error-ink);
-}
-
-.input:disabled {
-  background: var(--cream);
-  color: var(--muted);
-  cursor: not-allowed;
-}
-
-select.input {
-  appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--pine) 50%),
-    linear-gradient(135deg, var(--pine) 50%, transparent 50%);
-  background-position:
-    calc(100% - 17px) 50%,
-    calc(100% - 12px) 50%;
-  background-size:
-    5px 5px,
-    5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 34px;
-}
-
-/* The "Show" control sits inside the box, as a button and not a checkbox:
-   it changes what you can see, not what will be sent. */
-.input-trailing {
-  position: absolute;
-  right: 6px;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  color: var(--pine);
-  font: var(--label);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.input-trailing:focus-visible {
-  outline: 2px solid var(--pine);
-  outline-offset: 1px;
-}
-
-.field-hint,
-.field-error {
-  margin: 6px 0 0;
-  font: var(--caption);
-}
-
-.field-hint {
-  color: var(--muted);
-}
-
-.field-error {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  color: var(--error-ink);
-}
-
-/* --- A sentence about the whole form, above it --- */
-
-.form-note {
-  margin: 0 0 20px;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  font: var(--body);
-}
-
-.form-note-error {
-  background: var(--error-tint);
-  color: var(--error-ink);
-}
-
-.form-note-ok {
-  background: var(--success-tint);
-  color: var(--success-ink);
-}
-
-/* --- The account screens: a split, Pine on the left (3.1–3.3) --- */
-
-.auth-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  min-height: 100vh;
-}
-
-.auth-panel {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 48px;
-  padding: 40px;
-  background: var(--pine);
-  color: var(--cream);
-}
-
-.auth-panel-wordmark {
-  font: 700 20px/1 var(--serif);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--cream);
-  text-decoration: none;
-}
-
-.auth-panel-line {
-  max-width: 10em;
-  font: var(--display);
-  margin: 0;
-}
-
-.auth-panel-foot {
-  margin: 0;
-  font: var(--caption);
-  opacity: 0.75;
-}
-
-.auth-form {
-  display: flex;
-  align-items: center;
-  padding: 40px var(--gutter);
-}
-
-.auth-form-inner {
-  width: 100%;
-  max-width: 380px;
-  margin: 0 auto;
-}
-
-.auth-title {
-  margin: 0 0 8px;
-  font: var(--page-title);
-}
-
-.auth-lead {
-  margin: 0 0 28px;
-  font: var(--body);
-  color: var(--muted);
-}
-
-.auth-actions {
-  margin-top: 24px;
-}
-
-.auth-actions .btn-primary {
-  width: 100%;
-}
-
-.auth-alt {
-  margin: 18px 0 0;
-  font: var(--caption);
-  text-align: center;
-}
-
-.auth-promise {
-  margin: 28px 0 0;
-  font: var(--caption);
-  color: var(--muted);
-  text-align: center;
-}
-
-a {
-  color: inherit;
-}
-
-/* At phone width the panel stacks above the form and drops the display line,
-   which is decoration. 6.x draws no account screen, so this is the one place
-   the small shape is a judgement rather than a drawing. */
-@media (max-width: 760px) {
-  .auth-split {
-    grid-template-columns: 1fr;
-    min-height: 100dvh;
-  }
-
-  .auth-panel {
-    gap: 16px;
-    padding: 20px var(--gutter);
-  }
-
-  .auth-panel-line,
-  .auth-panel-foot {
-    display: none;
-  }
-
-  .auth-form {
-    padding: 28px var(--gutter) 56px;
-  }
-}
-
-/* --- The header, signed in and out --- */
-
-.masthead-left {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  min-width: 0;
-}
-
-.nav {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-}
-
-/* The rule between the public pages and your own, as the design draws it. */
-.nav-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--line);
-}
-
-.nav-link {
-  font: var(--button-type);
-  color: var(--pine);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.nav-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-/* The link that is the page you are on. Weight rather than colour, so it
-   still reads when the colour is not available. */
-.nav-link[aria-current="page"] {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-thickness: 2px;
-}
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.nav-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: var(--radius);
-  background: none;
-  color: var(--pine);
-  font: var(--button-type);
-  cursor: pointer;
-}
-
-.nav-name:hover {
-  background: var(--sage-tint);
-}
-
-.nav-caret {
-  font-size: 10px;
-  opacity: 0.7;
-}
-
-.avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--sage);
-  color: var(--pine);
-  font: var(--label);
-}
-
-/* Neither "Sign in" nor a name while the answer is unknown: a copy of the
-   wider state, hidden, so the row keeps its width and announces nothing. */
-.nav-placeholder {
-  visibility: hidden;
-}
-
-/* The account menu. A real <details> rather than a div with state, so the
-   keyboard and Escape work without any of it being written here. */
-.menu {
-  position: relative;
-}
-
-.menu > summary {
-  list-style: none;
-  cursor: pointer;
-}
-
-.menu > summary::-webkit-details-marker {
-  display: none;
-}
-
-.menu-sheet {
-  position: absolute;
-  right: 0;
-  z-index: 10;
-  min-width: 180px;
-  margin-top: 6px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card);
-  box-shadow: 0 10px 24px rgb(31 59 52 / 0.12);
-}
-
-.menu-sheet button,
-.menu-sheet a {
-  display: block;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  color: var(--pine);
-  font: var(--button-type);
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.menu-sheet button:hover,
-.menu-sheet a:hover {
-  background: var(--sage-tint);
-}
-
-.menu-sheet-note {
-  margin: 2px 10px 6px;
-  font: var(--caption);
-  color: var(--muted);
-  word-break: break-all;
-}
-
-/* The unread count beside Inbox. */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: var(--pine);
-  color: var(--cream);
-  font: var(--badge);
-}
-
-/* The header is the one place where the whole product is on screen at once,
-   so it is also the first thing to run out of room. Below the column width
-   the navigation scrolls sideways rather than wrapping into two rows that
-   push the page down. */
-@media (max-width: 1100px) {
-  .masthead-left {
-    gap: 16px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .nav {
-    gap: 16px;
-  }
-}
-
-@media (max-width: 720px) {
-  .nav-actions .btn {
-    padding: 9px 12px;
-  }
-
-  .nav-name span:not(.avatar):not(.nav-caret) {
-    display: none;
-  }
-}
-
-/* --- The banner under the header (3.6) --- */
-
-.banner {
-  border-bottom: 1px solid var(--line);
-  font: var(--body);
-}
-
-.banner-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-  max-width: var(--column);
-  margin: 0 auto;
-  padding: 14px var(--gutter);
-}
-
-.banner-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  font: var(--button-type);
-}
-
-.banner-text {
-  margin: 0;
-  flex: 1 1 320px;
-}
-
-.banner-text strong {
-  font-weight: 700;
-}
-
-.banner-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.banner-unverified {
-  background: var(--warning-tint);
-  color: var(--warning-ink);
-}
-
-/* Dark enough for white at 14/600, and it is the Warning ink rather than a
-   new colour, so the strip stays one thing. */
-.banner-unverified .btn-primary {
-  background: var(--warning-ink);
-  color: #fff;
-}
-
-.banner-suspended {
-  background: var(--paused-tint);
-  color: var(--paused-ink);
-}
-
-.banner-suspended .btn-primary {
-  background: var(--paused-ink);
-  color: #fff;
-}
-
-.banner .btn-quiet {
-  color: inherit;
-}
-
-/* --- The masthead itself --- */
-
-.masthead {
-  border-bottom: 1px solid var(--line);
-  background: var(--card);
-}
-
-.masthead-row {
-  max-width: var(--column);
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px var(--gutter);
-}
-
-/* The one decorative thing, and it belongs to the subject: air mail. */
-.airmail {
-  height: 6px;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--terracotta) 0 14px,
-    transparent 14px 22px,
-    var(--blue) 22px 36px,
-    transparent 36px 44px
-  );
-  opacity: 0.85;
-}
-
-.wordmark {
-  font: 700 20px/1 var(--serif);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--terracotta);
-  text-decoration: none;
-}
-
-code {
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 0.88em;
-}
-
-/* --- Not found (1.5) --- */
-
-.notfound {
-  max-width: 560px;
-  padding: 96px var(--gutter);
-  text-align: center;
-}
-
-.notfound-mark {
-  margin: 0 0 16px;
-  font-size: 40px;
-  opacity: 0.4;
-}
-
-.notfound-title {
-  margin: 0 0 10px;
-  font: var(--page-title);
-}
-
-.notfound-line {
-  margin: 0 0 28px;
-  color: var(--muted);
 }
