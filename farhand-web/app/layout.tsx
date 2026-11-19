@@ -1,20 +1,27 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Inter, Libre_Baskerville } from "next/font/google";
+import { Libre_Baskerville } from "next/font/google";
 import { SessionProvider } from "@/lib/session";
 import "./globals.css";
 
 /**
- * The two faces the design names (1.2): Libre Baskerville for the brand,
- * titles and prices, Inter for everything that is interface.
+ * ONE FACE: Libre Baskerville, for everything (#170).
  *
- * `next/font` downloads and self-hosts them at build time, so there is no
+ * It was two until this issue — Libre Baskerville to brand, Inter to work —
+ * and the design file has one. Inter is not downloaded any more, which also
+ * takes a font file off the first paint of every page.
+ *
+ * It ships 400 and 700 and nothing between, and `globals.css` says so where
+ * the weights are set: a rule asking for 500 or 600 gets 700 drawn and no
+ * warning anywhere.
+ *
+ * `next/font` downloads and self-hosts it at build time, so there is no
  * request to Google from a visitor's browser — which keeps the one-origin
  * story of decision 0031 true for fonts as well as for data, and means no
  * third party learns who reads Farhand.
  *
- * The variables are named `--font-*-face` rather than `--font-*` because
- * Tailwind owns the short names: `--font-serif` in the theme is what
+ * The variable is named `--font-serif-face` rather than `--font-serif`
+ * because Tailwind owns the short name: `--font-serif` in the theme is what
  * generates `font-serif`, and it is written in terms of this one (#158). A
  * token defined in terms of itself is a loop that renders as Times New
  * Roman.
@@ -24,12 +31,6 @@ const serif = Libre_Baskerville({
   weight: ["400", "700"],
   style: ["normal", "italic"],
   variable: "--font-serif-face",
-  display: "swap",
-});
-
-const sans = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans-face",
   display: "swap",
 });
 
@@ -54,7 +55,7 @@ export const metadata: Metadata = {
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${serif.variable} ${sans.variable}`}>
+    <html lang="en" className={serif.variable}>
       <body>
         <SessionProvider>{children}</SessionProvider>
       </body>

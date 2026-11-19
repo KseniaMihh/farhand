@@ -58,18 +58,35 @@
   --color-line: rgb(31 59 52 / 0.16);
   --color-muted: rgb(31 59 52 / 0.66);
 
-  /* --- Type (1.2). Libre Baskerville brands, Inter works.
-         The faces come from next/font, which sets --font-*-face in
-         app/layout.tsx under names of their own: Tailwind owns --font-serif
-         and --font-sans here, and a token defined in terms of itself is a
-         loop. --- */
+  /* --- Type (1.2). ONE FACE: Libre Baskerville, everywhere (#170).
+         It used to be two — Libre Baskerville to brand, Inter to work — and
+         the design file has one, so Inter is gone and `app/layout.tsx` no
+         longer downloads it.
+         The face comes from next/font, which sets --font-serif-face under a
+         name of its own: Tailwind owns --font-serif here, and a token
+         defined in terms of itself is a loop that renders as Times. --- */
   --font-serif: var(--font-serif-face), Georgia, "Times New Roman", serif;
-  --font-sans: var(--font-sans-face), system-ui, -apple-system, sans-serif;
+
+  /* DELETED, not pointed at the serif. `font-sans` has to stop existing
+     rather than quietly mean the same thing, or the next person writes it
+     believing there are still two faces. Tailwind defines it by default, and
+     `initial` is how v4 takes a theme key away again. */
+  --font-sans: initial;
+
+  /* What anything gets when no rule names a family. */
+  --default-font-family: var(--font-serif);
 
   /* One token per role, as the design sheet has them. v4's `--text-x--*`
      modifiers carry the leading and the weight along with the size, so
      `text-lead` is the whole of "Lead 18/28" and the `font` shorthand these
-     replaced is not missed. */
+     replaced is not missed.
+
+     THE WEIGHTS ARE 400 AND 700 AND NOTHING ELSE (#170). Libre Baskerville
+     ships those two. Button, label and badge asked for 600, which a browser
+     does not refuse — it silently draws the nearest it has, which is 700.
+     They say 700, so the stylesheet states what will happen on the screen
+     rather than what the design sheet wished for. Anything added here that
+     wants 500 or 600 is asking for a face this project does not load. */
   --text-display: 48px;
   --text-display--line-height: 56px;
   --text-display--font-weight: 700;
@@ -98,18 +115,18 @@
 
   --text-button: 14px;
   --text-button--line-height: 20px;
-  --text-button--font-weight: 600;
+  --text-button--font-weight: 700;
 
   --text-label: 13px;
   --text-label--line-height: 20px;
-  --text-label--font-weight: 600;
+  --text-label--font-weight: 700;
 
   --text-caption: 12px;
   --text-caption--line-height: 18px;
 
   --text-badge: 11px;
   --text-badge--line-height: 16px;
-  --text-badge--font-weight: 600;
+  --text-badge--font-weight: 700;
 
   /* --- Shape --- */
   --radius-control: 6px;
@@ -126,16 +143,14 @@
   body {
     background: var(--color-cream);
     color: var(--color-pine);
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
     font-size: 15px;
     line-height: 24px;
   }
 
-  h1,
-  h2,
-  h3 {
-    font-family: var(--font-serif);
-  }
+  /* The headings used to name the serif, back when the body was Inter. They
+     inherit it now, and a rule that restates what it inherits is one more
+     place to change next time. */
 
   code {
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -169,7 +184,7 @@
     padding: 11px 20px;
     border: 1px solid transparent;
     border-radius: var(--radius-control);
-    font: 600 14px/20px var(--font-sans);
+    font: 700 14px/20px var(--font-serif);
     text-decoration: none;
     cursor: pointer;
     transition:
@@ -257,7 +272,7 @@
     border-radius: var(--radius-control);
     background: #fff;
     color: var(--color-pine);
-    font: 400 15px/24px var(--font-sans);
+    font: 400 15px/24px var(--font-serif);
   }
 
   .input::placeholder {
@@ -333,7 +348,7 @@
     border-radius: 999px;
     background: var(--color-pine);
     color: var(--color-cream);
-    font: 600 11px/16px var(--font-sans);
+    font: 700 11px/16px var(--font-serif);
   }
 
   /* Sage takes Pine text and nothing else — 5.3:1. */
@@ -346,7 +361,7 @@
     border-radius: 50%;
     background: var(--color-sage);
     color: var(--color-pine);
-    font: 600 13px/20px var(--font-sans);
+    font: 700 13px/20px var(--font-serif);
   }
 
   /* Terracotta on Cream is about 2.9:1, which is only legal because this is
@@ -357,19 +372,6 @@
     letter-spacing: 0.06em;
     color: var(--color-terracotta);
     text-decoration: none;
-  }
-
-  /* The one decorative thing, and it belongs to the subject: air mail. */
-  .airmail {
-    height: 6px;
-    background: repeating-linear-gradient(
-      -45deg,
-      var(--color-terracotta) 0 14px,
-      transparent 14px 22px,
-      var(--color-blue) 22px 36px,
-      transparent 36px 44px
-    );
-    opacity: 0.85;
   }
 }
 

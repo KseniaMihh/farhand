@@ -179,7 +179,7 @@ Terracotta is bold-or-large only, 3.7:1"; `bg-terracotta text-white` does
 not, and the ratio came out of the design sheet rather than out of taste.
 
 **Everything is in `app/globals.css`**, in three parts: `@theme` (the
-palette, the two faces, the type scale, all with their contrast ratios in the
+palette, the face, the type scale, all with their contrast ratios in the
 comments), `@layer base`, and `@layer components` for the classes above.
 There is no `tailwind.config.js` — v4 made configuration CSS, which is why
 the design tokens moved across as a rename.
@@ -187,6 +187,19 @@ the design tokens moved across as a rename.
 To change a colour everywhere, change it in `@theme`. The two ratios that
 constrain where a colour may go are written next to the colours they
 constrain; darkening either one makes them untrue.
+
+**One face: Libre Baskerville, everywhere** (#170). It was two until then —
+Libre Baskerville to brand, Inter to work — and the design file has one, so
+Inter is no longer downloaded at all. `font-sans` is deliberately **deleted**
+rather than pointed at the serif, because it has to stop existing rather than
+quietly mean the same thing; `--font-sans: initial` is how Tailwind v4 takes
+a theme key away.
+
+**The face has 400 and 700 and nothing between**, which is a constraint on
+every rule written here. Button, label and badge used to ask for 600; a
+browser does not refuse that, it silently draws the nearest weight it has.
+They say 700 now, so the stylesheet states what appears on the screen. A new
+rule asking for 500 is asking for a face this project does not load.
 
 **Phone width is not finished.** The responsive classes are written and
 nobody has looked at them: the priority is the desktop view until the screens
@@ -207,7 +220,6 @@ exist. Do not read "it is responsive" off this file.
 | `lib/needs.ts`                      | The two shapes `GET /needs` and `GET /needs/:id` really answer with — ids, not nested objects — plus money and the `/api` prefix every photo path needs. It exports no total, and a test says so                                                                                                                                          |
 | `lib/landing-links.ts`              | Every link the landing page offers, in one place, so one test can check the whole set against the routes that exist on disk. Five links, and the rule for a sixth is that its screen is built first (#168)                                                                                                                                |
 | `lib/browse-filters.ts` (`hrefFor`) | The address a filtered list lives at, given the path it is already on. It said `/` until #168 moved browse, and the symptom of missing it would have been silent: a filter navigating to the front door with a query string on it                                                                                                         |
-| `components/account-menu.tsx`       | The name, the address and Sign out, used by both mastheads. The settings link is passed in rather than written here, because `/settings` does not exist yet and the front door may not link to it                                                                                                                                         |
 
 ## Routes
 
@@ -228,11 +240,32 @@ sign-out go to `/`; `HOME` in `lib/safe-next.ts`, where you land after signing
 in, is `/needs`, because somebody who has just signed in has decided what this
 is.
 
-The landing page is **a static server component** — it fetches nothing, so it
-is prerendered at build time and appears whether or not Render's free instance
-is awake. That is the point of it: it is the first thing a stranger sees. The
-one client component on it is the pair of account controls in the masthead,
-which is two links wide.
+The landing page is **a static server component with no client JavaScript of
+its own** — it fetches nothing, so it is prerendered at build time and appears
+whether or not Render's free instance is awake. That is the point of it: it is
+the first thing a stranger sees.
+
+**It is also only for people who are not signed in** (#170). `middleware.ts`
+redirects a request for `/` that carries a session cookie to `/needs`:
+somebody with a session wants the product, not the sales pitch. That is why
+the masthead there needs no session at all — a request that reaches the page
+has no cookie, and no cookie _is_ signed out, because the cookie is the
+session.
+
+Two things that decision bought, and one it accepts:
+
+- The matcher in `middleware.ts` now names `/` as well as `/api/:path*`,
+  where it previously took pages out of it on purpose. A server component
+  reading the cookie would do the same job and make the route dynamic, which
+  costs exactly the property above.
+- `components/account-menu.tsx` existed so both mastheads could share one
+  sign-out button. There is only one masthead with a name in it again, so the
+  menu went back into `components/header.tsx`.
+- **A cookie is not a valid session.** A stale one sends somebody to `/needs`
+  who turns out to be signed out. That is harmless — the page is public and
+  its header draws the signed-out state correctly — and the alternative is
+  asking the API on every visit to the front page, which would make the one
+  screen that renders while the API sleeps depend on the API being awake.
 
 `app/not-found.tsx` catches the product header's forward links. That header
 draws the whole product on one line and five of those screens are not built;
