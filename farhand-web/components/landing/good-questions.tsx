@@ -15,12 +15,16 @@
  *  - PAYMENT. True today, strongest answer on the page: Farhand never holds
  *    the money, so there is nothing to lose to Farhand.
  *
- *  - WHAT IF IT GOES WRONG. The thin one. There is a deal lifecycle with a
- *    cancelled state and an event log, and there is a reporting and
- *    moderation flow. There is no dispute process, no refunds, no
- *    arbitration — Farhand holds no money, so it has nothing to refund with.
- *    TODO: write the answer that says this plainly. It is less reassuring
- *    than the design's, and it is the answer that keeps the page honest.
+ *  - WHAT IF IT GOES WRONG. There IS a dispute process, and the answer is
+ *    two halves that have to be said together. Either side can dispute a
+ *    deal between `PRODUCT_PAID` and `SHIPPED`; that freezes it, and only a
+ *    moderator can take it out of `DISPUTED`, with a resolution note on the
+ *    record (`docs/04-deal-lifecycle.md`, #134). And: Farhand holds none of
+ *    the money, so a resolution is a decision and a record, never a refund —
+ *    the same document's edge cases say it plainly, "Farhand records; it
+ *    does not compensate".
+ *    TODO: both halves, in that order. The second one alone reads as a
+ *    shrug; the first one alone is a promise we cannot keep.
  *
  *  - PROHIBITED ITEMS. `GET /prohibited` exists and the API enforces the
  *    list, so the claim is true. The acknowledgement flow is version 2 and

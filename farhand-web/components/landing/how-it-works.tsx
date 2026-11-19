@@ -8,11 +8,13 @@ import { SECTIONS } from "@/lib/landing-links";
  * `docs/04-deal-lifecycle.md` is the authority: if the five steps here and
  * the status table there ever disagree, the table is right.
  *
- * THE LAST STEP SAYS "REVIEW" AND REVIEWS ARE VERSION 2 (`docs/08-scope.md`).
- * TODO: either the step ends at delivery, or it names the review as
- * something that happens after the deal is marked complete — which is what
- * the product does today, minus the review itself. Decide and write the
- * reason here.
+ * THE LAST STEP KEEPS ITS REVIEW. Reviews are built (#83–#84), and the step
+ * should say when one may be written rather than implying it is a free
+ * comment box: after the deal completes, by either side, within fourteen
+ * days — and blind until both are in.
+ *
+ * TODO: five steps is already a lot of words for a landing page, so the
+ * qualification belongs in the step's sentence, not as a fourth clause.
  *
  * The `id` is read from `SECTIONS` rather than typed, because the masthead
  * jumps to it and a renamed id is a dead link that nothing catches.

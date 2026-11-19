@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LandingAccount } from "@/components/landing/landing-account";
-import { HOW_IT_WORKS, TRUST, BROWSE } from "@/lib/landing-links";
+import { BROWSE, FRONT_DOOR, HOW_IT_WORKS, TRUST } from "@/lib/landing-links";
 
 /**
  * The marketing masthead — issue #168.
@@ -19,8 +19,8 @@ export function LandingHeader() {
   // The design puts the jump links first and the destinations after.
   return (
     <header>
-      <Link href="/" className="wordmark">
-        Farhand
+      <Link href={FRONT_DOOR.href} className="wordmark">
+        {FRONT_DOOR.label}
       </Link>
 
       {/* TODO: HOW_IT_WORKS, TRUST, BROWSE */}

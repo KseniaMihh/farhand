@@ -47,6 +47,16 @@ export const TRUST: LandingLink = {
   label: "Trust & safety",
 };
 
+/**
+ * The wordmark, which goes to this same page.
+ *
+ * It is here, and not typed into the masthead as `href="/"`, because the
+ * rule the second test enforces is that nothing on this page writes an
+ * `href` of its own — and a rule with one exception is a rule nobody can
+ * check mechanically.
+ */
+export const FRONT_DOOR: LandingLink = { href: "/", label: "Farhand" };
+
 /** The three things a signed-out visitor can actually do today. */
 export const BROWSE: LandingLink = { href: "/needs", label: "Browse needs" };
 
@@ -70,6 +80,7 @@ export const REGISTER: LandingLink = {
  * as their issues land.
  */
 export const LANDING_LINKS: readonly LandingLink[] = [
+  FRONT_DOOR,
   HOW_IT_WORKS,
   TRUST,
   BROWSE,

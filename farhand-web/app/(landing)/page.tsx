@@ -17,9 +17,10 @@ import { TwoWays } from "@/components/landing/two-ways";
  *
  * Every other section is here, and every sentence in them was checked
  * against what the product does today rather than what it is planned to do.
- * Where the two differed, the sentence changed — see the comments in
- * `trust-and-safety.tsx` and `good-questions.tsx`, which is where all of the
- * differences were.
+ * Where the two differed the sentence changed, and each change is written
+ * down where it was made: the city and the star in `example-cards.tsx`, the
+ * three claims in `trust-and-safety.tsx`, and the dispute answer in
+ * `good-questions.tsx`.
  */
 export const metadata: Metadata = {
   title: "Farhand — the things you miss from abroad",

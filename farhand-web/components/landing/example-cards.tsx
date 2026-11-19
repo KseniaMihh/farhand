@@ -23,9 +23,11 @@
  *     advertising a city would be advertising a privacy behaviour we
  *     deliberately do not have. It shows the country.
  *
- *  2. The offer card reads "★ 5.0 (4)". Reviews and ratings are version 2
- *     (`docs/08-scope.md`), so there is no star anywhere in the product. The
- *     card says what a helper actually has today.
+ *  2. The offer card reads "★ 5.0 (4)". Ratings are real — reviews are built
+ *     (#83–#84) — and the star still comes off, for the reason the
+ *     testimonials came off the page: an invented five-star average beside
+ *     an invented name is a testimonial in miniature. A real helper's card
+ *     will show their rating; this one shows what they can get.
  *
  * TODO: settle whether "Kadri" and "Aiko" stay as names at all. They are
  * invented people, which is fine on a card marked Example, and the

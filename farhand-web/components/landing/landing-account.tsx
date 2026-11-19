@@ -17,17 +17,30 @@ import { REGISTER, SIGN_IN } from "@/lib/landing-links";
  * arrives always says "Sign in", and the session answer comes after. A
  * signed-in visitor must not see the pair flash and then change.
  *
- * TODO: decide what a signed-in visitor sees instead. "Browse needs" is
- * already in the nav, so the honest answer is probably their own name
- * linking to the product, or nothing at all.
+ * SIGNED IN, THEY GET THE SAME NAME MENU AS THE PRODUCT HEADER — avatar,
+ * address, Sign out — because otherwise the landing page is the one screen
+ * on the site with no way to sign out of it.
+ *
+ * WITH ONE OMISSION, and it is the rule of this page doing its job: the
+ * product header's menu also links to `/settings`, which does not exist. It
+ * is one of the five dead links `app/not-found.tsx` catches, acceptable
+ * inside the product and not acceptable here. So the shared menu takes the
+ * settings link as something a caller may pass, and this caller does not
+ * pass it until that screen is built. The dead-link test would have caught
+ * it either way, which is the point of having one.
+ *
+ * TODO: extract the `<details>` menu out of `components/header.tsx` into
+ * `components/account-menu.tsx` and use it from both. Two copies of a
+ * sign-out button is two places for it to stop working.
  */
 export function LandingAccount() {
   const { session } = useSession();
 
-  // TODO: the other three states, as in components/header.tsx — checking and
-  // unknown should render this pair hidden rather than absent, so the row
-  // keeps its width and nothing is announced that is not there.
+  // TODO: the shared account menu, without its settings link.
   if (session.status === "signed-in") return null;
+
+  // TODO: checking and unknown render this pair hidden rather than absent, so
+  // the row keeps its width and nothing is announced that is not there.
 
   return (
     <div>

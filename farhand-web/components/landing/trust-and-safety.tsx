@@ -13,8 +13,13 @@ import { SECTIONS } from "@/lib/landing-links";
  * THE OTHER THREE CLAIMS NEEDED CHECKING, and this is where every difference
  * between the design's copy and the product turned out to be:
  *
- *  - "Honest reviews" — reviews are version 2. There are none.
- *    TODO: cut it, or replace it with something true today.
+ *  - "Honest reviews" — TRUE, and worth saying precisely rather than as a
+ *    slogan, because the precision is the reassurance. A review can only be
+ *    written after a deal completes, so nobody can review a stranger they
+ *    never dealt with; and neither side sees the other's until both have
+ *    written or the fourteen-day window closes, so a review cannot be
+ *    retaliation for the one you just read (decision 0017, #83–#84).
+ *    TODO: write that as one sentence a person would read.
  *
  *  - "Clear rules" — TRUE. `docs/07-trust-and-safety.md` exists, and
  *    `GET /prohibited` serves the prohibited-items list the API enforces.
@@ -23,10 +28,10 @@ import { SECTIONS } from "@/lib/landing-links";
  *
  *  - "Real moderators" — the moderation API is built (#76–#78): reports, a
  *    queue, warn, suspend, ban, content hiding, an audit log. There are no
- *    moderator screens, so today "real moderators" means one person with
- *    database access.
- *    TODO: say what is true — that reports are read by a person — or cut it.
- *    "Real moderators" implies a team, and there is not one.
+ *    moderator screens, so today this is one person with database access.
+ *    "Real moderators" implies a team and there is not one; what is true is
+ *    that a person reads every report.
+ *    TODO: "A person reviews every report", or words to that effect.
  */
 export function TrustAndSafety() {
   return (
