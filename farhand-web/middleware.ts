@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { frontDoor, FRONT_DOOR } from "@/lib/front-door";
 import { applyVouch } from "@/lib/vouched-caller";
 
 /**
@@ -28,8 +29,32 @@ import { applyVouch } from "@/lib/vouched-caller";
 
 const API = process.env.FARHAND_API_URL ?? "https://farhand-api.onrender.com";
 
+/**
+ * The name the API sets the session under — `farhand-api/src/sessions.ts`.
+ * Written here rather than imported because the two projects share no code
+ * on purpose, and this is the only string that crosses.
+ */
+const SESSION_COOKIE = "farhand_session";
+
 export function middleware(request: NextRequest) {
   const url = new URL(request.url);
+
+  /*
+    THE FRONT DOOR IS FOR PEOPLE WHO ARE NOT SIGNED IN (#170). The rule, and
+    the argument for taking a cookie's presence as the answer, is in
+    `lib/front-door.ts` — here because a rule tangled into the thing that
+    applies it is a rule nothing can test.
+  */
+  if (url.pathname === FRONT_DOOR) {
+    const destination = frontDoor(
+      url.pathname,
+      request.cookies.has(SESSION_COOKIE),
+    );
+
+    return destination === null
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL(destination, url));
+  }
   // `/api/needs` → `${API}/needs`, query and all.
   const destination = new URL(
     url.pathname.replace(/^\/api/, "") + url.search,
@@ -59,10 +84,15 @@ export function middleware(request: NextRequest) {
 }
 
 /**
- * Only the proxied calls. Everything else — pages, the fonts next/font
- * self-hosts, Next's own assets — must not pay for a middleware invocation,
- * and has no reason to be rewritten anywhere.
+ * The proxied calls, and exactly one page.
+ *
+ * Everything else — the other pages, the fonts next/font self-hosts, Next's
+ * own assets — must not pay for a middleware invocation, and has no reason
+ * to be rewritten anywhere. `/` is the exception because the question
+ * "should this person be here at all?" has to be answered before the page is
+ * sent, and the page itself is prerendered: a server component that read the
+ * cookie would make it dynamic, which costs the thing it is for (#170).
  */
 export const config = {
-  matcher: "/api/:path*",
+  matcher: ["/", "/api/:path*"],
 };

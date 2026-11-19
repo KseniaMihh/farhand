@@ -28,7 +28,7 @@ export function LandingFooter() {
 
         {FOOTER.map((column) => (
           <nav key={column.heading} aria-label={column.heading}>
-            <h2 className="font-sans text-label tracking-[0.08em] text-pine uppercase">
+            <h2 className="text-label tracking-[0.08em] text-pine uppercase">
               {column.heading}
             </h2>
             <ul className="mt-3 space-y-2">
