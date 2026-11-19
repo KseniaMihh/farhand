@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { NeedCard } from "@/components/need-card";
 import { NeedFilters, type Category } from "@/components/need-filters";
 import { apiGet, ApiFailure, type Page } from "@/lib/api";
@@ -16,6 +16,7 @@ import {
 import {
   filtersFrom,
   historyMode,
+  hrefFor,
   isUnfiltered,
   queryFrom,
   type BrowseFilters,
@@ -51,6 +52,7 @@ import type { NeedCard as Card } from "@/lib/needs";
 function Browsing() {
   const router = useRouter();
   const params = useSearchParams();
+  const pathname = usePathname();
 
   // The filters are read from the URL on every render rather than copied into
   // state: the URL is the one that survives a reload and a Back press, so a
@@ -141,8 +143,14 @@ function Browsing() {
   }, []);
 
   function go(next: BrowseFilters, mode: "push" | "replace") {
-    const query = queryFrom(next).toString();
-    const href = query === "" ? "/" : `/?${query}`;
+    /*
+      THE PAGE'S OWN PATH, read rather than written down. This said "/" until
+      #168 moved browse off the root to make room for the landing page, and
+      the symptom was quiet: applying a filter navigated to the front door
+      with a query string it has no use for. `usePathname` cannot drift the
+      next time something moves.
+    */
+    const href = hrefFor(pathname, next);
 
     if (mode === "replace") router.replace(href, { scroll: false });
     else router.push(href, { scroll: false });

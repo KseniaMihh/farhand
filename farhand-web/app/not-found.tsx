@@ -35,7 +35,7 @@ export default function NotFound() {
         missing from your account.
       </p>
       <p>
-        <Link className="btn btn-primary" href="/">
+        <Link className="btn btn-primary" href="/needs">
           Browse needs
         </Link>
       </p>

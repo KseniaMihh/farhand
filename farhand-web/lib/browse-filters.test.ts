@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filtersFrom,
   historyMode,
+  hrefFor,
   isUnfiltered,
   queryFrom,
   type BrowseFilters,
@@ -177,5 +178,47 @@ describe("whether a change deserves a step in the history", () => {
     expect(
       historyMode({ q: "sun" }, { q: "sunscreen", buyCountry: "JP" }),
     ).toBe("push");
+  });
+});
+
+/**
+ * The address the list should be at — issue #168.
+ *
+ * Browse lived at `/` until the landing page took the root, and the line
+ * that wrote `/` into the URL on every filter change is the kind of thing a
+ * move leaves behind: no error, no 404, just the front door with a query
+ * string on it. It is a function now, and this is what the function is for.
+ */
+describe("where a filtered list lives", () => {
+  it("is the path it was given, not a path of its own", () => {
+    expect(hrefFor("/needs", { buyCountry: "JP" })).toBe(
+      "/needs?buyCountry=JP",
+    );
+    expect(hrefFor("/somewhere-else", { buyCountry: "JP" })).toBe(
+      "/somewhere-else?buyCountry=JP",
+    );
+  });
+
+  /**
+   * NOT `"/needs?"`. A trailing question mark is a different URL from the
+   * one without it — Back remembers both, and a shared link carries it
+   * forever — and it is what string-joining produces when nobody thinks
+   * about the empty case.
+   */
+  it("is the plain path when nothing is filtered", () => {
+    expect(hrefFor("/needs", {})).toBe("/needs");
+    expect(hrefFor("/needs", { q: "" })).toBe("/needs");
+  });
+
+  it("keeps the order queryFrom decided, so one filter set is one URL", () => {
+    const filters: BrowseFilters = {
+      q: "sunscreen",
+      buyCountry: "JP",
+      deliverCountry: "EE",
+    };
+
+    expect(hrefFor("/needs", filters)).toBe(
+      `/needs?${queryFrom(filters).toString()}`,
+    );
   });
 });

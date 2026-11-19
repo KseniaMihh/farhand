@@ -6,6 +6,7 @@ import { AuthPanel } from "@/components/auth-panel";
 import { Field } from "@/components/field";
 import { apiSend, ApiFailure } from "@/lib/api";
 import { forgetPendingEmail, pendingEmail } from "@/lib/pending-email";
+import { HOME } from "@/lib/safe-next";
 import { useSession } from "@/lib/session";
 
 /**
@@ -66,7 +67,8 @@ function VerifyForm() {
         // opened the link on another device has none at all.
         if (session.status === "signed-in") {
           await refresh();
-          router.replace("/");
+          // `HOME` rather than "/", which is the landing page since #168.
+          router.replace(HOME);
           return;
         }
 

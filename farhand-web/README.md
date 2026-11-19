@@ -194,36 +194,74 @@ exist. Do not read "it is responsive" off this file.
 
 ## The small modules, and why each is its own file
 
-|                         |                                                                                                                                                                                                                                                                                                                                           |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/api.ts`            | The only thing that calls `fetch` or knows what an API error looks like. `apiGet`, `apiSend` and `apiSendEmpty` share one `request`, because two copies drift in the cookie and the content type — and both of those fail in a deployed browser and nowhere a test would look                                                             |
-| `lib/field-errors.ts`   | A `422`'s `details` turned into "what is wrong with THIS input". The one part of the error envelope `api.ts` does not validate, so every entry is checked here                                                                                                                                                                            |
-| `lib/safe-next.ts`      | Where `?next=` may send somebody. It parses rather than inspecting: `/\evil.example` starts with one slash, is not `//`, and still resolves to another origin                                                                                                                                                                             |
-| `lib/session-state.ts`  | What a session is, and how to read a failed `/auth/me`                                                                                                                                                                                                                                                                                    |
-| `lib/pending-email.ts`  | The address `/register` leaves for `/verify`, in `sessionStorage` rather than the URL, where it would live in history and in every later `Referer`                                                                                                                                                                                        |
-| `lib/countries.ts`      | 249 ISO 3166-1 alpha-2 codes. The API validates `/^[A-Z]{2}$/` and lists nothing, and no browser exposes region codes — `Intl.DisplayNames` names them, it does not enumerate them. `countryName` is the single lookup; its answers differ between Node and Chrome, so a list of them is built after mount rather than prerendered (#166) |
-| `lib/browse-filters.ts` | The four filters `GET /needs` understands, read from and written to the URL — a filtered list is something people send, reload and press Back out of. An empty value is not a filter, or `?q=` narrows the list to nothing and the screen blames the filters                                                                              |
-| `lib/browse-state.ts`   | What a browsing screen is in the middle of. `appending` is separate from `loading` so a list is never replaced by a spinner, and every state carries the key its request was made for, so an answer to a question nobody is asking any more is dropped                                                                                    |
-| `lib/needs.ts`          | The two shapes `GET /needs` and `GET /needs/:id` really answer with — ids, not nested objects — plus money and the `/api` prefix every photo path needs. It exports no total, and a test says so                                                                                                                                          |
+|                                     |                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/api.ts`                        | The only thing that calls `fetch` or knows what an API error looks like. `apiGet`, `apiSend` and `apiSendEmpty` share one `request`, because two copies drift in the cookie and the content type — and both of those fail in a deployed browser and nowhere a test would look                                                             |
+| `lib/field-errors.ts`               | A `422`'s `details` turned into "what is wrong with THIS input". The one part of the error envelope `api.ts` does not validate, so every entry is checked here                                                                                                                                                                            |
+| `lib/safe-next.ts`                  | Where `?next=` may send somebody. It parses rather than inspecting: `/\evil.example` starts with one slash, is not `//`, and still resolves to another origin                                                                                                                                                                             |
+| `lib/session-state.ts`              | What a session is, and how to read a failed `/auth/me`                                                                                                                                                                                                                                                                                    |
+| `lib/pending-email.ts`              | The address `/register` leaves for `/verify`, in `sessionStorage` rather than the URL, where it would live in history and in every later `Referer`                                                                                                                                                                                        |
+| `lib/countries.ts`                  | 249 ISO 3166-1 alpha-2 codes. The API validates `/^[A-Z]{2}$/` and lists nothing, and no browser exposes region codes — `Intl.DisplayNames` names them, it does not enumerate them. `countryName` is the single lookup; its answers differ between Node and Chrome, so a list of them is built after mount rather than prerendered (#166) |
+| `lib/browse-filters.ts`             | The four filters `GET /needs` understands, read from and written to the URL — a filtered list is something people send, reload and press Back out of. An empty value is not a filter, or `?q=` narrows the list to nothing and the screen blames the filters                                                                              |
+| `lib/browse-state.ts`               | What a browsing screen is in the middle of. `appending` is separate from `loading` so a list is never replaced by a spinner, and every state carries the key its request was made for, so an answer to a question nobody is asking any more is dropped                                                                                    |
+| `lib/needs.ts`                      | The two shapes `GET /needs` and `GET /needs/:id` really answer with — ids, not nested objects — plus money and the `/api` prefix every photo path needs. It exports no total, and a test says so                                                                                                                                          |
+| `lib/landing-links.ts`              | Every link the landing page offers, in one place, so one test can check the whole set against the routes that exist on disk. Five links, and the rule for a sixth is that its screen is built first (#168)                                                                                                                                |
+| `lib/browse-filters.ts` (`hrefFor`) | The address a filtered list lives at, given the path it is already on. It said `/` until #168 moved browse, and the symptom of missing it would have been silent: a filter navigating to the front door with a query string on it                                                                                                         |
+| `components/account-menu.tsx`       | The name, the address and Sign out, used by both mastheads. The settings link is passed in rather than written here, because `/settings` does not exist yet and the front door may not link to it                                                                                                                                         |
 
 ## Routes
 
-Two route groups, neither of which changes a URL. `(site)` wears the header
-and the banner; `(auth)` is the split screen, with the wordmark inside the
-dark panel, because the account screens have no header in the design. The
-session provider sits in the root layout, above both, so the header, the
-banner and a form all read one answer rather than racing for three.
+Three route groups, none of which changes a URL. `(site)` wears the product
+header and the banner; `(auth)` is the split screen, with the wordmark inside
+the dark panel, because the account screens have no header in the design;
+`(landing)` is the front door, with a marketing masthead and footer of its
+own. The session provider sits in the root layout, above all three, so the
+header, the banner and a form all read one answer rather than racing for
+three.
 
-`app/not-found.tsx` catches the header's forward links. The header draws the
-whole product on one line and five of those screens are not built; each href
-is where that screen will live, so the issue that builds it adds a route and
-the header does not change.
+**`/` is the landing page and `/needs` is the list** (#168). Browse was the
+root until the front door needed it — two route groups cannot both own `/` —
+and the pair reads better as `/needs` and `/needs/:id`. The rule used while
+moving it, worth keeping for the next one: _a link that meant the list points
+at `/needs`; a link that meant the front page stays `/`._ So the wordmark and
+sign-out go to `/`; `HOME` in `lib/safe-next.ts`, where you land after signing
+in, is `/needs`, because somebody who has just signed in has decided what this
+is.
+
+The landing page is **a static server component** — it fetches nothing, so it
+is prerendered at build time and appears whether or not Render's free instance
+is awake. That is the point of it: it is the first thing a stranger sees. The
+one client component on it is the pair of account controls in the masthead,
+which is two links wide.
+
+`app/not-found.tsx` catches the product header's forward links. That header
+draws the whole product on one line and five of those screens are not built;
+each href is where that screen will live, so the issue that builds it adds a
+route and the header does not change. **The landing page is held to a
+stricter rule**: every link on it must point at a route that exists, which is
+why they all live in `lib/landing-links.ts` and why `landing-links.test.ts`
+reads `app/` to check them. The same test forbids an `href` written into any
+landing component, because a list of links proves nothing if a component can
+write its own.
+
+**Phone width is out of scope on the landing page too**, for the reason in
+_Styling_ above: the design is 1512 wide and the priority is the desktop view
+until the screens exist. The layout collapses to one column and the hero's
+example cards stack under the photograph, and nobody has looked at it.
 
 ## What is here, and what is next
 
-Here: browse open needs with the four filters and a page at a time, one
-need's own page, register, confirm an email, sign in, the header in its three
-states and the banner in both of its.
+Here: the landing page, browse open needs with the four filters and a page at
+a time, one need's own page, register, confirm an email, sign in, the header
+in its three states and the banner in both of its.
+
+Two things the landing page says less than the design did, both on purpose.
+The testimonials are gone — "From people who've done it", three five-star
+quotes with names, on a product nobody has used yet — and the hero's example
+cards are marked **Example**, are not links, and drop the city and the star
+rating the design drew on them. A made-up listing presented as a real one is
+the same mistake in miniature, and the city is one the product never shows
+anybody but its owner.
 
 Not here, and deliberately not guessed at — the screens come as their own
 issues, in roughly this order:
