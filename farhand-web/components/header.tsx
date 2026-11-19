@@ -46,7 +46,7 @@ export function Header() {
 
   const browse = (
     <>
-      <Link className={LINK} href="/" aria-current={current("/")}>
+      <Link className={LINK} href="/needs" aria-current={current("/needs")}>
         Needs
       </Link>
       <Link className={LINK} href="/offers" aria-current={current("/offers")}>
@@ -77,10 +77,7 @@ export function Header() {
             Farhand
           </Link>
 
-          <nav
-            className="flex items-center gap-4 lg:gap-[22px]"
-            aria-label="Main"
-          >
+          <nav className="flex items-center gap-4 lg:gap-5.5" aria-label="Main">
             {browse}
 
             {session.status === "signed-in" && (

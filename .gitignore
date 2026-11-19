@@ -16,3 +16,10 @@ farhand-web/AGENTS.md
 
 # TypeScript's incremental build cache.
 *.tsbuildinfo
+
+# The landing page's photographs as they were downloaded: 6000x4000, four
+# megabytes between them. What ships is the 1600px WebP beside each one
+# (#168), and the originals stay out of history because git has no way to
+# take a committed file back out of it. Keep them wherever you keep the
+# design file; they are the source to re-export from, not a build input.
+farhand-web/images/*.jpg

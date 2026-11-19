@@ -14,8 +14,16 @@
  * because the first caller will not be thinking about any of the above.
  */
 
-/** Where somebody goes when `next` is missing, unusable, or not ours. */
-export const HOME = "/";
+/**
+ * Where somebody goes when `next` is missing, unusable, or not ours.
+ *
+ * THE LIST, NOT THE FRONT DOOR (#168). `/` is now the landing page, and it
+ * exists to explain the product to somebody who has decided nothing.
+ * Somebody who has just signed in has decided. Sending them to the sales
+ * pitch is the wrong end of the site, and it is the screen they are least
+ * likely to have wanted.
+ */
+export const HOME = "/needs";
 
 /**
  * Routes that must never be a destination, because landing on them straight

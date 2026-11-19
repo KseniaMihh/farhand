@@ -29,7 +29,7 @@ export default function NeedNotFound() {
         The link may be old, or the need was closed or removed.
       </p>
       <p className="mt-6">
-        <Link href="/" className="btn btn-secondary no-underline">
+        <Link href="/needs" className="btn btn-secondary no-underline">
           Browse what people need
         </Link>
       </p>
