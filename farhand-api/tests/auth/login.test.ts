@@ -9,6 +9,11 @@ import {
   sessionCookieOptions,
 } from "../../src/sessions.js";
 import { hashToken } from "../../src/tokens.js";
+import { env } from "../../src/env.js";
+import {
+  CALLER_HEADER,
+  VOUCH_HEADER,
+} from "../../src/middleware/caller-address.js";
 
 /**
  * POST /auth/login — issue #11.
@@ -119,6 +124,53 @@ describe("POST /auth/login — success", () => {
 
     expect(session.userAgent).toBe("farhand-test-agent");
     expect(session.ipAddress).toBeTruthy();
+  });
+
+  /**
+   * And WHICH address, when the request came through our own frontend — #164.
+   *
+   * This is the "logged in from…" line a user reads on their own sessions, so
+   * getting it wrong names a machine in a data centre rather than their
+   * laptop. Through the deployed site the chain the API receives is four
+   * entries long and its hop count resolves the second — Vercel's — which is
+   * what #152 shipped and what this closes.
+   *
+   * A second app, because `createApp()` at the top of this file was built
+   * before the secret existed and `createVouchedAddress` reads it at mount.
+   */
+  it("records the address our frontend vouched for, not the proxy's", async () => {
+    const secret = "a-test-vouch-secret-of-ample-length";
+    env.PROXY_VOUCH_SECRET = secret;
+
+    try {
+      const proxied = createApp();
+      await request(proxied).post("/auth/register").send({
+        email: EMAIL,
+        password: PASSWORD,
+        displayName: "Anna",
+        countryCode: "EE",
+      });
+
+      await request(proxied)
+        .post("/auth/login")
+        .set("User-Agent", "farhand-test-agent")
+        // The shape production sends: the visitor, then Vercel's outbound
+        // address, then the two intermediaries in front of Render.
+        .set(
+          "X-Forwarded-For",
+          "203.0.113.77, 198.51.100.77, 198.51.100.254, 10.0.0.1",
+        )
+        .set(CALLER_HEADER, "203.0.113.77")
+        .set(VOUCH_HEADER, secret)
+        .send({ email: EMAIL, password: PASSWORD });
+
+      const session = await prisma.session.findFirstOrThrow();
+
+      expect(session.ipAddress).toBe("203.0.113.77");
+      expect(session.ipAddress).not.toBe("198.51.100.77");
+    } finally {
+      env.PROXY_VOUCH_SECRET = undefined;
+    }
   });
 
   it("updates lastLoginAt", async () => {

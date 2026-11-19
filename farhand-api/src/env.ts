@@ -82,6 +82,27 @@ const envSchema = z.object({
   APP_ORIGIN: z.url().default("http://localhost:3100"),
 
   /**
+   * What the frontend proves itself with when it states a caller's address
+   * (#164, decision 0035).
+   *
+   * The same value is set on the Vercel project, server-side. It is in no
+   * repository and in no `.env.example` — only the two dashboards.
+   *
+   * Absent is a legitimate state: development and the whole test suite run
+   * without it, and then nothing is ever vouched and `req.ip` is the only
+   * answer. Production without it is NOT legitimate, and `server.ts` says so
+   * at startup, because the failure is otherwise invisible — the site keeps
+   * working and every visitor quietly shares one rate-limit bucket.
+   *
+   * NOT wrapped in `blankIsAbsent`, deliberately, by this file's own rule
+   * above: this is half of a pair, so an empty value is a secret somebody
+   * meant to set and got wrong, and that should stop a deploy rather than
+   * degrade quietly. A length floor for the same reason — a short secret here
+   * is a typo, not a choice.
+   */
+  PROXY_VOUCH_SECRET: z.string().min(32).optional(),
+
+  /**
    * Where unexpected errors are reported, when there is anywhere to report
    * them. Absent in development and in the test suite, which is what keeps
    * both of them entirely offline (issue #29).

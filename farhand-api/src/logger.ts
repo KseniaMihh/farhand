@@ -11,21 +11,37 @@ import { env, isProduction, isTest } from "./env.js";
  * Use `logger.info({ dealId }, "message")` — the object first, then the text.
  * Searching for `dealId=123` beats grepping through interpolated strings.
  */
+/**
+ * Never logged, even arriving nested inside a request object.
+ *
+ * Exported so a test can hand this same object to a pino instance writing
+ * into memory and read what comes out. Asserting against a copy of the list
+ * would prove only that the copy was right.
+ *
+ * pino-http logs the whole `req.headers` object, so a header is logged by
+ * default and hidden only by being named here. `x-farhand-vouch` is the
+ * secret the frontend proves itself with (#164): in Render's logs in plain
+ * text, on every proxied request, it would let anyone who can read a log —
+ * or a log export — claim any address they liked. It is listed beside the
+ * session cookie because it is the same kind of thing.
+ */
+export const REDACT = {
+  paths: [
+    "req.headers.authorization",
+    "req.headers.cookie",
+    "req.headers['x-farhand-vouch']",
+    "res.headers['set-cookie']",
+    "*.password",
+    "*.passwordHash",
+    "*.tokenHash",
+  ],
+  censor: "[redacted]",
+};
+
 export const logger = pino({
   level: env.LOG_LEVEL,
 
-  // Never log these, even if they arrive nested inside a request object.
-  redact: {
-    paths: [
-      "req.headers.authorization",
-      "req.headers.cookie",
-      "res.headers['set-cookie']",
-      "*.password",
-      "*.passwordHash",
-      "*.tokenHash",
-    ],
-    censor: "[redacted]",
-  },
+  redact: REDACT,
 
   // Pretty-printing only in development, and NOT in tests (#70).
   //

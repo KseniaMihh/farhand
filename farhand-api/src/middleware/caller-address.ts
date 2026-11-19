@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { env } from "../env.js";
 import { logger } from "../logger.js";
@@ -99,6 +101,162 @@ export function isPrivateAddress(address: string | undefined): boolean {
 }
 
 /**
+ * THE TWO HEADERS THE FRONTEND SIGNS WITH — issue #164.
+ *
+ * `TRUSTED_PROXY_HOPS` above governs the direct path and nothing else now.
+ * Requests that come through the deployed site arrive with a chain one entry
+ * longer, because `farhand-web/middleware.ts` is a fourth machine in front of
+ * this one, and a count cannot be right for both lengths at once.
+ *
+ * Nor can it be made right by raising it. A direct caller who sends one
+ * invented entry produces a chain the same length and the same shape as the
+ * proxied one, so a count of four would resolve the forgery. The chain simply
+ * carries no evidence of which path it came down — see decision 0035, which
+ * has the measurements.
+ *
+ * So the frontend states the address and proves it is the frontend. The proof
+ * is a shared secret, which is the one thing a stranger cannot produce.
+ */
+export const CALLER_HEADER = "x-farhand-caller";
+export const VOUCH_HEADER = "x-farhand-vouch";
+
+// Same reason as `req.auth` in middleware/auth.ts: teaches TypeScript that a
+// request may carry this, rather than inventing a request type of our own.
+declare module "express-serve-static-core" {
+  interface Request {
+    /**
+     * The address the frontend stated, once it has proved it is the frontend.
+     * Read it through `callerAddress` rather than directly — `undefined` here
+     * means "nobody vouched", not "no address".
+     */
+    vouchedCaller?: string;
+  }
+}
+
+/**
+ * Who to count this request against, and whose address to record on a session.
+ *
+ * The vouched address when there is one, and `req.ip` otherwise. Unlike
+ * `getAuth`, this does not throw when nothing ran before it: a direct request
+ * to the API is a perfectly ordinary thing, and `req.ip` is the right answer
+ * for it.
+ */
+export function callerAddress(req: Request): string | undefined {
+  return req.vouchedCaller ?? req.ip;
+}
+
+/**
+ * A digest, so two values can be compared without their lengths mattering.
+ *
+ * `timingSafeEqual` throws unless both buffers are the same length, which
+ * leaves two choices: check the lengths first — and a thrown-or-not on length
+ * is itself a side channel telling a caller how long the secret is — or
+ * compare digests, which are always 32 bytes. The second one.
+ */
+function sha256(value: string): Buffer {
+  return createHash("sha256").update(value, "utf8").digest();
+}
+
+/**
+ * Honours `x-farhand-caller`, but only on proof that our own frontend sent it.
+ *
+ * A factory for the same reason `createCallerAddressCheck` is one: the "said
+ * it once" below belongs to this app, not to the module, so a second app in
+ * the same process starts with nothing said yet. That is what makes it
+ * testable.
+ *
+ * Mounted before the limiters in app.ts, because what it decides is what they
+ * are about to count.
+ */
+export function createVouchedAddress(
+  // The secret is a parameter with a default rather than a read from `env`
+  // inside, so a test can hand one in. `env.PROXY_VOUCH_SECRET` is absent for
+  // the whole suite and in development, which is the state that must mean
+  // "nothing is ever vouched" — so it is also the default.
+  secret: string | undefined = env.PROXY_VOUCH_SECRET,
+): RequestHandler {
+  // Hashed once, at mount, rather than on every request.
+  const expected =
+    secret === undefined || secret === "" ? undefined : sha256(secret);
+
+  // The "once" belongs to this app, not to the module — see above.
+  let said = false;
+
+  return function vouchedAddress(
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): void {
+    // No secret configured, so nothing is ever vouched. This is development,
+    // this is the whole test suite, and — the reason it fails this way round —
+    // it is also a forgotten dashboard variable. Falling back to `req.ip`
+    // counts a proxy, which is a bug; trusting an unverifiable header would
+    // let anyone claim any address, which is worse.
+    if (expected === undefined) {
+      next();
+      return;
+    }
+
+    const offered = req.headers[VOUCH_HEADER];
+    const claimed = req.headers[CALLER_HEADER];
+
+    // Both, and each exactly one value. Node joins duplicate headers with a
+    // comma so `string[]` is rare, but "the first of two" is not something to
+    // guess at: a request carrying two of either is refused rather than read.
+    if (typeof offered !== "string" || typeof claimed !== "string") {
+      next();
+      return;
+    }
+
+    if (!timingSafeEqual(sha256(offered), expected)) {
+      // What a rotated secret looks like from in here, and it is otherwise
+      // silent: the site keeps working and every visitor quietly shares one
+      // bucket again. Never either secret in the message — this is read in
+      // Render's logs, which is exactly where neither belongs.
+      if (!said) {
+        said = true;
+        logger.error(
+          { header: VOUCH_HEADER },
+          "A request carried a vouch that does not verify: PROXY_VOUCH_SECRET " +
+            "differs between this API and the frontend, so every by-address " +
+            "limit is counting the proxy again (#164). Rotating it needs a " +
+            "redeploy of the web side, not only a dashboard save",
+        );
+      }
+      next();
+      return;
+    }
+
+    const address = claimed.trim();
+
+    // A verified vouch carrying something that is not an address is our own
+    // frontend being wrong, and it would otherwise become a rate-limit key
+    // that silently groups everyone it was sent for into one bucket.
+    if (isIP(address) === 0) {
+      if (!said) {
+        said = true;
+        logger.error(
+          { header: CALLER_HEADER },
+          "A verified vouch carried something that is not an address, so it " +
+            "was ignored: farhand-web/lib/vouched-caller.ts is reading its " +
+            "own inbound chain wrongly (#164)",
+        );
+      }
+      next();
+      return;
+    }
+
+    // Deliberately not checked for being private — see the complaint in
+    // `createCallerAddressCheck`, which is what notices that and says which
+    // file to go and look at. Refusing here would fall back to `req.ip`,
+    // look almost right, and hide it.
+    req.vouchedCaller = address;
+
+    next();
+  };
+}
+
+/**
  * Says so, once, when the address we resolved cannot be a caller's.
  *
  * A factory rather than a middleware, so the "once" belongs to this app and
@@ -127,7 +285,11 @@ export function createCallerAddressCheck(): RequestHandler {
       return;
     }
 
-    if (!isPrivateAddress(req.ip)) {
+    // The address we would actually USE, which since #164 is not always
+    // `req.ip`: a vouched one would otherwise slip past this check entirely.
+    const resolved = callerAddress(req);
+
+    if (!isPrivateAddress(resolved)) {
       next();
       return;
     }
@@ -135,15 +297,27 @@ export function createCallerAddressCheck(): RequestHandler {
     said = true;
 
     const forwardedFor = req.headers["x-forwarded-for"];
+
+    // WHICH SETTING TO GO AND LOOK AT, because the two sources fail for
+    // completely different reasons and this message is the only thing
+    // pointing at one of them. A private address that was VOUCHED for is not
+    // a hop-count problem at all — sending that reader to
+    // `TRUSTED_PROXY_HOPS` would cost them an afternoon in the wrong file.
     const message =
-      `The caller's address resolved to ${String(req.ip)}, which is private: ` +
-      `trust proxy believes ${String(TRUSTED_PROXY_HOPS)} hops and the chain ` +
-      `has more than that, so every by-address rate limit is counting a ` +
-      `proxy instead of the caller (#145)`;
+      req.vouchedCaller !== undefined
+        ? `The caller's address resolved to ${String(resolved)}, which is ` +
+          `private, and our own frontend vouched for it (#164): ` +
+          `farhand-web/middleware.ts is reading its own inbound chain wrongly ` +
+          `— TRUSTED_PROXY_HOPS is NOT the setting to change`
+        : `The caller's address resolved to ${String(resolved)}, which is ` +
+          `private: trust proxy believes ${String(TRUSTED_PROXY_HOPS)} hops ` +
+          `and the chain has more than that, so every by-address rate limit ` +
+          `is counting a proxy instead of the caller (#145)`;
 
     logger.error(
       {
-        ip: req.ip,
+        ip: resolved,
+        vouched: req.vouchedCaller !== undefined,
         forwardedFor: Array.isArray(forwardedFor)
           ? forwardedFor.join(", ")
           : forwardedFor,

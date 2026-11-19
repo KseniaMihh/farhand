@@ -97,6 +97,22 @@ can be saved blank, and a blank one fails the URL check in `src/env.ts`, so
 the API would refuse to start. Add it under *Environment* on the day there is
 a DSN to put in it.
 
+`PROXY_VOUCH_SECRET` is not in `render.yaml` either, and for the same reason
+plus a better one: it is a secret, and it is the one thing that lets the
+frontend tell this API who a visitor is (#164,
+[decision 0035](10-decisions/0035-the-frontend-states-the-caller.md)). It goes
+under *Environment* on the service, and **the identical value** goes on the
+Vercel project as a server-side variable — not `NEXT_PUBLIC_`, which would
+publish it to every browser. At least 32 characters; a blank or short one
+stops the API from booting, deliberately.
+
+**Rotating it is a two-dashboard change and then a redeploy**, in this order:
+Render, Vercel, then redeploy `farhand-web`. Next inlines `process.env` into
+the edge bundle at build time and Vercel applies an environment change only to
+new deployments, so saving it without redeploying leaves the old value live.
+In the window where the two disagree nothing breaks — the API falls back to
+`req.ip` and writes one `error` line naming the setting.
+
 `NODE_ENV`, `PORT`, `LOG_LEVEL` and `APP_ORIGIN` are **not** secrets: they are
 in `render.yaml` where they can be read and reviewed. `PORT` is pinned to
 `3000` because the Dockerfile's own `HEALTHCHECK` asks that port.

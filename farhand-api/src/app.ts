@@ -3,6 +3,7 @@ import { pinoHttp } from "pino-http";
 import { logger } from "./logger.js";
 import {
   createCallerAddressCheck,
+  createVouchedAddress,
   TRUSTED_PROXY_HOPS,
 } from "./middleware/caller-address.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
@@ -78,6 +79,13 @@ export function createApp(): Express {
   // Straight after the logger, so the id is on every answer — including the
   // ones a limiter or a guard refuses before any route sees them.
   app.use(echoRequestId);
+
+  // Who the caller is, when the request came through our own frontend (#164).
+  // The chain is one entry longer on that path and no hop count can be right
+  // for both, so the frontend states the address and proves it is the
+  // frontend. Before the check below, which examines what this decided, and
+  // well before the limiters, which count it.
+  app.use(createVouchedAddress());
 
   // Before the limiters, because what it is checking is what the limiters are
   // about to count, and a refused request is as good a witness as a served

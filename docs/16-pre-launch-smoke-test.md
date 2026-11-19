@@ -270,18 +270,34 @@ side the table allows (`04-deal-lifecycle.md`).
 
 ### 12 · The things only production can show
 
-- [ ] **The proxy hop count.** `SELECT "ipAddress", "createdAt" FROM "Session"
-      ORDER BY "createdAt" DESC LIMIT 1;` is **your own address**, not
-      Render's. With `trust proxy` wrong, every caller shares one rate-limit
-      bucket (`15-architecture.md`).
+- [ ] **The caller's address, signing in THROUGH THE SITE.**
+      `SELECT "ipAddress", "createdAt" FROM "Session" ORDER BY "createdAt"
+      DESC LIMIT 1;` is **your own address** — not Render's, and not Vercel's.
+      Get this wrong and every visitor shares one rate-limit bucket
+      (`15-architecture.md`).
 
-      This is the step that earned its keep. On 21 October it answered
+      This is the step that earned its keep, twice. On 21 October it answered
       `10.195.187.131`, one of Render's balancers — the chain is three hops
-      and `src/app.ts` had trusted one since the first deploy. Fixed in #145;
-      a `10.x` answer here now means the chain changed again. Since #145 the
-      API also says so itself: a private address resolved in production writes
-      one `error` line naming the whole chain, so Render's logs are worth a
-      look even when this tick passes.
+      and `src/app.ts` had trusted one since the first deploy (#145). Then
+      #152 put the frontend in front of the API and it answered a **Vercel**
+      address instead, through three deploys of wrong guesses, until the chain
+      was finally read rather than reasoned about (#164, decision 0035).
+
+      Since #145 the API also says so itself: a private address resolved in
+      production writes one `error` line naming the chain. Since #164 a second
+      line says the vouch did not verify, which is what a rotated
+      `PROXY_VOUCH_SECRET` looks like — so Render's logs are worth a look even
+      when this tick passes. **pino-http logs the whole header object**, so
+      `x-forwarded-for` and its full chain are already printed there; read the
+      log before deploying anything to measure it.
+- [ ] **And the direct path is still not forgeable.** With no vouch header,
+      `curl -H "X-Forwarded-For: 203.0.113.9" https://farhand-api.onrender.com/needs`
+      against a by-address limit must count **your** address and not
+      `203.0.113.9`. Both halves, or neither has been checked: since #164 the
+      vouch is what the API believes, and a vouch nobody signed must buy
+      nothing at all. The cheap version of this tick is `x-farhand-caller`
+      with a wrong `x-farhand-vouch` — the API ignores it and writes the
+      `error` line above.
 - [ ] **The rate limiter answers, and the count is in the database.** One
       account gets **ten** wrong passwords in fifteen minutes
       (`RATE_LIMITS.login.perAccount`), so the **eleventh** attempt is the one

@@ -245,6 +245,43 @@ refused`, which reads like a bug in the frontend and is not one.
 the command line does not. Add `-H "Origin: http://localhost:3100"`, or set
 `CSRF_ENABLED=false` while you are poking about by hand.
 
+### `PROXY_VOUCH_SECRET`
+
+What the frontend proves itself with when it tells the API who a visitor is
+(#164, [decision 0035](10-decisions/0035-the-frontend-states-the-caller.md)).
+The same value lives on the Render service and on the Vercel project, in those
+two dashboards and nowhere else.
+
+**Why it exists.** Since #152 the API is reachable two ways: directly, and
+through the deployed site, which puts one more machine in front of it. The
+chain is four entries long on that path and three on the direct one, and
+`trust proxy` is a single number — so it cannot be right about both. Raising
+it to four fixes the website and makes the direct path forgeable, because a
+caller who writes one invented entry produces a chain of exactly the same
+shape. The frontend therefore states the address under a name of its own and
+signs it.
+
+**Absent is a legitimate state.** Development and the whole test suite run
+without it, and then nothing is ever vouched and `req.ip` is the only answer —
+which is correct on a laptop, where the caller really is the socket.
+Production without it is not legitimate, and `server.ts` writes one warning at
+startup, because the failure is otherwise invisible: the site keeps working
+and every visitor quietly shares one rate-limit bucket.
+
+**Unlike `MAIL_*`, an empty value is refused rather than read as absent**, and
+there is a 32-character floor. It is half of a pair, so blank means a secret
+somebody meant to set and got wrong — and degrading quietly there is the exact
+bug #164 closed, arriving by the back door. This is also why `.env.example`
+keeps the line **commented out**: copying that file is how everybody starts,
+and an empty value in it would stop the API from booting.
+
+**Rotating it needs a redeploy of the web side, not just a dashboard save.**
+Next inlines `process.env` into the edge bundle at build time, and Vercel
+applies an environment change only to new deployments. Set it on Render, set
+it on Vercel, then redeploy `farhand-web`. In the window where the two
+disagree, the API falls back to `req.ip` and writes one `error` line saying
+so.
+
 ## Git and GitHub
 
 Git records the project's history locally. GitHub stores a copy remotely and

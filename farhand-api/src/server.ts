@@ -39,6 +39,24 @@ async function main(): Promise<void> {
     }
   }
 
+  // Production without this cannot learn a visitor's address at all: every
+  // by-address limit counts the whole world into one bucket, and nothing
+  // anybody can see says so. The symptom is "signing in sometimes says too
+  // many attempts", which looks nothing like its cause — #164 is the second
+  // time this project has chased it.
+  //
+  // A warning and not a crash. The site works; it is only the counting that
+  // is wrong, and an API refusing to boot over this would be the bigger
+  // outage.
+  if (isProduction && !env.PROXY_VOUCH_SECRET) {
+    logger.warn(
+      "PROXY_VOUCH_SECRET is not set, so the frontend cannot tell this API " +
+        "who a visitor is: every by-address rate limit will count the proxy " +
+        "instead (#164). Set the same value on the Render service and the " +
+        "Vercel project, then redeploy the web side",
+    );
+  }
+
   const app = createApp();
 
   const server = app.listen(env.PORT, () => {
