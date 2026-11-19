@@ -1,9 +1,18 @@
+import { SECTIONS } from "@/lib/landing-links";
+
 /**
  * The four questions anybody sensible asks — issue #168.
  *
  * The design calls the section "Good questions", which is better than "FAQ"
- * because it is answering rather than deflecting. Each answer is checked
- * against the product rather than the plan:
+ * because it is answering rather than deflecting.
+ *
+ * THE MASTHEAD STILL SAYS "FAQ" (#172), and the two are meant to differ. A
+ * navigation bar is scanned rather than read, and "FAQ" is the word people
+ * scan for; a heading is read, and has room to be warmer than the label that
+ * pointed at it. If that ever stops being deliberate, the heading is the one
+ * to change — the label is doing a job the heading is not.
+ *
+ * Each answer is checked against the product rather than the plan:
  *
  *  - POSTAGE. `docs/06-api-contract.md` has no shipping calculator anywhere
  *    in it, and `docs/04-deal-lifecycle.md` says `shippingActual` may differ
@@ -53,7 +62,7 @@ const QUESTIONS = [
 
 export function GoodQuestions() {
   return (
-    <section className="bg-cream">
+    <section id={SECTIONS.questions} className="scroll-mt-20 bg-cream">
       <div className="mx-auto max-w-column px-4 py-16 lg:py-20">
         <h2 className="font-serif text-page-title text-pine">Good questions</h2>
 

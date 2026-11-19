@@ -34,9 +34,21 @@ export interface LandingLink {
 export const SECTIONS = {
   howItWorks: "how-it-works",
   trust: "trust-and-safety",
+  questions: "good-questions",
 } as const;
 
-/** The two that are this same page, so they work the day it ships. */
+/**
+ * The three that are this same page, so they work the day it ships — and
+ * since #172 they are the whole of the masthead's navigation.
+ *
+ * THE NAVIGATION IS ONLY JUMP LINKS NOW, which is a decision about what the
+ * bar is for rather than a shortage of destinations. On a page whose job is
+ * to explain the product, the bar is a table of contents: it says what is
+ * below and lets somebody skip to the part they came for. "Browse needs" was
+ * the one entry that left the page, and it sat among three that did not —
+ * so it is in the hero, in the closing call and in the footer, where leaving
+ * is what the button is for.
+ */
 export const HOW_IT_WORKS: LandingLink = {
   href: `/#${SECTIONS.howItWorks}`,
   label: "How it works",
@@ -45,6 +57,11 @@ export const HOW_IT_WORKS: LandingLink = {
 export const TRUST: LandingLink = {
   href: `/#${SECTIONS.trust}`,
   label: "Trust & safety",
+};
+
+export const QUESTIONS: LandingLink = {
+  href: `/#${SECTIONS.questions}`,
+  label: "FAQ",
 };
 
 /**
@@ -83,19 +100,22 @@ export const LANDING_LINKS: readonly LandingLink[] = [
   FRONT_DOOR,
   HOW_IT_WORKS,
   TRUST,
+  QUESTIONS,
   BROWSE,
   SIGN_IN,
   REGISTER,
 ];
 
-/** The masthead, left to right. */
-export const NAV: readonly LandingLink[] = [
-  HOW_IT_WORKS,
-  TRUST,
-  BROWSE,
-  SIGN_IN,
-  REGISTER,
-];
+/**
+ * The masthead's navigation, left to right: a table of contents for the page
+ * under it, in the order the sections appear.
+ *
+ * The account controls are not in here. They are a fixed pair on the other
+ * side of the bar, drawn by the masthead itself, and putting them in a list
+ * called "the navigation" only invited somebody to render them in the wrong
+ * place.
+ */
+export const NAV: readonly LandingLink[] = [HOW_IT_WORKS, TRUST, QUESTIONS];
 
 /**
  * The footer, in columns.
