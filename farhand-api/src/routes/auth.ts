@@ -19,6 +19,7 @@ import {
   sessionCookieOptions,
 } from "../sessions.js";
 import { requireAuth, getAuth } from "../middleware/auth.js";
+import { callerAddress } from "../middleware/caller-address.js";
 // Which endpoint gets which limit, and why: docs/06-api-contract.md and the
 // comment at the top of ../middleware/rate-limit.js.
 import { limiters } from "../middleware/rate-limit.js";
@@ -265,7 +266,7 @@ authRouter.post(
     const rawToken = await prisma.$transaction(async (tx) => {
       const token = await createSession(tx, user.id, {
         userAgent: req.get("user-agent"),
-        ipAddress: req.ip,
+        ipAddress: callerAddress(req),
       });
 
       await tx.user.update({

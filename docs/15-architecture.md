@@ -108,6 +108,22 @@ level — if the address it resolves is one no caller could have: loopback,
 RFC 1918 or link-local. That is true of every count that is too small,
 including the one we had.
 
+**Since #164 the count governs the direct path only, because there are two.**
+The frontend proxies `/api/*` (decision 0034), which puts a fourth machine in
+front of this API: the chain is four entries through the site and three
+straight to it. One number cannot be right about both, and raising it to four
+would resolve the **leftmost** entry — which, on a direct request carrying one
+invented entry, is the forgery. The two paths are the same length and the same
+shape, so the chain itself cannot tell them apart.
+
+So the frontend states the caller's address under `x-farhand-caller` and signs
+it with `x-farhand-vouch`, a secret the two services share
+(`PROXY_VOUCH_SECRET`). The API believes that header only when the signature
+verifies and the value is an address, and `callerAddress(req)` — not `req.ip`
+— is what the rate limiters count and what a session records. Everything in
+decision 0035, including the three deploys that got this wrong and the reason
+0034's own explanation of the chain is not correct.
+
 **farhand-api.** One app, because a transaction is free and a saga is not:
 `acceptProposal`'s five writes are all-or-nothing only because they share one
 database. Splitting it would mean building compensating actions, idempotency

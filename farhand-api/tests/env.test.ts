@@ -48,7 +48,12 @@ interface Loaded {
   complaint: string;
 }
 
-async function load(overrides: Record<string, string> = {}): Promise<Loaded> {
+// `string | undefined` so a case can say "and this one is NOT set",
+// which is what #164 needs: absent is a legitimate state for the vouch
+// secret and the one every laptop runs in.
+async function load(
+  overrides: Record<string, string | undefined> = {},
+): Promise<Loaded> {
   const env: Record<string, string | undefined> = {
     ...process.env,
     ...REQUIRED,
@@ -138,5 +143,47 @@ describe("a group of settings is all or none", () => {
     ]) {
       expect(complaint).toContain(missing);
     }
+  });
+});
+
+/**
+ * The vouch secret — issue #164.
+ *
+ * It is deliberately NOT wrapped in `blankIsAbsent`, by the rule that
+ * function documents: it is half of a pair, the other half living on the
+ * Vercel project, so an empty value is a secret somebody meant to set and got
+ * wrong. Degrading quietly there means every visitor silently shares one
+ * rate-limit bucket, which is the bug #164 exists to fix — arriving by the
+ * back door and much harder to notice the second time.
+ *
+ * This is also why `.env.example` keeps the line COMMENTED OUT. Copying that
+ * file is how everyone starts, and an empty value in it would stop the API
+ * from booting at all.
+ */
+describe("the secret the frontend proves itself with", () => {
+  it("loads when it is absent, which is every laptop and the whole suite", async () => {
+    expect(await load({ PROXY_VOUCH_SECRET: undefined })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("loads with a long one", async () => {
+    expect(await load({ PROXY_VOUCH_SECRET: "v".repeat(40) })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("refuses an empty one rather than treating it as absent", async () => {
+    const { ok, complaint } = await load({ PROXY_VOUCH_SECRET: "" });
+
+    expect(ok).toBe(false);
+    expect(complaint).toContain("PROXY_VOUCH_SECRET");
+  });
+
+  it("refuses a short one, because that is a typo and not a choice", async () => {
+    const { ok, complaint } = await load({ PROXY_VOUCH_SECRET: "too-short" });
+
+    expect(ok).toBe(false);
+    expect(complaint).toContain("PROXY_VOUCH_SECRET");
   });
 });

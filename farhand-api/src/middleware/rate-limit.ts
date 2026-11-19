@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { env } from "../env.js";
 import { HttpError } from "../errors.js";
+import { callerAddress } from "./caller-address.js";
 import { PostgresRateLimitStore } from "./rate-limit-store.js";
 
 /**
@@ -167,7 +168,7 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
     store: new PostgresRateLimitStore(options.name),
     skip: (req) => !env.RATE_LIMIT_ENABLED || (options.except?.(req) ?? false),
     keyGenerator: (req) => {
-      if (options.by === "ip") return ipKeyGenerator(req.ip ?? "");
+      if (options.by === "ip") return ipKeyGenerator(callerAddress(req) ?? "");
       if (options.by === "user") return signedInKey(req);
       return accountKey(req);
     },
@@ -216,7 +217,7 @@ export function accountKey(req: Request): string {
 
   return typeof email === "string" && email.trim() !== ""
     ? `account:${email.trim().toLowerCase()}`
-    : `account-unknown:${ipKeyGenerator(req.ip ?? "")}`;
+    : `account-unknown:${ipKeyGenerator(callerAddress(req) ?? "")}`;
 }
 
 /**
@@ -237,7 +238,7 @@ export function signedInKey(req: Request): string {
 
   return auth
     ? `user:${auth.user.id}`
-    : `user-unknown:${ipKeyGenerator(req.ip ?? "")}`;
+    : `user-unknown:${ipKeyGenerator(callerAddress(req) ?? "")}`;
 }
 
 /**
