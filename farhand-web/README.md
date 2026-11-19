@@ -194,14 +194,17 @@ exist. Do not read "it is responsive" off this file.
 
 ## The small modules, and why each is its own file
 
-|                        |                                                                                                                                                                                                                                                                               |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/api.ts`           | The only thing that calls `fetch` or knows what an API error looks like. `apiGet`, `apiSend` and `apiSendEmpty` share one `request`, because two copies drift in the cookie and the content type — and both of those fail in a deployed browser and nowhere a test would look |
-| `lib/field-errors.ts`  | A `422`'s `details` turned into "what is wrong with THIS input". The one part of the error envelope `api.ts` does not validate, so every entry is checked here                                                                                                                |
-| `lib/safe-next.ts`     | Where `?next=` may send somebody. It parses rather than inspecting: `/\evil.example` starts with one slash, is not `//`, and still resolves to another origin                                                                                                                 |
-| `lib/session-state.ts` | What a session is, and how to read a failed `/auth/me`                                                                                                                                                                                                                        |
-| `lib/pending-email.ts` | The address `/register` leaves for `/verify`, in `sessionStorage` rather than the URL, where it would live in history and in every later `Referer`                                                                                                                            |
-| `lib/countries.ts`     | 249 ISO 3166-1 alpha-2 codes. The API validates `/^[A-Z]{2}$/` and lists nothing, and no browser exposes region codes — `Intl.DisplayNames` names them, it does not enumerate them                                                                                            |
+|                         |                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/api.ts`            | The only thing that calls `fetch` or knows what an API error looks like. `apiGet`, `apiSend` and `apiSendEmpty` share one `request`, because two copies drift in the cookie and the content type — and both of those fail in a deployed browser and nowhere a test would look                                                             |
+| `lib/field-errors.ts`   | A `422`'s `details` turned into "what is wrong with THIS input". The one part of the error envelope `api.ts` does not validate, so every entry is checked here                                                                                                                                                                            |
+| `lib/safe-next.ts`      | Where `?next=` may send somebody. It parses rather than inspecting: `/\evil.example` starts with one slash, is not `//`, and still resolves to another origin                                                                                                                                                                             |
+| `lib/session-state.ts`  | What a session is, and how to read a failed `/auth/me`                                                                                                                                                                                                                                                                                    |
+| `lib/pending-email.ts`  | The address `/register` leaves for `/verify`, in `sessionStorage` rather than the URL, where it would live in history and in every later `Referer`                                                                                                                                                                                        |
+| `lib/countries.ts`      | 249 ISO 3166-1 alpha-2 codes. The API validates `/^[A-Z]{2}$/` and lists nothing, and no browser exposes region codes — `Intl.DisplayNames` names them, it does not enumerate them. `countryName` is the single lookup; its answers differ between Node and Chrome, so a list of them is built after mount rather than prerendered (#166) |
+| `lib/browse-filters.ts` | The four filters `GET /needs` understands, read from and written to the URL — a filtered list is something people send, reload and press Back out of. An empty value is not a filter, or `?q=` narrows the list to nothing and the screen blames the filters                                                                              |
+| `lib/browse-state.ts`   | What a browsing screen is in the middle of. `appending` is separate from `loading` so a list is never replaced by a spinner, and every state carries the key its request was made for, so an answer to a question nobody is asking any more is dropped                                                                                    |
+| `lib/needs.ts`          | The two shapes `GET /needs` and `GET /needs/:id` really answer with — ids, not nested objects — plus money and the `/api` prefix every photo path needs. It exports no total, and a test says so                                                                                                                                          |
 
 ## Routes
 
@@ -218,8 +221,9 @@ the header does not change.
 
 ## What is here, and what is next
 
-Here: browse open needs, register, confirm an email, sign in, the header in
-its three states and the banner in both of its.
+Here: browse open needs with the four filters and a page at a time, one
+need's own page, register, confirm an email, sign in, the header in its three
+states and the banner in both of its.
 
 Not here, and deliberately not guessed at — the screens come as their own
 issues, in roughly this order:

@@ -37,7 +37,7 @@ function need(title = `A need ${String((n += 1))}`): NeedCard {
     estimatedPrice: 2400,
     thankYouAmount: 0,
     coverPhoto: null,
-    category: { id: "cm1cat", slug: "beauty-care", name: "Beauty & care" },
+    categoryId: "cm1cat",
     createdAt: "2026-11-19T10:00:00.000Z",
   };
 }

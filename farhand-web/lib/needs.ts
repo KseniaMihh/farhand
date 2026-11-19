@@ -27,7 +27,14 @@ export interface NeedCard {
    * one to guess at.
    */
   coverPhoto: string | null;
-  category: { id: string; slug: string; name: string };
+  /**
+   * THE ID, NOT THE CATEGORY. Measured against the running API rather than
+   * assumed: `GET /needs` and `GET /needs/:id` both carry `categoryId` and
+   * no nested object — unlike offers, which do carry one. A screen that
+   * wants the NAME looks it up in `GET /categories` (#159), which it is
+   * already fetching for the filter and which may be cached for an hour.
+   */
+  categoryId: string;
   createdAt: string;
 }
 
@@ -42,13 +49,21 @@ export interface NeedPhoto {
  * drafts and everyone else sees only `OPEN` and `MATCHED` — so the screen has
  * to be able to say which it is looking at (2.2a, 2.2c).
  */
+/**
+ * A need's own page.
+ *
+ * NO REQUESTER OBJECT, measured the same way: this answer carries
+ * `requesterId` and nothing else about them. Naming the person who asked
+ * would mean a second request to the public profile — which is screen 2.5,
+ * is not one of the seven, and whose link this page does not have anywhere to
+ * point at yet. So the page does not name them, by the standing rule: where
+ * the design asks for something the contract does not carry, build less.
+ */
 export interface Need extends Omit<NeedCard, "coverPhoto"> {
   status: string;
-  description: string;
   productUrl: string | null;
   storeName: string | null;
   photos: NeedPhoto[];
-  requester: { id: string; displayName: string; countryCode: string };
 }
 
 /**
