@@ -32,6 +32,14 @@ notifications through a background job queue; the prohibited-items
 acknowledgement flow; saved searches; a data export endpoint; the Next.js
 frontend as a separate project.
 
+**A landing page** belongs to that last item and is named here because it was
+not obvious that it did (#168). It is not a promotion into version 1 and
+displaces nothing, so rule 4 is answered rather than bent: the frontend is a
+version 2 line already, and a frontend whose first screen is a list of other
+people's needs has not said what the product is. The trust rules in
+`07-trust-and-safety.md` also only work on somebody who has read them, and
+until there was a front door there was nowhere to say them.
+
 **Rendering the public lists on the server** — a version 2 idea with a
 warning attached, and the warning is why it is written down. A server
 component would fetch the API from Vercel's own machine, without the vouch

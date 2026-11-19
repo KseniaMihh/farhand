@@ -11,16 +11,26 @@ import { BROWSE, REGISTER } from "@/lib/landing-links";
  */
 export function ClosingCall() {
   return (
-    <section>
-      {/* TODO: the question as a heading, one line under it, two buttons. */}
-      <h2>What would you ask someone abroad to buy for you?</h2>
+    <section className="border-t border-line bg-pine">
+      <div className="mx-auto max-w-column px-4 py-16 text-center lg:py-20">
+        <h2 className="mx-auto max-w-[22ch] font-serif text-page-title text-cream">
+          What would you ask someone abroad to buy for you?
+        </h2>
 
-      <Link href={REGISTER.href} className="btn btn-primary">
-        {REGISTER.label}
-      </Link>
-      <Link href={BROWSE.href} className="btn btn-secondary">
-        {BROWSE.label}
-      </Link>
+        <p className="mx-auto mt-4 max-w-[52ch] text-lead text-sage-tint">
+          Posting a need costs nothing and commits you to nothing. The answers
+          come from people who live where it is sold.
+        </p>
+
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <Link href={REGISTER.href} className="btn btn-offer no-underline">
+            {REGISTER.label}
+          </Link>
+          <Link href={BROWSE.href} className="btn btn-secondary no-underline">
+            {BROWSE.label}
+          </Link>
+        </div>
+      </div>
     </section>
   );
 }

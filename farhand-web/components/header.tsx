@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useSession } from "@/lib/session";
+import { AccountMenu } from "@/components/account-menu";
 
 /**
  * The masthead, in three branches over four states.
@@ -35,8 +36,7 @@ const LINK =
   "text-button whitespace-nowrap text-pine no-underline hover:underline hover:underline-offset-[3px] aria-[current=page]:underline aria-[current=page]:underline-offset-[3px] aria-[current=page]:decoration-2";
 
 export function Header() {
-  const { session, signOut } = useSession();
-  const router = useRouter();
+  const { session } = useSession();
   const path = usePathname();
 
   /** `aria-current` so the page you are on is announced, not only underlined. */
@@ -111,49 +111,15 @@ export function Header() {
               Post an offer
             </Link>
 
-            {/* <details> rather than state: the keyboard, Escape and
-                click-outside all work without any of it being written here. */}
-            <details className="relative">
-              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-control px-1.5 py-1 text-button hover:bg-sage-tint [&::-webkit-details-marker]:hidden">
-                <span className="avatar" aria-hidden="true">
-                  {/* `profile` is nullable in the API's own type, so this
-                      falls back to the address rather than asserting one. */}
-                  {(session.me.profile?.displayName ?? session.me.email).slice(
-                    0,
-                    1,
-                  )}
-                </span>
-                <span className="hidden sm:inline">
-                  {session.me.profile?.displayName ?? session.me.email}
-                </span>
-                <span className="text-[10px] opacity-70" aria-hidden="true">
-                  ▾
-                </span>
-              </summary>
-
-              <div className="absolute right-0 z-10 mt-1.5 min-w-45 rounded-control border border-line bg-card p-1.5 shadow-[0_10px_24px_rgb(31_59_52/0.12)]">
-                <p className="mx-2.5 mt-0.5 mb-1.5 text-caption break-all text-muted">
-                  {session.me.email}
-                </p>
-                <Link
-                  href="/settings"
-                  className="block w-full rounded px-2.5 py-2 text-button text-pine no-underline hover:bg-sage-tint"
-                >
-                  Settings
-                </Link>
-                <button
-                  type="button"
-                  className="block w-full cursor-pointer rounded px-2.5 py-2 text-left text-button text-pine hover:bg-sage-tint"
-                  onClick={() => {
-                    void signOut().then(() => {
-                      router.push("/");
-                    });
-                  }}
-                >
-                  Sign out
-                </button>
-              </div>
-            </details>
+            {/* The menu moved to `components/account-menu.tsx` in #168, so
+                that the landing page can use it too and there is one sign-out
+                button rather than two. Settings is passed from here because
+                that screen does not exist yet and the front door may not
+                link to it. */}
+            <AccountMenu
+              me={session.me}
+              settings={{ href: "/settings", label: "Settings" }}
+            />
           </div>
         ) : session.status === "signed-out" ? (
           signedOutActions

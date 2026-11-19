@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AccountMenu } from "@/components/account-menu";
 import { useSession } from "@/lib/session";
 import { REGISTER, SIGN_IN } from "@/lib/landing-links";
 
@@ -14,8 +15,9 @@ import { REGISTER, SIGN_IN } from "@/lib/landing-links";
  *
  * NOT KNOWN IS NOT SIGNED OUT — the same rule as `components/header.tsx`, and
  * it matters more here, because this page is prerendered: the HTML that
- * arrives always says "Sign in", and the session answer comes after. A
- * signed-in visitor must not see the pair flash and then change.
+ * arrives always says "Sign in", and the session answer comes after. So
+ * "checking" and "unknown" render this pair hidden rather than absent, the
+ * row keeps its width, and nothing is announced that is not there.
  *
  * SIGNED IN, THEY GET THE SAME NAME MENU AS THE PRODUCT HEADER — avatar,
  * address, Sign out — because otherwise the landing page is the one screen
@@ -24,30 +26,35 @@ import { REGISTER, SIGN_IN } from "@/lib/landing-links";
  * WITH ONE OMISSION, and it is the rule of this page doing its job: the
  * product header's menu also links to `/settings`, which does not exist. It
  * is one of the five dead links `app/not-found.tsx` catches, acceptable
- * inside the product and not acceptable here. So the shared menu takes the
- * settings link as something a caller may pass, and this caller does not
- * pass it until that screen is built. The dead-link test would have caught
- * it either way, which is the point of having one.
- *
- * TODO: extract the `<details>` menu out of `components/header.tsx` into
- * `components/account-menu.tsx` and use it from both. Two copies of a
- * sign-out button is two places for it to stop working.
+ * inside the product and not acceptable here. `AccountMenu` takes the
+ * settings link from its caller, and this caller passes none.
  */
 export function LandingAccount() {
   const { session } = useSession();
 
-  // TODO: the shared account menu, without its settings link.
-  if (session.status === "signed-in") return null;
+  if (session.status === "signed-in") {
+    return <AccountMenu me={session.me} />;
+  }
 
-  // TODO: checking and unknown render this pair hidden rather than absent, so
-  // the row keeps its width and nothing is announced that is not there.
-
-  return (
-    <div>
-      <Link href={SIGN_IN.href}>{SIGN_IN.label}</Link>
-      <Link href={REGISTER.href} className="btn btn-primary">
+  const actions = (
+    <div className="flex items-center gap-3">
+      <Link
+        className="text-button whitespace-nowrap text-pine no-underline hover:underline hover:underline-offset-[3px]"
+        href={SIGN_IN.href}
+      >
+        {SIGN_IN.label}
+      </Link>
+      <Link className="btn btn-primary" href={REGISTER.href}>
         {REGISTER.label}
       </Link>
+    </div>
+  );
+
+  if (session.status === "signed-out") return actions;
+
+  return (
+    <div className="invisible" aria-hidden="true">
+      {actions}
     </div>
   );
 }

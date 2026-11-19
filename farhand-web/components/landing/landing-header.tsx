@@ -14,25 +14,32 @@ import { BROWSE, FRONT_DOOR, HOW_IT_WORKS, TRUST } from "@/lib/landing-links";
  * A server component. The only part that knows whether anyone is signed in is
  * `LandingAccount`, which is two links wide.
  */
+const LINK =
+  "text-button whitespace-nowrap text-pine no-underline hover:underline hover:underline-offset-[3px]";
+
 export function LandingHeader() {
-  // TODO: the airmail stripe, the wordmark, and NAV's first three as a row.
-  // The design puts the jump links first and the destinations after.
   return (
-    <header>
-      <Link href={FRONT_DOOR.href} className="wordmark">
-        {FRONT_DOOR.label}
-      </Link>
+    <header className="sticky top-0 z-20 border-b border-line bg-cream/95 backdrop-blur">
+      <div className="airmail" aria-hidden="true" />
 
-      {/* TODO: HOW_IT_WORKS, TRUST, BROWSE */}
-      <nav aria-label="Main">
-        {[HOW_IT_WORKS, TRUST, BROWSE].map((link) => (
-          <Link key={link.href} href={link.href}>
-            {link.label}
-          </Link>
-        ))}
-      </nav>
+      <div className="mx-auto flex max-w-column items-center justify-between gap-4 px-4 py-3.5">
+        <Link href={FRONT_DOOR.href} className="wordmark">
+          {FRONT_DOOR.label}
+        </Link>
 
-      <LandingAccount />
+        <nav
+          className="flex min-w-0 items-center gap-5 overflow-x-auto [scrollbar-width:none]"
+          aria-label="Main"
+        >
+          {[HOW_IT_WORKS, TRUST, BROWSE].map((link) => (
+            <Link key={link.href} className={LINK} href={link.href}>
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+
+        <LandingAccount />
+      </div>
     </header>
   );
 }
