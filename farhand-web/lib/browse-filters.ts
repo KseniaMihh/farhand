@@ -153,3 +153,24 @@ export function historyMode(
 
   return sameBut("q") ? "replace" : "push";
 }
+
+/**
+ * The address the browse list should be at, given where it already is —
+ * issue #168.
+ *
+ * THE PATH IS PASSED IN, NOT WRITTEN DOWN. This used to be `"/"` inside the
+ * page, because browse WAS the root; #168 gave the root to the landing page
+ * and moved browse to `/needs`, and the symptom of missing this line would
+ * have been silent — applying a filter navigates to the front door carrying
+ * a query string it has no use for. No error, no 404, just the wrong screen.
+ *
+ * A function rather than two lines in the component so that the one thing
+ * worth saying about it can be said in a test: an empty filter set is the
+ * plain path, and NOT the plain path with a `?` stuck on the end, which is a
+ * different URL that every Back button and every share remembers separately.
+ */
+export function hrefFor(pathname: string, filters: BrowseFilters): string {
+  const query = queryFrom(filters).toString();
+
+  return query === "" ? pathname : `${pathname}?${query}`;
+}

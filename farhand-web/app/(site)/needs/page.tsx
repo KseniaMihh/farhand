@@ -16,6 +16,7 @@ import {
 import {
   filtersFrom,
   historyMode,
+  hrefFor,
   isUnfiltered,
   queryFrom,
   type BrowseFilters,
@@ -142,8 +143,6 @@ function Browsing() {
   }, []);
 
   function go(next: BrowseFilters, mode: "push" | "replace") {
-    const query = queryFrom(next).toString();
-
     /*
       THE PAGE'S OWN PATH, read rather than written down. This said "/" until
       #168 moved browse off the root to make room for the landing page, and
@@ -151,7 +150,7 @@ function Browsing() {
       with a query string it has no use for. `usePathname` cannot drift the
       next time something moves.
     */
-    const href = query === "" ? pathname : `${pathname}?${query}`;
+    const href = hrefFor(pathname, next);
 
     if (mode === "replace") router.replace(href, { scroll: false });
     else router.push(href, { scroll: false });
