@@ -32,6 +32,15 @@ notifications through a background job queue; the prohibited-items
 acknowledgement flow; saved searches; a data export endpoint; the Next.js
 frontend as a separate project.
 
+**Rendering the public lists on the server** — a version 2 idea with a
+warning attached, and the warning is why it is written down. A server
+component would fetch the API from Vercel's own machine, without the vouch
+header, so every visitor's browsing would count as **one** caller against the
+global by-address limit — which is the bug #164 closed, returning by another
+door. It would also make the page wait for an API that sleeps. Anyone
+"optimising" a list into a server component has to solve the vouch for
+server-side calls first (decision 0035).
+
 ## Version 3 — if it ever becomes real
 
 Payments held until delivery, using a provider such as Stripe Connect; identity

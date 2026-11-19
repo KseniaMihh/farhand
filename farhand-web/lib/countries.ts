@@ -79,3 +79,28 @@ export function countries(locale = "en"): Country[] {
 
   return named.sort((a, b) => collator.compare(a.name, b.name));
 }
+
+/**
+ * One code, named — issue #166.
+ *
+ * `countries()` above builds and sorts the whole list, which is what a select
+ * wants. A card wants one name, twenty times on a page, and building a
+ * `DisplayNames` per card would be twenty of them per render.
+ *
+ * It falls back to the code itself, which is what `Intl.DisplayNames` does for
+ * a region it does not know — a worse label, never a broken one. The API
+ * stores two-letter codes and this is the only place they become words.
+ */
+const NAMING = new Map<string, Intl.DisplayNames | null>();
+
+export function countryName(code: string, locale = "en"): string {
+  if (!NAMING.has(locale)) {
+    try {
+      NAMING.set(locale, new Intl.DisplayNames([locale], { type: "region" }));
+    } catch {
+      NAMING.set(locale, null);
+    }
+  }
+
+  return NAMING.get(locale)?.of(code) ?? code;
+}
