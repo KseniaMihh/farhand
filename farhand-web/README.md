@@ -288,13 +288,20 @@ Here: the landing page, browse open needs with the four filters and a page at
 a time, one need's own page, register, confirm an email, sign in, the header
 in its three states and the banner in both of its.
 
-Two things the landing page says less than the design did, both on purpose.
-The testimonials are gone — "From people who've done it", three five-star
-quotes with names, on a product nobody has used yet — and the hero's example
-cards are marked **Example**, are not links, and drop the city and the star
-rating the design drew on them. A made-up listing presented as a real one is
-the same mistake in miniature, and the city is one the product never shows
-anybody but its owner.
+One thing the landing page says less than the design did, on purpose: **the
+testimonials are gone** — "From people who've done it", three five-star quotes
+with names, on a product nobody has used yet. Quotes attributed to people are
+a claim, and there was nobody to quote.
+
+The hero's two sample cards are drawn in full, city and star rating included.
+They were held back at first and the reversal is deliberate (#172): nothing on
+them can be clicked, nothing leads anywhere from them, and they sit in a hero
+rather than in a list, so there is no decision for the detail to mislead. What
+holds them apart from a real listing now is exactly that — **neither is a link
+and neither sits in anything list-shaped** — so keep both true. And do not
+read them as a specification: a real need card shows two countries and never a
+city, and a rating comes from completed deals rather than from a number typed
+into a component.
 
 Not here, and deliberately not guessed at — the screens come as their own
 issues, in roughly this order:

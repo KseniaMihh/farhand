@@ -1,12 +1,5 @@
 import Link from "next/link";
-import {
-  BROWSE,
-  FRONT_DOOR,
-  HOW_IT_WORKS,
-  REGISTER,
-  SIGN_IN,
-  TRUST,
-} from "@/lib/landing-links";
+import { FRONT_DOOR, NAV, REGISTER, SIGN_IN } from "@/lib/landing-links";
 
 /**
  * The marketing masthead — issue #168, laid out to the design in #170.
@@ -29,12 +22,20 @@ import {
  * IS signed out — the cookie is the session. There is nothing to ask the API
  * and no second state to draw, which is why the pair below is plain markup
  * where it used to be a client component waiting on an answer.
+ *
+ * THE NAVIGATION IS THE PAGE'S TABLE OF CONTENTS (#172). Three jump links,
+ * in the order the sections appear below: how it works, trust & safety, the
+ * questions. Nothing in the bar leaves the page any more — "Browse needs"
+ * moved out of it, because a bar that is three anchors and one departure
+ * teaches nobody which is which, and leaving is what the hero's button, the
+ * closing call and the footer are for.
+ *
+ * The list comes from `lib/landing-links.ts` rather than being written here.
+ * It was written here briefly after #170, which quietly meant the test that
+ * checks the navigation was checking a list nothing rendered.
  */
 const LINK =
   "text-button whitespace-nowrap text-pine no-underline hover:underline hover:underline-offset-[3px]";
-
-/* The design's order: a jump link, the one destination, a jump link. */
-const NAV = [HOW_IT_WORKS, BROWSE, TRUST];
 
 export function LandingHeader() {
   return (
