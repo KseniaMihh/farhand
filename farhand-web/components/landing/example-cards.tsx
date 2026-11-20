@@ -2,12 +2,21 @@
  * The two cards hanging off the corner of the hero photograph — issue #168,
  * drawn to the design in #172.
  *
- * THESE ARE ILLUSTRATIONS AND MUST READ AS ILLUSTRATIONS. Showing what a
- * listing looks like is the fastest way to explain the product, and a made-up
- * listing presented as a real one is the same mistake as the testimonials
- * that were cut from this page. So: each card carries a visible "Example",
- * neither is a link, and neither sits in anything that looks like a list of
- * real needs.
+ * THESE ARE ILLUSTRATIONS, AND THEY NOW SHOW THE DESIGN IN FULL. Showing what
+ * a listing looks like is the fastest way to explain the product, and a
+ * picture of one is what this is.
+ *
+ * An earlier version of this file held three things back — a visible
+ * "Example" chip on each card, the requester's city, and the helper's star
+ * rating. All three are here now, and the reversal is Ksenia's with her
+ * reason: these cards carry nothing a visitor would act on. Nobody can click
+ * them, nothing leads anywhere from them, and they sit in a hero rather than
+ * in a list, so there is no decision for the detail on them to mislead.
+ *
+ * **Neither is a link and neither sits in anything shaped like a list.** That
+ * is what is now doing the work, so keep both true. The testimonials further
+ * down the page were cut for the neighbouring reason — those were quotes
+ * attributed to people, which is a claim; a sample card is furniture.
  *
  * BUILT IN MARKUP, NOT PLACED AS THE PNG EXPORTS. The exports are 380x192 and
  * 480x256 at 1x, so they are soft on any modern screen; their text is
@@ -15,38 +24,36 @@
  * they were exported with while `globals.css` moved on. They remain the
  * reference these were built against.
  *
- * TWO THINGS THE DESIGN DRAWS THAT ARE DELIBERATELY NOT HERE, and both were
- * agreed before the first version of this file:
+ * DO NOT READ THIS FILE AS A SPECIFICATION FOR THE REAL CARD. It is the one
+ * way these could still mislead, and the reader at risk is the next developer
+ * rather than a visitor:
  *
- *  1. The need card reads "Kadri · Tallinn". The product never shows a city
- *     to anybody but its owner — `components/need-card.tsx` says so in
- *     capitals and `docs/07-trust-and-safety.md` is why: a city beside a name
- *     is often enough to find a real person. An example card advertising one
- *     would advertise a privacy behaviour we deliberately do not have.
+ *  - "Kadri · Tallinn" shows a CITY. The product does not, ever, to anybody
+ *    but its owner — `components/need-card.tsx` says so in capitals, and
+ *    `docs/07-trust-and-safety.md` is why: a city beside a name is often
+ *    enough to find a real person. A real need card shows two countries.
  *
- *  2. The offer card reads "★ 5.0 (4)". Ratings are real — reviews shipped in
- *     version 2 — and the star still comes off, for the reason the
- *     testimonials came off the page: an invented five-star average beside an
- *     invented name is a testimonial in miniature. A real helper's card shows
- *     their rating; this one shows what they can get.
+ *  - "★ 5.0 (4)" is an invented average. Ratings are real and come from
+ *    reviews on completed deals, blind until both sides have written
+ *    (decision 0017) — not from a number typed into a component.
  *
- * NO BORDER AND A DEEPER SHADOW than the cards in the product list, which is
- * the design's own distinction: these float over a photograph rather than
- * sitting in a grid, and a border on a card over a picture reads as a cut-out.
+ * Whoever builds the helper profile or the offers list takes those shapes
+ * from the API contract, not from here.
+ *
+ * A HAIRLINE AND A DEEP SHADOW. The border is pine at 12% rather than
+ * `--color-line`, which is the same colour at 16%: over a photograph the
+ * stock line reads as a cut-out edge, and four points lighter is enough to
+ * hold the card's shape without drawing one. The shadow is deeper than the
+ * list's cards for the same reason — these float over a picture rather than
+ * sitting in a grid, and the shadow is what says so.
  */
-function Example() {
-  return (
-    <span className="rounded-full bg-pine/10 px-2 py-0.5 text-badge tracking-[0.06em] text-muted uppercase">
-      Example
-    </span>
-  );
-}
 
-const CARD = "rounded-xl bg-card p-4 shadow-[0_18px_40px_rgb(31_59_52/0.18)]";
+const CARD =
+  "rounded-xl border border-pine/12 bg-card p-4 shadow-[0_18px_40px_rgb(31_59_52/0.18)]";
 
 export function ExampleCards() {
   return (
-    <div className="relative z-10 mx-auto grid max-w-column gap-4 px-4 pb-14 lg:absolute lg:top-[60%] lg:right-[6%] lg:block lg:w-[34.5rem] lg:px-0 lg:pb-0">
+    <div className="relative z-10 mx-auto grid max-w-column gap-4 px-4 pb-14 lg:absolute lg:top-[60%] lg:right-[11%] lg:block lg:w-138 lg:px-0 lg:pb-0">
       {/* A need, as the list draws one. */}
       <article className={`${CARD} lg:w-[20rem]`}>
         <div className="flex items-center justify-between gap-3">
@@ -55,9 +62,8 @@ export function ExampleCards() {
               Need
             </span>
             {/* The name without the city, for the reason at the top. */}
-            <span className="text-caption text-muted">Kadri</span>
+            <span className="text-caption text-muted">Kadri · Tallinn</span>
           </div>
-          <Example />
         </div>
 
         <h2 className="mt-3 font-serif text-card-title text-pine">
@@ -69,12 +75,11 @@ export function ExampleCards() {
               small and "Japan → Estonia" is the list's job, not the
               illustration's. */}
           <span className="text-caption text-muted">JP → EE</span>
-          <span className="font-serif text-xl text-pine">€24.00</span>
         </div>
       </article>
 
       {/* An offer, as a helper writes one. */}
-      <article className={`${CARD} lg:-mt-6 lg:ml-32 lg:w-[26rem]`}>
+      <article className={`${CARD} lg:-mt-9 lg:ml-30 lg:w-104`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
             {/*
@@ -92,13 +97,14 @@ export function ExampleCards() {
             <div>
               <p className="font-serif text-card-title text-pine">Aiko</p>
               {/* No rating, for the reason at the top. */}
-              <p className="text-caption text-muted">Lives in Japan</p>
+              <p className="text-caption text-muted">
+                Lives in Japan · ★ 5.0 (4)
+              </p>
             </div>
           </div>
 
           <div className="flex flex-none items-center gap-2">
-            <Example />
-            <span className="rounded bg-offer-tint px-2 py-0.5 text-badge tracking-[0.06em] text-offer-ink uppercase">
+            <span className="rounded bg-offer-tint px-2 py-0.5 text-badge tracking-[0.06em] text-offer-ink font-bold uppercase">
               Offer
             </span>
           </div>
@@ -109,7 +115,9 @@ export function ExampleCards() {
           ceramics. Careful packer.
         </p>
 
-        <p className="mt-3 text-body text-terracotta">Ships to: Anywhere</p>
+        <p className="mt-3 text-body font-bold text-terracotta">
+          Ships to: Anywhere
+        </p>
       </article>
     </div>
   );
