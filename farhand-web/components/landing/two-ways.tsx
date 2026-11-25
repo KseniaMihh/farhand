@@ -48,7 +48,7 @@ function Column({
   const need = kind === "need";
 
   return (
-    <article className="overflow-hidden rounded-xl border border-line bg-card">
+    <article className="overflow-hidden rounded-xl border border-line bg-cream">
       <div className={need ? "h-1.5 bg-blue" : "h-1.5 bg-terracotta"} />
 
       <div className="p-7">
@@ -86,12 +86,12 @@ function Column({
 
 export function TwoWays() {
   return (
-    <section className="border-b border-line bg-card">
+    <section className="bg-card">
       <div className="mx-auto max-w-column px-4 py-16 lg:py-20">
         <h2 className="font-serif text-page-title text-pine">
           Two ways to use Farhand
         </h2>
-        <p className="mt-3 max-w-[52ch] text-lead text-muted">
+        <p className="mt-3 text-lead text-muted">
           The same account does both. Blue always means a need, terracotta
           always means an offer.
         </p>

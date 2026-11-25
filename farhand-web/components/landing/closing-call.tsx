@@ -11,7 +11,7 @@ import { BROWSE, REGISTER } from "@/lib/landing-links";
  */
 export function ClosingCall() {
   return (
-    <section className="border-t border-line bg-pine">
+    <section className="bg-pine">
       <div className="mx-auto max-w-column px-4 py-16 text-center lg:py-20">
         <h2 className="mx-auto max-w-[22ch] font-serif text-page-title text-cream">
           What would you ask someone abroad to buy for you?
