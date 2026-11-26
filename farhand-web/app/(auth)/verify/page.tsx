@@ -66,6 +66,8 @@ function VerifyForm() {
         // nothing else; the session is whatever it already was. Somebody who
         // opened the link on another device has none at all.
         if (session.status === "signed-in") {
+          // Kept for the reason in sign-in (#177), and it chooses nothing: the
+          // branch was decided above, from the session as it was before this.
           await refresh();
           // `HOME` rather than "/", which is the landing page since #168.
           router.replace(HOME);

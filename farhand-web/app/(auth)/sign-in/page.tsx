@@ -37,6 +37,8 @@ function SignInForm() {
 
     apiSend("POST", "/auth/login", { email, password })
       .then(async () => {
+        // Kept although `(site)` asks again on arrival: this is redundant only
+        // while no `(auth)` page is a destination (#177).
         await refresh();
 
         // Checked, never trusted. lib/safe-next.ts says why a character test
