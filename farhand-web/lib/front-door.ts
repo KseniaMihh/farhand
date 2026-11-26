@@ -4,7 +4,7 @@
  * Signed in, `/` should be the product and not the sales pitch, so a request
  * for it that carries a session is sent to the list.
  *
- * WHY THIS IS A MODULE AND NOT THREE LINES IN `middleware.ts`, which is the
+ * WHY THIS IS A MODULE AND NOT THREE LINES IN `proxy.ts`, which is the
  * same argument `lib/safe-next.ts` makes: a rule tangled into the thing that
  * applies it is a rule that gets tested by clicking. The two mistakes worth
  * guarding against are both quiet — gating a path that was never meant to be

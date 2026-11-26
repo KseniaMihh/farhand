@@ -107,7 +107,7 @@ describe("stating the address, or stating nothing", () => {
 
   /**
    * THE ONE THAT IS ABOUT SOMEBODY ELSE'S REQUEST. A request arriving at this
-   * middleware can carry any header a stranger chose, including these two
+   * proxy can carry any header a stranger chose, including these two
    * names. The API would refuse an unproven one — the secret is the entire
    * point — but a proxy that forwards a forgery and trusts the far end to
    * catch it is one audit away from being wrong.

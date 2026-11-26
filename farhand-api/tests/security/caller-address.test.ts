@@ -366,7 +366,7 @@ describe("saying so when the hop count is wrong again", () => {
  * WHY A SECRET AND NOT A COUNT. Everything above this line resolves a caller
  * by counting hops back from the socket, and that works for a request which
  * arrives at the API directly. Since #152 there is a second path: the browser
- * talks to the deployed site and `farhand-web/middleware.ts` forwards to us,
+ * talks to the deployed site and `farhand-web/proxy.ts` forwards to us,
  * which puts a fourth machine in front and makes the chain four entries long
  * where a direct one is three. `TRUSTED_PROXY_HOPS` cannot be right for both.
  *
@@ -796,7 +796,7 @@ describe("a private address, vouched for", () => {
     expect(complained).toHaveBeenCalledTimes(1);
     const [, message] = complained.mock.calls[0] as [unknown, string];
     expect(message).toContain("vouched");
-    expect(message).toContain("middleware.ts");
+    expect(message).toContain("proxy.ts");
     expect(message).not.toContain("trust proxy believes");
   });
 });

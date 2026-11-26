@@ -50,7 +50,7 @@ export const metadata: Metadata = {
  * NEITHER IS THE SESSION, since #177. The provider wrapped everything here,
  * which looked like generosity and was a request: it asks `GET /auth/me` on
  * mount, so it asked on the landing page too — the one screen whose visitors
- * are all signed out by definition, because `middleware.ts` sends anybody
+ * are all signed out by definition, because `proxy.ts` sends anybody
  * carrying a cookie to `/needs` before this layout ever runs. A question
  * whose answer is already known is not a cheap question. It is a pointless
  * one, and it was also the reason the landing page shipped client JavaScript

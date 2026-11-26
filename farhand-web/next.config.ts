@@ -29,13 +29,13 @@ import type { NextConfig } from "next";
  * the page. One line, and the default is gone.
  */
 /**
- * THE REWRITE MOVED TO middleware.ts (#152), and this file is left saying so
+ * THE REWRITE MOVED TO proxy.ts (#152), and this file is left saying so
  * because the first place anybody looks for a rewrite is here.
  *
  * It was declared here until the first deploy measured what that produced:
  * a rewrite in this file is performed by Vercel routing layer, which makes
  * the outbound request as though it were the client, and the visitor address
- * never reached the API at all. The middleware sets it deliberately.
+ * never reached the API at all. The proxy sets it deliberately.
  *
  * There is deliberately no rewrite left here as a fallback. Two mechanisms
  * for one job means the quiet one wins when the other breaks, and the quiet

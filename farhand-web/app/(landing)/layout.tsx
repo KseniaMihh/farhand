@@ -32,7 +32,7 @@ import { WarmUp } from "@/components/landing/warm-up";
  * Until #177 this group was wrapped by the session provider from the root
  * layout, which asked `GET /auth/me` on every visit. Nothing here reads a
  * session: a visitor who reaches this page has no cookie, because
- * `middleware.ts` sends anybody who has one to `/needs`, and no cookie IS
+ * `proxy.ts` sends anybody who has one to `/needs`, and no cookie IS
  * signed out — so the masthead draws the signed-out state as plain markup
  * with nothing to ask. See `landing-header.tsx`, which has said so since
  * #170 while this file still claimed the opposite.

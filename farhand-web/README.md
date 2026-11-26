@@ -104,19 +104,19 @@ front plausibly makes it 4 — and plausibly is not a number. Decision 0029
 records why it has to be measured: a count that is too _large_ resolves to a
 proxy's own public address and passes every check above.
 
-**This happened on the first deploy, and `middleware.ts` is the answer.** A
+**This happened on the first deploy, and `proxy.ts` is the answer.** A
 rewrite declared in `next.config.ts` is performed by Vercel's routing layer,
 which makes the outbound request as though it were the client: three entries
 in `X-Forwarded-For`, Vercel's leftmost, the visitor's nowhere — and not
-under another header name either. The middleware puts it back deliberately,
+under another header name either. The proxy puts it back deliberately,
 forwarding only the entry the nearest proxy vouched for.
 
 The hop count was **not** the problem, and raising it would have made things
 worse by resolving further left into the part of the header a caller writes
 for themselves. `TRUSTED_PROXY_HOPS` stays at 3.
 
-If the middleware ever stops being enough, the escalation is a catch-all
-route handler at `app/api/[...path]/route.ts`. It costs more than middleware
+If the proxy ever stops being enough, the escalation is a catch-all
+route handler at `app/api/[...path]/route.ts`. It costs more than a proxy invocation
 — the body no longer streams by itself, and `Set-Cookie` has to be copied by
 hand, which is the one thing decision 0031 exists to protect. Not to be built
 on suspicion.
@@ -238,7 +238,7 @@ own. The session provider sits in `(site)` and `(auth)` — one per group that
 reads it, so the header, the banner and a form all read one answer rather
 than racing for three. It was above all three until #177, which meant the
 landing page asked `GET /auth/me` on every visit to learn something
-`middleware.ts` had already decided; `(landing)` reads no session at all.
+`proxy.ts` had already decided; `(landing)` reads no session at all.
 
 **`/` is the landing page and `/needs` is the list** (#168). Browse was the
 root until the front door needed it — two route groups cannot both own `/` —
@@ -264,7 +264,7 @@ the API by accident. [Decision
 0036](../docs/10-decisions/0036-the-front-door-wakes-the-api.md) is the
 argument, including why it fires on mount rather than on hover.
 
-**It is also only for people who are not signed in** (#170). `middleware.ts`
+**It is also only for people who are not signed in** (#170). `proxy.ts`
 redirects a request for `/` that carries a session cookie to `/needs`:
 somebody with a session wants the product, not the sales pitch. That is why
 the masthead there needs no session at all — a request that reaches the page
@@ -273,7 +273,7 @@ session.
 
 Two things that decision bought, and one it accepts:
 
-- The matcher in `middleware.ts` now names `/` as well as `/api/:path*`,
+- The matcher in `proxy.ts` now names `/` as well as `/api/:path*`,
   where it previously took pages out of it on purpose. A server component
   reading the cookie would do the same job and make the route dynamic, which
   costs exactly the property above.
