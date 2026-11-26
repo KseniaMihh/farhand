@@ -2,10 +2,10 @@
  * Which address the API should count this request against, and the proof that
  * we are the ones saying so (#164).
  *
- * In `lib/` and not in `middleware.ts` for the reason `safe-next.ts` is here:
- * this is a rule, the rule is the part worth pinning, and a rule in a file
- * with no Next runtime in it can be tested directly. `middleware.ts` keeps
- * the part that is genuinely about Next — the rewrite — and calls this.
+ * In `lib/` and not in `proxy.ts` for the reason `safe-next.ts` is here: this
+ * is a rule, the rule is the part worth pinning, and a rule in a file with no
+ * Next runtime in it can be tested directly. `proxy.ts` keeps the part that
+ * is genuinely about Next — the rewrite — and calls this.
  *
  * vouched caller: see docs/10-decisions/0035-the-frontend-states-the-caller.md
  */
@@ -57,19 +57,23 @@ export function visitorAddress(forwardedFor: string | null): string | null {
 /**
  * States the address on an outgoing request, or states nothing at all.
  *
- * Mutates the `Headers` it is given, which is what middleware has to hand.
+ * Mutates the `Headers` it is given, which is what the proxy has to hand.
  *
  * BOTH OR NEITHER, and the "neither" half is not tidiness. A request arriving
- * at this middleware can carry any header a stranger chose, including these
+ * at this proxy can carry any header a stranger chose, including these
  * two names. Without the delete, whatever they wrote is forwarded verbatim —
  * the API would refuse it, because the secret is the entire point, but a
  * proxy that passes a forgery along and trusts the far end to catch it is one
  * audit away from being wrong.
  *
- * Whether the value IS an address is checked at the API and not here, where
- * `node:net` does not exist — the edge runtime is not Node. That check has to
- * live at the far end regardless, because the far end is what would otherwise
- * turn a hostname into a rate-limit key.
+ * Whether the value IS an address is checked at the API and not here. The
+ * reason given until #178 was that `node:net` does not exist, the edge
+ * runtime not being Node — and a `proxy.ts` runs on Node, so it does exist
+ * now. The reason that survives the rename is the one that always carried the
+ * weight: the check has to live at the far end regardless, because the far
+ * end is what would otherwise turn a hostname into a rate-limit key, and
+ * because a request forged straight at the API never passes through here to
+ * be checked at all.
  */
 export function applyVouch(
   headers: Headers,

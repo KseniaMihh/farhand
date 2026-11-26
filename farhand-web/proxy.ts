@@ -13,10 +13,18 @@ import { applyVouch } from "@/lib/vouched-caller";
  * outbound request **as though it were the client**. `next.config.ts` is
  * deliberately empty and says so (decision 0034).
  *
+ * THIS WAS `middleware.ts` UNTIL #178, AND THE RENAME CHANGED THE RUNTIME.
+ * Next 16 deprecated the middleware convention, and a `proxy.ts` runs on the
+ * Node.js runtime: the `runtime` option is not available in a proxy file at
+ * all, and setting it fails the build even to "nodejs". So this is not a
+ * rename configuration could undo, and everything below that rested on being
+ * on the edge was measured again rather than assumed. Decision 0037 is those
+ * measurements.
+ *
  * WHY THE ADDRESS TRAVELS UNDER A NAME OF OURS. Three deploys tried to put
  * the visitor back into `x-forwarded-for` and all three failed, for one
  * reason that took three rounds to see: the value was right and the API's hop
- * count was reading one entry past it. This middleware is a fourth machine in
+ * count was reading one entry past it. This proxy is a fourth machine in
  * front of the API, so the chain it receives is four long where a direct one
  * is three, and no count can be correct for both — raising it would resolve a
  * forgery on the direct path instead.
@@ -36,7 +44,7 @@ const API = process.env.FARHAND_API_URL ?? "https://farhand-api.onrender.com";
  */
 const SESSION_COOKIE = "farhand_session";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const url = new URL(request.url);
 
   /*
@@ -64,10 +72,19 @@ export function middleware(request: NextRequest) {
   const headers = new Headers(request.headers);
 
   // Read here rather than at module scope only because it reads better beside
-  // the call. Next inlines `process.env` into the edge bundle at BUILD time
-  // either way, which is why rotating this secret needs a redeploy of this
-  // side and not just a dashboard save — decision 0035 has the order to do it
-  // in.
+  // the call.
+  //
+  // THIS IS A RUNTIME READ, and the comment that used to stand here said the
+  // opposite: that Next inlines `process.env` into the bundle at build time.
+  // It does not. Building with a sentinel value puts
+  // `process.env.PROXY_VOUCH_SECRET` in the output and the value nowhere —
+  // under this runtime, and under the edge one before it, so 0035 was wrong
+  // about the mechanism from the day it was written.
+  //
+  // Rotating the secret still needs a redeploy of this side rather than a
+  // dashboard save, because Vercel applies an environment change only to new
+  // deployments whatever the runtime. Same procedure, different reason:
+  // decision 0037 has both, and the order to do it in.
   applyVouch(
     headers,
     request.headers.get("x-forwarded-for"),
@@ -87,7 +104,7 @@ export function middleware(request: NextRequest) {
  * The proxied calls, and exactly one page.
  *
  * Everything else — the other pages, the fonts next/font self-hosts, Next's
- * own assets — must not pay for a middleware invocation, and has no reason
+ * own assets — must not pay for a proxy invocation, and has no reason
  * to be rewritten anywhere. `/` is the exception because the question
  * "should this person be here at all?" has to be answered before the page is
  * sent, and the page itself is prerendered: a server component that read the

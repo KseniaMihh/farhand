@@ -17,7 +17,7 @@ import { FRONT_DOOR, NAV, REGISTER, SIGN_IN } from "@/lib/landing-links";
  * to — which is what this looked like until #170.
  *
  * NO SESSION, AND NO CLIENT JAVASCRIPT AT ALL. Somebody signed in never sees
- * this page: `middleware.ts` sends a request for `/` that carries a session
+ * this page: `proxy.ts` sends a request for `/` that carries a session
  * cookie to `/needs`. So a visitor who gets here has no cookie, and no cookie
  * IS signed out — the cookie is the session. There is nothing to ask the API
  * and no second state to draw, which is why the pair below is plain markup

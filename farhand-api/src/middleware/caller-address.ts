@@ -105,7 +105,7 @@ export function isPrivateAddress(address: string | undefined): boolean {
  *
  * `TRUSTED_PROXY_HOPS` above governs the direct path and nothing else now.
  * Requests that come through the deployed site arrive with a chain one entry
- * longer, because `farhand-web/middleware.ts` is a fourth machine in front of
+ * longer, because `farhand-web/proxy.ts` is a fourth machine in front of
  * this one, and a count cannot be right for both lengths at once.
  *
  * Nor can it be made right by raising it. A direct caller who sends one
@@ -307,7 +307,7 @@ export function createCallerAddressCheck(): RequestHandler {
       req.vouchedCaller !== undefined
         ? `The caller's address resolved to ${String(resolved)}, which is ` +
           `private, and our own frontend vouched for it (#164): ` +
-          `farhand-web/middleware.ts is reading its own inbound chain wrongly ` +
+          `farhand-web/proxy.ts is reading its own inbound chain wrongly ` +
           `— TRUSTED_PROXY_HOPS is NOT the setting to change`
         : `The caller's address resolved to ${String(resolved)}, which is ` +
           `private: trust proxy believes ${String(TRUSTED_PROXY_HOPS)} hops ` +
