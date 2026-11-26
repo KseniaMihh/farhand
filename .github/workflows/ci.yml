@@ -146,7 +146,7 @@ jobs:
     # the process is not running as root.
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build the image and start the stack
         # --wait blocks until every service is healthy or one of them fails, so
