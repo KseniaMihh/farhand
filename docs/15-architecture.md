@@ -327,7 +327,7 @@ rule, which can be configured; it is the browser's own decision, and it is made
 before CORS is consulted.
 
 `onrender.com` and `vercel.app` are public suffixes, so every subdomain counts
-as its own site. A frontend at `farhand-web.vercel.app` calling
+as its own site. A frontend on **any** `vercel.app` subdomain calling
 `farhand-api.onrender.com` would therefore log in to a `200` and then appear
 signed out on the very next request, with nothing in either log to explain it.
 The exact mechanism varies — the browser may refuse to store the cookie or
