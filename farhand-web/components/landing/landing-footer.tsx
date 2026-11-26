@@ -21,8 +21,8 @@ export function LandingFooter() {
             {FRONT_DOOR.label}
           </Link>
           <p className="mt-3 max-w-[38ch] text-body text-muted">
-            A way to ask somebody who lives there to buy it and send it on. The
-            money stays between the two of you.
+            Peer-to-peer cross-border shopping. The money stays between the two
+            of you.
           </p>
         </div>
 
