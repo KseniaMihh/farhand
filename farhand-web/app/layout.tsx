@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Libre_Baskerville } from "next/font/google";
-import { SessionProvider } from "@/lib/session";
 import "./globals.css";
 
 /**
@@ -48,17 +47,27 @@ export const metadata: Metadata = {
  * the dark panel. Two route groups settle it — `(site)` wears the furniture,
  * `(auth)` does not — and neither changes a URL.
  *
- * What is left here is the one thing both need: the session. It wraps
- * everything because the header, the banner and a form all ask the same
- * question, and asking `GET /auth/me` once per asker would make the answer a
- * race.
+ * NEITHER IS THE SESSION, since #177. The provider wrapped everything here,
+ * which looked like generosity and was a request: it asks `GET /auth/me` on
+ * mount, so it asked on the landing page too — the one screen whose visitors
+ * are all signed out by definition, because `middleware.ts` sends anybody
+ * carrying a cookie to `/needs` before this layout ever runs. A question
+ * whose answer is already known is not a cheap question. It is a pointless
+ * one, and it was also the reason the landing page shipped client JavaScript
+ * while two documents said it shipped none.
+ *
+ * It now sits in `(site)` and `(auth)`, the two groups that read it.
+ * `(landing)` has no reader at all: its masthead is plain markup. What
+ * replaced the accidental wake-up that request was performing is in
+ * `components/landing/warm-up.tsx` and decision 0036.
+ *
+ * What is left here is what every screen genuinely shares: the document, the
+ * typeface and the stylesheet.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={serif.variable}>
-      <body>
-        <SessionProvider>{children}</SessionProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

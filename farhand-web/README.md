@@ -150,6 +150,13 @@ cookie by hand, which is a second way of talking to the API in an app whose
 one architectural decision is that there is exactly one. The full argument is
 [decision 0032](../docs/10-decisions/0032-the-session-is-read-in-the-browser.md).
 
+The provider sits in `(site)` and `(auth)` rather than above all three groups
+(#177), so crossing between those two asks again — which signing in always
+does, because `NOT_A_DESTINATION` in `lib/safe-next.ts` never sends anybody
+back to an `(auth)` page. That is one extra request per sign-in, and
+[decision 0036](../docs/10-decisions/0036-the-front-door-wakes-the-api.md) is
+what it buys.
+
 **A session has four states, and the fourth is the point.** `checking`,
 `signed-in`, `signed-out`, and `unknown` — the API did not answer. Only a
 `401` means signed out. On the free plan the API sleeps after fifteen quiet
@@ -227,9 +234,11 @@ Three route groups, none of which changes a URL. `(site)` wears the product
 header and the banner; `(auth)` is the split screen, with the wordmark inside
 the dark panel, because the account screens have no header in the design;
 `(landing)` is the front door, with a marketing masthead and footer of its
-own. The session provider sits in the root layout, above all three, so the
-header, the banner and a form all read one answer rather than racing for
-three.
+own. The session provider sits in `(site)` and `(auth)` — one per group that
+reads it, so the header, the banner and a form all read one answer rather
+than racing for three. It was above all three until #177, which meant the
+landing page asked `GET /auth/me` on every visit to learn something
+`middleware.ts` had already decided; `(landing)` reads no session at all.
 
 **`/` is the landing page and `/needs` is the list** (#168). Browse was the
 root until the front door needed it — two route groups cannot both own `/` —
@@ -240,10 +249,20 @@ sign-out go to `/`; `HOME` in `lib/safe-next.ts`, where you land after signing
 in, is `/needs`, because somebody who has just signed in has decided what this
 is.
 
-The landing page is **a static server component with no client JavaScript of
-its own** — it fetches nothing, so it is prerendered at build time and appears
-whether or not Render's free instance is awake. That is the point of it: it is
-the first thing a stranger sees.
+The landing page is **a static server component**: every section is markup, so
+it is prerendered at build time and appears whether or not Render's free
+instance is awake. That is the point of it — it is the first thing a stranger
+sees, and nothing drawn on it waits for the API.
+
+It does ship **one client component, which draws nothing**.
+`components/landing/warm-up.tsx` asks `GET /health/ready` on mount and throws
+the answer away, so the API is awake by the time somebody clicks through to a
+screen that needs it. It renders `null`, so the prerendered HTML is unchanged.
+Before #177 this page shipped client JavaScript too and this file said it
+shipped none: the session provider wrapped it from the root layout and woke
+the API by accident. [Decision
+0036](../docs/10-decisions/0036-the-front-door-wakes-the-api.md) is the
+argument, including why it fires on mount rather than on hover.
 
 **It is also only for people who are not signed in** (#170). `middleware.ts`
 redirects a request for `/` that carries a session cookie to `/needs`:
